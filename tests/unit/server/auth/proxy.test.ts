@@ -1,5 +1,12 @@
-import { afterEach, expect, it, vi } from "vitest";
-const mocks = vi.hoisted(() => ({ post: vi.fn(), owner: vi.fn() }));
+import { afterEach, beforeEach, expect, it, vi } from "vitest";
+
+const mocks = vi.hoisted(() => ({
+  post: vi.fn(),
+  owner: vi.fn(),
+  consumeAuthLimit: vi.fn(),
+  recordEvent: vi.fn(),
+}));
+
 vi.mock("@/features/auth/recovery/service", () => ({
   recoverPassword: vi.fn(),
 }));
@@ -7,11 +14,23 @@ vi.mock("@/server/auth/server", () => ({
   getAuth: () => ({ handler: () => ({ POST: mocks.post }) }),
 }));
 vi.mock("@/server/auth/owner", () => ({ isOwner: mocks.owner }));
+vi.mock("@/server/security/auth-security", () => ({
+  consumeAuthLimit: mocks.consumeAuthLimit,
+  safeRecordAuthSecurityEvent: mocks.recordEvent,
+}));
+
 import { GET, POST } from "../../../../src/app/api/auth/[...path]/route";
+
+beforeEach(() => {
+  mocks.consumeAuthLimit.mockResolvedValue(0);
+  mocks.recordEvent.mockResolvedValue(undefined);
+});
+
 afterEach(() => {
   vi.unstubAllEnvs();
   vi.clearAllMocks();
 });
+
 it("blocks public registration", async () => {
   expect(
     (
@@ -24,6 +43,7 @@ it("blocks public registration", async () => {
   ).toBe(404);
   expect(mocks.post).not.toHaveBeenCalled();
 });
+
 it("denies a foreign origin", async () => {
   vi.stubEnv("APP_ORIGIN", "http://localhost:3000");
   expect(
@@ -37,6 +57,7 @@ it("denies a foreign origin", async () => {
     ).status,
   ).toBe(403);
 });
+
 it("returns only session authority, with private no-store headers", async () => {
   mocks.owner.mockResolvedValue(false);
   const response = await GET(
@@ -45,6 +66,7 @@ it("returns only session authority, with private no-store headers", async () => 
   expect(await response.json()).toEqual({ authenticated: false });
   expect(response.headers.get("cache-control")).toBe("private, no-store");
 });
+
 it("strips provider tokens while retaining session cookies", async () => {
   vi.stubEnv("APP_ORIGIN", "http://localhost:3000");
   vi.stubEnv("OWNER_USER_ID", "owner");
@@ -64,7 +86,24 @@ it("strips provider tokens while retaining session cookies", async () => {
   );
   expect(await response.json()).toEqual({ success: true });
   expect(response.headers.get("set-cookie")).toContain("HttpOnly");
+  expect(mocks.recordEvent).toHaveBeenCalledWith("owner", "LOGIN_SUCCEEDED");
 });
+
+it("enforces database login throttling before calling upstream Auth", async () => {
+  vi.stubEnv("APP_ORIGIN", "http://localhost:3000");
+  vi.stubEnv("OWNER_USER_ID", "owner");
+  mocks.consumeAuthLimit.mockResolvedValueOnce(0).mockResolvedValueOnce(180);
+  const response = await POST(
+    new Request("http://localhost/api/auth/sign-in/email", {
+      method: "POST",
+      headers: { origin: "http://localhost:3000" },
+    }),
+  );
+  expect(response.status).toBe(429);
+  expect(response.headers.get("retry-after")).toBe("180");
+  expect(mocks.post).not.toHaveBeenCalled();
+});
+
 it("maps upstream credential failures to 401 without leaking provider bodies", async () => {
   vi.stubEnv("APP_ORIGIN", "http://localhost:3000");
   vi.stubEnv("OWNER_USER_ID", "owner");
@@ -79,7 +118,9 @@ it("maps upstream credential failures to 401 without leaking provider bodies", a
   );
   expect(response.status).toBe(401);
   expect(await response.json()).toEqual({ success: false });
+  expect(mocks.recordEvent).toHaveBeenCalledWith("owner", "LOGIN_FAILED");
 });
+
 it("forwards 429 throttling with Retry-After header", async () => {
   vi.stubEnv("APP_ORIGIN", "http://localhost:3000");
   vi.stubEnv("OWNER_USER_ID", "owner");
@@ -101,6 +142,7 @@ it("forwards 429 throttling with Retry-After header", async () => {
     error: "Too many attempts. Try again shortly.",
   });
 });
+
 it("returns 503 when upstream auth fails with 5xx or throws", async () => {
   vi.stubEnv("APP_ORIGIN", "http://localhost:3000");
   vi.stubEnv("OWNER_USER_ID", "owner");
@@ -130,6 +172,7 @@ it("returns 503 when upstream auth fails with 5xx or throws", async () => {
     error: "Authentication unavailable",
   });
 });
+
 it("proxies sign-out with private no-store headers and cookies", async () => {
   vi.stubEnv("APP_ORIGIN", "http://localhost:3000");
   vi.stubEnv("OWNER_USER_ID", "owner");
@@ -156,4 +199,5 @@ it("proxies sign-out with private no-store headers and cookies", async () => {
   const forwarded = mocks.post.mock.calls[0]?.[0] as Request;
   expect(forwarded.headers.get("content-type")).toBe("application/json");
   expect(await forwarded.text()).toBe("{}");
+  expect(mocks.recordEvent).toHaveBeenCalledWith("owner", "LOGOUT");
 });

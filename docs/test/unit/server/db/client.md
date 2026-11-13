@@ -1,10 +1,10 @@
 # Database client lifecycle
 
 - Status: PASS
-- Last run: 2026-11-13 16:55:34 (UTC+8)
+- Last run: 2026-11-13 22:15:45 (UTC+8)
 - Environment: Windows, Node 24.20.0, pnpm 12.18.0, Vitest 5.1.0
 - Command: pnpm test:unit
-- Result: 3 passed (201ms), 0 failed, 0 skipped; full suite 44 passed across 10 files in 509 ms.
+- Result: 3 passed (285 ms), 0 failed, 0 skipped; full suite 66 passed across 17 files in 996 ms.
 
 ## Verified cases
 
@@ -48,3 +48,7 @@
 
 ### Sign-out JSON payload fix verification run
 - 2026-11-13 16:55:34 (UTC+8): pnpm test:unit passed after normalizing POST `/api/auth/sign-out` to `Content-Type: application/json` `{}`; 3 passed here (201 ms), suite 44 passed, 0 failed/skipped across 10 files in 509 ms. Existing test criteria unchanged.
+
+
+### Development HMR schema-tag invalidation verification run
+- 2026-11-13 22:15:45 (UTC+8): pnpm test:unit passed after adding `PRISMA_CLIENT_SCHEMA_TAG` check in `src/server/db/client.ts`; 3 passed here (285 ms), suite 66 passed across 17 files in 996 ms. Existing test criteria unchanged.

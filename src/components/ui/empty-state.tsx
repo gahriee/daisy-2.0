@@ -2,15 +2,15 @@ import type { ComponentProps } from "react";
 import { cn } from "@/lib/cn";
 
 /**
- * Quiet, solid-surface empty-state container with balanced typography and an
- * unembellished icon frame instead of dashed borders or floating gradients.
+ * Quiet, solid-surface empty-state container with centered illustration/icon,
+ * balanced typography, and recovery actions.
  */
 export function EmptyState({ className, ...props }: ComponentProps<"section">) {
   return (
     <section
       {...props}
       className={cn(
-        "grid min-w-0 gap-5 rounded-panel border border-border bg-surface p-6 sm:p-8",
+        "grid min-w-0 items-center justify-items-center gap-5 rounded-panel border border-border bg-surface px-6 py-10 text-center sm:px-8 sm:py-12",
         className,
       )}
     />
@@ -35,7 +35,7 @@ export function EmptyStateTitle({ className, ...props }: ComponentProps<"h2">) {
     <h2
       {...props}
       className={cn(
-        "text-xl font-semibold tracking-tight text-foreground sm:text-2xl",
+        "mx-auto text-xl font-semibold tracking-tight text-foreground sm:text-2xl",
         className,
       )}
     />
@@ -50,7 +50,7 @@ export function EmptyStateDescription({
     <p
       {...props}
       className={cn(
-        "max-w-prose text-base leading-6 text-muted-foreground",
+        "mx-auto max-w-prose text-base leading-6 text-muted-foreground",
         className,
       )}
     />
@@ -64,7 +64,10 @@ export function EmptyStateActions({
   return (
     <div
       {...props}
-      className={cn("flex flex-wrap items-center gap-3", className)}
+      className={cn(
+        "flex flex-wrap items-center justify-center gap-3",
+        className,
+      )}
     />
   );
 }

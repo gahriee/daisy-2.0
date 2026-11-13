@@ -97,6 +97,7 @@ export function DaisyBrand({
 
   const baseClass = cn(
     "inline-flex items-center rounded-control",
+    !showWordmark && "justify-center",
     showIcon && showWordmark && "gap-2.5",
     asLink &&
       "min-h-11 min-w-11 transition-colors duration-(--duration-control) ease-(--ease-control)",

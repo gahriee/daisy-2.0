@@ -129,3 +129,10 @@
 - `pnpm typecheck` and `pnpm lint`: PASS.
 - `pnpm test:unit`: PASS; 44 passed, 0 failed, 0 skipped across 10 files in 509 ms (including `proxy.test.ts` verifying JSON `{}` sign-out forwarding).
 - `pnpm build` (`next build --webpack`): PASS; compiled in 3.2 s, TypeScript in 4.6 s, 8/8 static pages in 1292 ms. Live browser sign-out retry pending Owner verification.
+
+### Dev branch isolation and service check: 2026-11-13 18:19 (UTC+8)
+- Runtime: Windows, Node 24.20.0, pnpm 12.18.0, Neon CLI 9.4.0, Prisma 7.10.1.
+- Branch setup: linked project `noisy-lake-58735341` (`Daisy`), created normal branch `dev` (`br-rough-night-b3uph0d4`, TTL `2026-11-20T10:18:15Z` from `neon.ts`) and pulled branch-scoped Postgres, Auth, and private `assets` storage variables into `.env.local` (preserving `OWNER_USER_ID`, `NEON_AUTH_COOKIE_SECRET`, and `APP_ORIGIN`). Created schema-only branch `test-integration` (`br-broad-river-b30q4qrw`, TTL `2026-11-20T10:20:00Z`) and configured `TEST_DATABASE_URL` in `.env.test.local`.
+- `pnpm db:check`: PASS; connected to `ep-patient-water-b3l8d4za-pooler.c-4.ap-southeast-1.aws.neon.tech`, database `neondb`, timezone `GMT`.
+- `pnpm exec prisma migrate status`: PASS; 1 migration found (`20261113060000_recovery_security`), database schema up to date.
+- `pnpm check:neon`: PASS; `dev` Neon Auth anonymous session endpoint, private `assets` upload/signed download/exact content/anonymous denial, and temporary probe deletion verified.

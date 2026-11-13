@@ -21,11 +21,10 @@ pnpm db:generate
 ```
 
 Copy `.env.example` to `.env.local`. In Neon select a development branch, put its
-pooled connection in `DATABASE_URL` and its direct connection in `DIRECT_URL`.
-Use production credentials locally only for an explicitly authorized operation.
-This checkout is currently linked to the Owner-selected **production** branch;
-switch to a development branch before ordinary development. `TEST_DATABASE_URL`
-is a separate opt-in test connection. Keep secrets in ignored files.
+pooled connection in `DATABASE_URL` and its direct connection in `DIRECT_URL` (or `DATABASE_URL_UNPOOLED`).
+Use production credentials locally only for an explicitly authorized operation;
+local development targets the non-production `dev` branch and `TEST_DATABASE_URL`
+is a separate opt-in test connection (`test-integration` schema-only branch). Keep secrets in ignored files.
 
 ```sh
 pnpm db:validate
@@ -36,9 +35,7 @@ pnpm dev
 The connection check is read-only and reports host, database and UTC status.
 Prisma CLI loads `.env.local` and prefers `DIRECT_URL`, then Neon's
 `DATABASE_URL_UNPOOLED`; runtime uses pooled
-`DATABASE_URL` through the Neon adapter. Generation and validation need no
-credentials. The schema has no business models; its initial migration adds only recovery security records. Regenerate
-Prisma Client after schema changes. Open http://localhost:3000 after starting dev.
+`DATABASE_URL` through the Neon adapter. Generation and validation need no credentials. Migrations are active on `dev` and `test-integration`; regenerate Prisma Client after schema changes. Open http://localhost:3000 after starting dev.
 
 Neon CLI `neon deploy` provisions the services declared in `neon.ts` and pulls
 branch credentials into `.env.local`. Deployment requires explicit authorization.

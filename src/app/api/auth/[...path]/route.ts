@@ -1,5 +1,9 @@
 import { getAuth } from "@/server/auth/server";
 import { isOwner } from "@/server/auth/owner";
+import {
+  consumeAuthLimit,
+  safeRecordAuthSecurityEvent,
+} from "@/server/security/auth-security";
 import { recoverPassword } from "@/features/auth/recovery/service";
 
 const headers = {
@@ -36,13 +40,37 @@ export async function POST(request: Request): Promise<Response> {
   ) {
     return Response.json({ error: "Forbidden" }, { status: 403, headers });
   }
-  if (!process.env.OWNER_USER_ID) {
+  const ownerId = process.env.OWNER_USER_ID;
+  if (!ownerId) {
     return Response.json(
       { error: "Owner setup required" },
       { status: 503, headers },
     );
   }
   try {
+    if (path === "/api/auth/sign-in/email") {
+      const probeRetry = await consumeAuthLimit(ownerId, "login-probe");
+      if (probeRetry > 0) {
+        return Response.json(
+          { error: "Too many attempts. Try again shortly." },
+          {
+            status: 429,
+            headers: { ...headers, "Retry-After": String(probeRetry) },
+          },
+        );
+      }
+      const loginRetry = await consumeAuthLimit(ownerId, "login");
+      if (loginRetry > 0) {
+        return Response.json(
+          { error: "Too many attempts. Try again shortly." },
+          {
+            status: 429,
+            headers: { ...headers, "Retry-After": String(loginRetry) },
+          },
+        );
+      }
+    }
+
     let forwardRequest = request;
     if (path === "/api/auth/sign-out") {
       // Upstream Better Auth rejects empty non-JSON POST /sign-out requests with 415.
@@ -67,6 +95,9 @@ export async function POST(request: Request): Promise<Response> {
     for (const cookie of upstream.headers.getSetCookie())
       output.append("Set-Cookie", cookie);
     if (upstream.status === 429) {
+      if (path === "/api/auth/sign-in/email") {
+        await safeRecordAuthSecurityEvent(ownerId, "LOGIN_FAILED");
+      }
       const retryAfter = upstream.headers.get("retry-after");
       if (retryAfter) output.set("Retry-After", retryAfter);
       return Response.json(
@@ -79,6 +110,14 @@ export async function POST(request: Request): Promise<Response> {
         { error: "Authentication unavailable" },
         { status: 503, headers: output },
       );
+    }
+    if (path === "/api/auth/sign-in/email") {
+      await safeRecordAuthSecurityEvent(
+        ownerId,
+        upstream.ok ? "LOGIN_SUCCEEDED" : "LOGIN_FAILED",
+      );
+    } else if (path === "/api/auth/sign-out" && upstream.ok) {
+      await safeRecordAuthSecurityEvent(ownerId, "LOGOUT");
     }
     return Response.json(
       { success: upstream.ok },

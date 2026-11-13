@@ -11,10 +11,10 @@ type ControlProps = {
 type FieldProps = {
   id: string;
   label: string;
-  description?: string;
-  error?: string;
-  required?: boolean;
-  className?: string;
+  description?: string | undefined;
+  error?: string | undefined;
+  required?: boolean | undefined;
+  className?: string | undefined;
   children: (props: ControlProps) => ReactNode;
 };
 

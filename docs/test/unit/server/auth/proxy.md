@@ -1,12 +1,12 @@
 # Restricted auth proxy
 
 - Status: PASS
-- Last run: 2026-11-13 16:55:34 (UTC+8)
+- Last run: 2026-11-13 18:30:47 (UTC+8)
 - Runtime: Windows, Node 24.20.0, pnpm 12.18.0, Vitest 5.1.0
 - Command: pnpm test:unit
-- Result: 8 passed here (58ms); suite 44 passed, 0 failed, 0 skipped across 10 files; 509 ms total suite.
-- Scope: 8 tests: registration denied, foreign origin rejected, private session projection, tokens omitted with cookies preserved, upstream 401 credential redaction, 429 throttling with forwarded Retry-After, 503 mapping for upstream 5xx/thrown errors, and sign-out JSON `{}` normalization with cookie clearing.
-- External providers are mocked; live checks are recorded separately.
+- Result: 9 passed here (83ms); suite 55 passed, 0 failed, 0 skipped across 13 files; 1.06 s total suite.
+- Scope: 9 tests: registration denied, foreign origin rejected, private session projection, tokens omitted with cookies preserved, upstream 401 credential redaction, 429 throttling with forwarded Retry-After, 503 mapping for upstream 5xx/thrown errors, sign-out JSON `{}` normalization with cookie clearing, and DB-backed login rate-limit rejection (429 + `Retry-After`) and `LOGIN_SUCCEEDED` / `LOGIN_FAILED` / `LOGOUT` security event recording.
+- External providers and database/auth rate-limit helpers are mocked; live checks are recorded separately.
 
 ## Run History
 
@@ -22,6 +22,7 @@
 | 2026-11-13 16:43:20 | 8 passed | 491 ms (suite) |
 | 2026-11-13 16:50:09 | 8 passed | 484 ms (suite) |
 | 2026-11-13 16:55:34 | 8 passed | 509 ms (suite) |
+| 2026-11-13 18:30:47 | 9 passed | 1.06 s (suite) |
 
 ### Formatting verification run
 - 2026-11-13 13:53:50 (UTC+8): pnpm test:unit passed after Prettier formatting; 25 passed, 0 failed/skipped across 7 files, 618 ms. Existing test criteria unchanged.

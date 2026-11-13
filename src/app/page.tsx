@@ -12,6 +12,7 @@ import {
   EmptyStateTitle,
 } from "@/components/ui/empty-state";
 import { isOwner } from "@/server/auth/owner";
+import { getOwnerWorkspaceProfile } from "@/server/auth/workspace-profile";
 
 // Dashboard inspects fresh request authority and must not enter prerender caches.
 export const instant = false;
@@ -46,12 +47,15 @@ export default async function Home() {
     authenticated = false;
   }
 
-  if (!authenticated) {
+  const ownerUserId = process.env.OWNER_USER_ID;
+  if (!authenticated || !ownerUserId) {
     redirect("/auth/sign-in");
   }
 
+  const profile = await getOwnerWorkspaceProfile(ownerUserId);
+
   return (
-    <WorkspaceShell title="Dashboard">
+    <WorkspaceShell title="Dashboard" profile={profile}>
       <section aria-labelledby="overview-heading" className="grid gap-1.5">
         <h1
           id="overview-heading"

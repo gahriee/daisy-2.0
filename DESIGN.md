@@ -160,8 +160,9 @@ native checkbox. Textarea starts at 112 px high and remains vertically resizable
 
 Support a 360 px viewport without horizontal page overflow. `Sidebar` (`256 px`
 persistent rail on `lg+` and slide-over drawer on mobile) paired with `Topbar`
-(`64 px` opaque hairline bar) establishes the workspace shell in
-`src/components/layout/`, while primitives shrink cleanly within page grids.
+(`64 px` opaque hairline bar) establishes a full-width flexible content canvas
+in `src/components/layout/` with compact edge padding (`16–24 px`) and no
+narrow center cap, while primitives shrink cleanly within page grids.
 
 ## Elevation & Depth
 
@@ -209,19 +210,46 @@ native checkbox appearance and system highlights.
   aligned. Uses `role="status"` by default.
 - **Card:** `default` (white hairline), `tonal` (`surface-muted`), and `open`
   variants, plus opt-in `interactive` hover lift, with no data access or routing.
+- **MetricCard:** KPI summary card built on `Card` (`min-h-[152px]`) pairing a
+  label and unboxed top-right icon with a vertically centered `tabular-nums`
+  value and concise factual description below.
+- **Dialog:** accessible modal surface (`role="dialog"`, `aria-modal="true"`) with
+  `Escape` and backdrop dismissal (suppressible via `dismissDisabled` during pending
+  saves), initial focus and return-focus restoration, and a `rounded-panel` hairline
+  header/body layout sized cleanly for `360 px` and desktop viewports.
 - **Separator:** crisp `1 px` `horizontal` rule or `vertical` divider using the
   quiet border token.
 - **Skeleton:** static, muted hairline placeholder hidden from assistive
   technology (`aria-hidden="true"`). Consuming regions supply visible status.
-- **Sidebar and Topbar:** persistent `256 px` white navigation rail (`Sidebar`)
-  with mobile slide-over drawer (`Escape` and backdrop dismiss) aligned to a
-  `64 px` sticky opaque `Topbar` by matching `1 px` hairline dividers. Active
-  links mark selection with a crisp `2 px` Rausch left rail over `surface-muted`
-  inside `44 px` touch targets; section labels use sentence-case `13 px` medium
-  text without tracked capitals.
-- **EmptyState:** quiet solid-surface hairline panel with a `40 px` square
-  icon frame (`surface-muted`), factual copy, and primary/secondary actions—no
-  dashed outlines, floating gradient orbs, or invented placeholder metrics.
+- **Sidebar and Topbar:** sticky `256 px` white navigation rail (`Sidebar`,
+  `lg:sticky lg:top-0 lg:h-svh`) with direct primary links (`Dashboard`,
+  `Rooms & beds`, `Tenants`, `Audit log`), a bottom-mounted desktop rail collapse
+  toggle (`76 px` icon rail paired with live `Asia/Manila` date and time), and a
+  full-width mobile slide-over drawer (`Escape` and backdrop dismiss).
+  `SidebarNavDisclosure` renders a full-row clickable collapsible trigger over a
+  `44 px` touch target with a `2 px` Rausch active rail and indented sub-links.
+  The `64 px` sticky opaque `Topbar` pairs section breadcrumbs
+  (`Settings > [module]`, `Rooms & beds > Room types`, `Tenants > Tenant profile`) with real Owner
+  notification alerts and the Owner profile & name menu (containing Settings
+  shortcuts and sign-out).
+- **Tabs (`Tabs`, `TabsList`, `TabsTrigger`, `TabsContent`):** WAI-ARIA `tablist`
+  supporting arrow/Home/End keyboard switching, `44 px` touch targets, tabular
+  badge counts, and `underline` (2 px Rausch active bar) or `segmented` (stone
+  track with elevated white active surface) variants.
+- **Table (`Table`, `TableHeader`, `TableBody`, `TableRow`, `TableHead`, `TableCell`):**
+  hairline-bordered horizontal scroll container preserving 360 px viewports with
+  quiet row hover states and opt-in `numeric` `tabular-nums` alignment.
+- **SearchFilter (`SearchFilterBar`, `SearchFilterInput`, `SearchFilterChips`):**
+  dynamic filtering bar without submit buttons, pairing a border-only-on-focus
+  search box (`44 px` inline clear trigger), live result status, and accessible
+  `aria-pressed` filter chips.
+- **EmptyState & empty-table vectors:** quiet solid-surface hairline panel
+  with always-centered artwork/icon, factual copy, and recovery actions—no dashed outlines
+  or floating gradient orbs. Recolored unDraw vectors ([document-search.svg](public/illustrations/document-search.svg),
+  [sweet-home.svg](public/illustrations/sweet-home.svg),
+  [adjust-settings.svg](public/illustrations/adjust-settings.svg)) render inside
+  data views only when tables are empty or search/filter queries return zero
+  matches, keeping active headers, forms, and populated tables vector-free.
 - **Brand mark (`DaisyMark`, `DaisyBrand` & `/brand/*.png`, `/brand/*.svg`):** crisp 5-petal
   architectural stencil framing an open circular courtyard (`32×32` vector mark
   and `#e00b41` rounded app icon `icon.svg`). `DaisyBrand` exposes `show`
