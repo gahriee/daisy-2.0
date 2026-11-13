@@ -58,7 +58,12 @@ if (!email || !password || !origin || !process.env.OWNER_USER_ID) {
       if (cookies) {
         const logout = await fetch(`${base}/api/auth/sign-out`, {
           method: "POST",
-          headers: { origin, cookie: cookies },
+          headers: {
+            "Content-Type": "application/json",
+            origin,
+            cookie: cookies,
+          },
+          body: "{}",
         });
         assert.equal(logout.status, 200);
         const stale = await fetch(`${base}/api/system/status`, {

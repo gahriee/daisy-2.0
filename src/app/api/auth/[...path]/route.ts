@@ -43,9 +43,21 @@ export async function POST(request: Request): Promise<Response> {
     );
   }
   try {
+    let forwardRequest = request;
+    if (path === "/api/auth/sign-out") {
+      // Upstream Better Auth rejects empty non-JSON POST /sign-out requests with 415.
+      const forwardHeaders = new Headers(request.headers);
+      forwardHeaders.set("Content-Type", "application/json");
+      const rawBody = await request.text().catch(() => "");
+      forwardRequest = new Request(request.url, {
+        method: "POST",
+        headers: forwardHeaders,
+        body: rawBody.trim() ? rawBody : "{}",
+      });
+    }
     const upstream = await getAuth()
       .handler()
-      .POST(request, {
+      .POST(forwardRequest, {
         params: Promise.resolve({
           path: path.replace("/api/auth/", "").split("/"),
         }),
@@ -54,6 +66,20 @@ export async function POST(request: Request): Promise<Response> {
     const output = new Headers(headers);
     for (const cookie of upstream.headers.getSetCookie())
       output.append("Set-Cookie", cookie);
+    if (upstream.status === 429) {
+      const retryAfter = upstream.headers.get("retry-after");
+      if (retryAfter) output.set("Retry-After", retryAfter);
+      return Response.json(
+        { error: "Too many attempts. Try again shortly." },
+        { status: 429, headers: output },
+      );
+    }
+    if (upstream.status >= 500) {
+      return Response.json(
+        { error: "Authentication unavailable" },
+        { status: 503, headers: output },
+      );
+    }
     return Response.json(
       { success: upstream.ok },
       { status: upstream.ok ? 200 : 401, headers: output },

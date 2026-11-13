@@ -2,7 +2,7 @@
 
 Single-Owner boarding house and transient management system. This checkout has
 Next.js starter UI and live Neon database, Auth and private storage foundations.
-Business features, login UI, encrypted offline persistence and PWA delivery remain planned.
+Business features, broader login security controls, encrypted offline persistence and PWA delivery remain planned.
 
 The selected stack uses Next.js, React, TypeScript, Tailwind CSS, Prisma and
 Dexie, with Neon for PostgreSQL, managed Better Auth and private Object Storage.
@@ -85,11 +85,11 @@ See [package.json](package.json) for scripts and [architecture](docs/architectur
 for the target design. UI/device verification belongs to the Owner.
 No push, deployment, migration or seed runs automatically.
 
-The Garden Ledger design system is documented in [DESIGN.md](DESIGN.md), with
+The Rausch and charcoal design system is documented in [DESIGN.md](DESIGN.md), with
 product scope in [PRODUCT.md](PRODUCT.md). Shared native primitives live in
 src/components/ui; /design-system is a public, non-business component reference.
 
-Password recovery is available at `/auth/reset-password`: request an emailed code,
+Owner sign-in is available at `/auth/sign-in`, and password recovery is available at `/auth/reset-password`: request an emailed code,
 then enter the code and a matching 12–128 character password. Use the existing
 Owner account's real, accessible email. Codes work with Neon's shared development
 sender; configure custom SMTP before production launch. No recovery secrets go

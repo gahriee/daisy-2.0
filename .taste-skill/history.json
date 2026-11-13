@@ -1,0 +1,14 @@
+{
+  "palettes": [
+    "airbnb-brand",
+    "cool-white-slate"
+  ],
+  "types": [
+    "host"
+  ],
+  "dealt": [
+    "host",
+    "familjen",
+    "manrope"
+  ]
+}

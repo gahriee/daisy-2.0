@@ -1,7 +1,5 @@
 # Product
 
-<!-- impeccable:product-schema 1 -->
-
 ## Platform
 
 web
@@ -28,14 +26,15 @@ Dates follow Asia/Manila and amounts are Philippine pesos with exact decimals.
 The [architecture](docs/architecture/architecture.md) defines target behavior and
 offline scope. The current checkout is a foundation, not a completed operational
 system. Authentication, Neon PostgreSQL and private storage foundations exist;
-Owner email-code password recovery is implemented at `/auth/reset-password`; the security migration and provider settings are active on the selected production branch. Live email delivery remains to be verified by the Owner. Business workflows, login UI and offline delivery remain planned. No staff accounts or
+Owner sign-in is implemented at `/auth/sign-in` and email-code password recovery is implemented at `/auth/reset-password`; the security migration and provider settings are active on the selected production branch. Live sign-in and email delivery remain to be verified by the Owner. Business workflows, broader login security controls and offline delivery remain planned. No staff accounts or
 public sign-up. Public requests require Owner approval before confirmation.
 
 ## Brand Commitments
 
-The name is Daisy. The Owner selected Garden Ledger: forest and linen, with
-existing Geist typography. Visual tokens and component conventions live in
-[DESIGN.md](DESIGN.md), grounded in the global stylesheet.
+The name is Daisy. The design system pairs Airbnb-inspired brand tokens (Rausch
+crimson actions on warm charcoal and soft stone neutral surfaces) with Taste Skill
+`Host Grotesk` and `JetBrains Mono` typography. Visual tokens and component
+in [the global stylesheet](src/app/globals.css).
 
 ## Product Principles
 

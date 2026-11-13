@@ -2,16 +2,19 @@
 
 import { useRef, useState, type FormEvent } from "react";
 import Link from "next/link";
+import { PasswordVisibilityButton } from "@/components/features/auth/password-visibility-button";
 import { Alert } from "@/components/ui/alert";
-import { Button } from "@/components/ui/button";
+import { Button, buttonClasses } from "@/components/ui/button";
 import { Field } from "@/components/ui/field";
 import { Input } from "@/components/ui/input";
+import { Separator } from "@/components/ui/separator";
 import {
   requestCodeSchema,
   resetPasswordSchema,
 } from "@/features/auth/recovery/schemas";
 
 type Stage = "request" | "reset" | "complete";
+
 export function ResetPasswordForm() {
   const [stage, setStage] = useState<Stage>("request");
   const [email, setEmail] = useState("");
@@ -21,6 +24,8 @@ export function ResetPasswordForm() {
   const [retryAfter, setRetryAfter] = useState(0);
   const [confirmationError, setConfirmationError] = useState("");
   const [codeError, setCodeError] = useState("");
+  const [showPassword, setShowPassword] = useState(false);
+  const [showConfirmation, setShowConfirmation] = useState(false);
   const feedback = useRef<HTMLDivElement>(null);
   const code = useRef<HTMLInputElement>(null);
 
@@ -94,6 +99,8 @@ export function ResetPasswordForm() {
       if (stage === "request") {
         setEmail(enteredEmail);
         setStage("reset");
+        setShowPassword(false);
+        setShowConfirmation(false);
         setMessage(
           "If this is the Owner’s email, a code is on its way. Check your inbox and spam folder.",
         );
@@ -101,6 +108,8 @@ export function ResetPasswordForm() {
       } else {
         form.reset();
         setEmail("");
+        setShowPassword(false);
+        setShowConfirmation(false);
         setStage("complete");
         requestAnimationFrame(() => feedback.current?.focus());
       }
@@ -116,168 +125,220 @@ export function ResetPasswordForm() {
     }
   }
 
-  if (stage === "complete")
-    return (
-      <div className="grid gap-6">
-        <div
-          ref={feedback}
-          tabIndex={-1}
-          className="rounded-control focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-focus"
-        >
-          <Alert tone="success">
-            Your password was updated. Use your new password the next time you
-            sign in.
-          </Alert>
-        </div>
-        <p className="text-sm leading-6 text-muted-foreground">
-          This page has cleared your email, code and password. Close it when
-          you’re finished.
-        </p>
-        <Link
-          href="/"
-          className="inline-flex min-h-11 items-center font-medium text-primary underline"
-        >
-          Return to Daisy
-        </Link>
-      </div>
-    );
-
   return (
-    <form
-      method="post"
-      action="/auth/reset-password"
-      onSubmit={submit}
-      className="grid gap-6"
-    >
-      <div
-        ref={feedback}
-        tabIndex={-1}
-        className="grid gap-3 rounded-control focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-focus"
-      >
-        <div aria-live="polite">{message && <Alert>{message}</Alert>}</div>
-        <div role="alert">
-          {error && (
-            <Alert role="presentation" tone="danger">
-              {error}
-              {retryAfter > 0 && (
-                <span className="block">
-                  Wait at least {Math.ceil(retryAfter / 60)} minute(s) before
-                  trying again.
-                </span>
-              )}
-            </Alert>
-          )}
-        </div>
+    <div className="grid gap-6">
+      <div className="grid gap-2">
+        <h1 className="text-[28px] leading-8 font-semibold tracking-tight text-foreground">
+          {stage === "complete"
+            ? "Password updated"
+            : stage === "reset"
+              ? "Enter email code"
+              : "Reset your password"}
+        </h1>
+        <p className="text-sm leading-6 text-muted-foreground">
+          {stage === "complete"
+            ? "Your password is updated. Use it next time you sign in."
+            : stage === "reset"
+              ? `Enter the code sent to ${email} and choose a new 12–128 character password.`
+              : "Enter your email and we’ll send a one-time code to set a new password."}
+        </p>
       </div>
-      {stage === "request" ? (
-        <Field
-          id="recovery-email"
-          label="Owner email"
-          required
-          description="Use the email address on your existing Owner account."
-        >
-          {(control) => (
-            <Input
-              {...control}
-              name="email"
-              type="email"
-              autoComplete="email"
-              maxLength={254}
-              defaultValue={email}
-              disabled={busy}
-            />
-          )}
-        </Field>
+
+      {stage === "complete" ? (
+        <div className="grid gap-5">
+          <div
+            ref={feedback}
+            tabIndex={-1}
+            className="rounded-control focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-focus"
+          >
+            <Alert tone="success">
+              Your password was updated. Use your new password the next time you
+              sign in.
+            </Alert>
+          </div>
+          <Link
+            href="/auth/sign-in"
+            className={buttonClasses({ className: "w-full" })}
+          >
+            Return to sign in
+          </Link>
+        </div>
       ) : (
         <>
-          <p className="break-words text-sm text-muted-foreground">
-            Code requested for{" "}
-            <span className="font-medium text-foreground">{email}</span>
+          <form
+            method="post"
+            action="/auth/reset-password"
+            noValidate
+            onSubmit={submit}
+            className="grid gap-5"
+          >
+            <div
+              ref={feedback}
+              tabIndex={-1}
+              className="grid gap-3 rounded-control empty:hidden focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-focus"
+            >
+              <div aria-live="polite" className="empty:hidden">
+                {message && <Alert>{message}</Alert>}
+              </div>
+              <div role="alert" className="empty:hidden">
+                {error && (
+                  <Alert role="presentation" tone="danger">
+                    {error}
+                    {retryAfter > 0 && (
+                      <span className="mt-1 block tabular-nums">
+                        Wait at least {Math.ceil(retryAfter / 60)} minute(s)
+                        before trying again.
+                      </span>
+                    )}
+                  </Alert>
+                )}
+              </div>
+            </div>
+
+            {stage === "request" ? (
+              <Field
+                id="recovery-email"
+                label="Email"
+                required
+                description="We’ll send a one-time reset code to this address."
+              >
+                {(control) => (
+                  <Input
+                    {...control}
+                    name="email"
+                    type="email"
+                    inputMode="email"
+                    autoComplete="email"
+                    placeholder="you@example.com"
+                    maxLength={254}
+                    defaultValue={email}
+                    disabled={busy}
+                  />
+                )}
+              </Field>
+            ) : (
+              <>
+                <Field
+                  id="recovery-code"
+                  {...(codeError ? { error: codeError } : {})}
+                  label="Email code"
+                  required
+                  description="Enter the code from your latest email. Codes expire and work once."
+                >
+                  {(control) => (
+                    <Input
+                      {...control}
+                      ref={code}
+                      name="otp"
+                      inputMode="numeric"
+                      autoComplete="one-time-code"
+                      pattern="[0-9]{6,10}"
+                      minLength={6}
+                      maxLength={10}
+                      disabled={busy}
+                    />
+                  )}
+                </Field>
+
+                <Field
+                  id="recovery-password"
+                  label="New password"
+                  required
+                  description="Use 12–128 characters."
+                >
+                  {(control) => (
+                    <div className="relative">
+                      <Input
+                        {...control}
+                        name="password"
+                        type={showPassword ? "text" : "password"}
+                        autoComplete="new-password"
+                        minLength={12}
+                        maxLength={128}
+                        disabled={busy}
+                        className="pr-12"
+                      />
+                      <PasswordVisibilityButton
+                        visible={showPassword}
+                        label="Show new password"
+                        disabled={busy}
+                        aria-controls={control.id}
+                        onClick={() => setShowPassword((prev) => !prev)}
+                      />
+                    </div>
+                  )}
+                </Field>
+
+                <Field
+                  id="recovery-confirmation"
+                  {...(confirmationError ? { error: confirmationError } : {})}
+                  label="Confirm new password"
+                  required
+                >
+                  {(control) => (
+                    <div className="relative">
+                      <Input
+                        {...control}
+                        name="confirmation"
+                        type={showConfirmation ? "text" : "password"}
+                        autoComplete="new-password"
+                        minLength={12}
+                        maxLength={128}
+                        disabled={busy}
+                        className="pr-12"
+                      />
+                      <PasswordVisibilityButton
+                        visible={showConfirmation}
+                        label="Show confirmation password"
+                        disabled={busy}
+                        aria-controls={control.id}
+                        onClick={() => setShowConfirmation((prev) => !prev)}
+                      />
+                    </div>
+                  )}
+                </Field>
+              </>
+            )}
+
+            <Button type="submit" loading={busy} className="w-full">
+              {busy
+                ? "Please wait…"
+                : stage === "request"
+                  ? "Send reset code"
+                  : "Set new password"}
+            </Button>
+
+            {stage === "reset" && (
+              <Button
+                variant="secondary"
+                disabled={busy}
+                onClick={() => {
+                  setStage("request");
+                  setError("");
+                  setMessage("");
+                  setRetryAfter(0);
+                }}
+                className="w-full"
+              >
+                Use another email
+              </Button>
+            )}
+          </form>
+
+          <Separator />
+
+          <p className="text-sm leading-6 text-muted-foreground">
+            Remembered your password?{" "}
+            <Link
+              href="/auth/sign-in"
+              className="font-medium text-foreground underline underline-offset-4 transition-colors duration-(--duration-control) ease-(--ease-control) hover:text-primary"
+            >
+              Return to sign in
+            </Link>
+            .
           </p>
-          <Field
-            id="recovery-code"
-            {...(codeError ? { error: codeError } : {})}
-            label="Email code"
-            required
-            description="Enter the code from your latest email. Codes expire and can only be used once."
-          >
-            {(control) => (
-              <Input
-                {...control}
-                ref={code}
-                name="otp"
-                inputMode="numeric"
-                autoComplete="one-time-code"
-                pattern="[0-9]{6,10}"
-                minLength={6}
-                maxLength={10}
-                disabled={busy}
-              />
-            )}
-          </Field>
-          <Field
-            id="recovery-password"
-            label="New password"
-            required
-            description="Use 12–128 characters. A long, unique passphrase works well."
-          >
-            {(control) => (
-              <Input
-                {...control}
-                name="password"
-                type="password"
-                autoComplete="new-password"
-                minLength={12}
-                maxLength={128}
-                disabled={busy}
-              />
-            )}
-          </Field>
-          <Field
-            id="recovery-confirmation"
-            {...(confirmationError ? { error: confirmationError } : {})}
-            label="Confirm new password"
-            required
-          >
-            {(control) => (
-              <Input
-                {...control}
-                name="confirmation"
-                type="password"
-                autoComplete="new-password"
-                minLength={12}
-                maxLength={128}
-                disabled={busy}
-              />
-            )}
-          </Field>
         </>
       )}
-      <Button type="submit" loading={busy}>
-        {busy
-          ? "Please wait…"
-          : stage === "request"
-            ? "Send reset code"
-            : "Set new password"}
-      </Button>
-      {stage === "reset" && (
-        <Button
-          variant="ghost"
-          disabled={busy}
-          onClick={() => {
-            setStage("request");
-            setError("");
-            setMessage("");
-            setRetryAfter(0);
-          }}
-        >
-          Use another email or request a new code
-        </Button>
-      )}
-      <p className="text-sm leading-6 text-muted-foreground">
-        An internet connection is required. Codes and passwords stay out of
-        local storage and the sync queue.
-      </p>
-    </form>
+    </div>
   );
 }

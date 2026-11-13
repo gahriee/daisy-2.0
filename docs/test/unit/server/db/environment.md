@@ -1,10 +1,10 @@
 # Database environment validation
 
 - Status: PASS (final run)
-- Last run: 2026-11-13 13:53:50 (UTC+8)
-- Environment: Windows, Node 26.13.1, Vitest 5.1.0, Prisma 7.10.1
-- Command: node node_modules/vitest/vitest.mjs run tests/unit
-- Result: final suite 9 passed, 0 failed, 0 skipped across 2 files; 511 ms. This file: 6 passed.
+- Last run: 2026-11-13 16:55:34 (UTC+8)
+- Environment: Windows, Node 24.20.0, pnpm 12.18.0, Vitest 5.1.0, Prisma 7.10.1
+- Command: pnpm test:unit
+- Result: final suite 44 passed, 0 failed, 0 skipped across 10 files; 509 ms. This file: 6 passed (9 ms).
 
 ## Verified cases
 
@@ -40,3 +40,27 @@ these are equivalent to the corresponding package scripts.
 
 ### Formatting verification run
 - 2026-11-13 13:53:50 (UTC+8): pnpm test:unit passed after Prettier formatting; 25 passed, 0 failed/skipped across 7 files, 618 ms. Existing test criteria unchanged.
+
+### Prisma client generation verification run
+- 2026-11-13 15:43:52 (UTC+8) [Windows, Node 24.20.0, pnpm 12.18.0]: pnpm test:unit passed after `pnpm db:generate`; 6 passed here (6 ms), suite 32 passed, 0 failed/skipped across 8 files in 597 ms. Existing test criteria unchanged.
+
+### Owner sign-in UI verification run
+- 2026-11-13 16:07:20 (UTC+8): pnpm test:unit passed after Owner sign-in changes; 6 passed here (7 ms), suite 44 passed, 0 failed/skipped across 10 files in 608 ms. Existing test criteria unchanged.
+
+### Taste UI transition verification run
+- 2026-11-13 16:20:19 (UTC+8): pnpm test:unit passed after Frost and slate token and typography updates; 6 passed here (10 ms), suite 44 passed, 0 failed/skipped across 10 files in 546 ms. Existing test criteria unchanged.
+
+### UI primitives redesign verification run
+- 2026-11-13 16:36:03 (UTC+8): pnpm test:unit passed after `src/components/ui` redesign; 6 passed here (7 ms), suite 44 passed, 0 failed/skipped across 10 files in 604 ms. Existing test criteria unchanged.
+
+### Airbnb brand color token verification run
+- 2026-11-13 16:40:30 (UTC+8): pnpm test:unit passed after Airbnb brand token updates; 6 passed here (8 ms), suite 44 passed, 0 failed/skipped across 10 files in 562 ms. Existing test criteria unchanged.
+
+### Badge dot removal verification run
+- 2026-11-13 16:43:20 (UTC+8): pnpm test:unit passed after removing `Badge` dots; 6 passed here (11 ms), suite 44 passed, 0 failed/skipped across 10 files in 491 ms. Existing test criteria unchanged.
+
+### Workspace shell and auth redesign verification run
+- 2026-11-13 16:50:09 (UTC+8): pnpm test:unit passed after creating Sidebar/Topbar/EmptyState primitives, empty Dashboard, and redesigned Auth pages; 6 passed here (8 ms), suite 44 passed, 0 failed/skipped across 10 files in 484 ms. Existing test criteria unchanged.
+
+### Sign-out JSON payload fix verification run
+- 2026-11-13 16:55:34 (UTC+8): pnpm test:unit passed after normalizing POST `/api/auth/sign-out` to `Content-Type: application/json` `{}`; 6 passed here (9 ms), suite 44 passed, 0 failed/skipped across 10 files in 509 ms. Existing test criteria unchanged.

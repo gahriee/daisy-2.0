@@ -10,7 +10,7 @@ public/
 pnpm-lock.yaml
 docs/
 .agents/
-.impeccable/
+.taste-skill/
 *.md
 *.tsbuildinfo
 next-env.d.ts

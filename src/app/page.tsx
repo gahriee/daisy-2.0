@@ -1,69 +1,131 @@
-import Image from "next/image";
+import Link from "next/link";
+import { redirect } from "next/navigation";
+import { connection } from "next/server";
+import { WorkspaceShell } from "@/components/layout/workspace-shell";
+import { buttonClasses } from "@/components/ui/button";
+import { Card } from "@/components/ui/card";
+import {
+  EmptyState,
+  EmptyStateActions,
+  EmptyStateDescription,
+  EmptyStateIcon,
+  EmptyStateTitle,
+} from "@/components/ui/empty-state";
+import { isOwner } from "@/server/auth/owner";
 
-export default function Home() {
+// Dashboard inspects fresh request authority and must not enter prerender caches.
+export const instant = false;
+
+const ledgerModules = [
+  {
+    index: "01",
+    title: "Rooms and beds",
+    description:
+      "Track room capacity, bed availability, maintenance holds, and monthly or daily rates.",
+  },
+  {
+    index: "02",
+    title: "Tenants and transient stays",
+    description:
+      "Manage boarder assignments, short-stay reservations, and overlap-safe check-ins.",
+  },
+  {
+    index: "03",
+    title: "Invoices and payment proofs",
+    description:
+      "Issue Philippine peso billing statements, record collections, and store receipt photos.",
+  },
+] as const;
+
+export default async function Home() {
+  await connection();
+  let authenticated = false;
+  try {
+    authenticated = await isOwner();
+  } catch {
+    authenticated = false;
+  }
+
+  if (!authenticated) {
+    redirect("/auth/sign-in");
+  }
+
   return (
-    <div className="flex flex-col flex-1 items-center justify-center bg-zinc-50 font-sans dark:bg-black">
-      <main className="flex flex-1 w-full max-w-3xl flex-col items-center justify-between py-32 px-16 bg-white dark:bg-black sm:items-start">
-        <Image
-          className="dark:invert h-5 w-[100px]"
-          src="/next.svg"
-          alt="Next.js logo"
-          width={100}
-          height={20}
-          priority
-        />
-        <div className="flex flex-col items-center gap-6 text-center sm:items-start sm:text-left">
-          <h1 className="max-w-xs text-3xl font-semibold leading-10 tracking-tight text-black dark:text-zinc-50">
-            To get started, edit the{" "}
-            <code className="rounded bg-black/[.06] px-1.5 py-0.5 font-mono text-[0.9em] dark:bg-white/[.08]">
-              page.tsx
-            </code>{" "}
-            file.
-          </h1>
-          <p className="max-w-md text-lg leading-8 text-zinc-600 dark:text-zinc-400">
-            Looking for a starting point or more instructions? Head over to{" "}
-            <a
-              href="https://vercel.com/templates?framework=next.js&utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-              className="font-medium text-zinc-950 dark:text-zinc-50"
-            >
-              Templates
-            </a>{" "}
-            or the{" "}
-            <a
-              href="https://nextjs.org/learn?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-              className="font-medium text-zinc-950 dark:text-zinc-50"
-            >
-              Learning
-            </a>{" "}
-            center.
-          </p>
-        </div>
-        <div className="flex flex-col gap-4 text-base font-medium sm:flex-row">
-          <a
-            className="flex h-12 w-full items-center justify-center gap-2 rounded-full bg-foreground px-5 text-background transition-colors hover:bg-[#383838] dark:hover:bg-[#ccc] md:w-[158px]"
-            href="https://vercel.com/new?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
+    <WorkspaceShell title="Dashboard">
+      <section aria-labelledby="overview-heading" className="grid gap-1.5">
+        <h1
+          id="overview-heading"
+          className="text-2xl font-semibold tracking-tight text-foreground sm:text-3xl"
+        >
+          Property overview
+        </h1>
+        <p className="max-w-prose text-base leading-6 text-muted-foreground">
+          Daily workspace for boarding house beds, transient stays, billing
+          dates, and collections.
+        </p>
+      </section>
+
+      <EmptyState aria-labelledby="empty-dashboard-title">
+        <EmptyStateIcon>
+          <svg
+            className="size-5"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="1.65"
+            strokeLinecap="round"
+            strokeLinejoin="round"
           >
-            <Image
-              className="dark:invert h-[14px] w-4"
-              src="/vercel.svg"
-              alt="Vercel logomark"
-              width={16}
-              height={14}
-            />
-            Deploy Now
-          </a>
-          <a
-            className="flex h-12 w-full items-center justify-center rounded-full border border-solid border-black/[.08] px-5 transition-colors hover:border-transparent hover:bg-black/[.04] dark:border-white/[.145] dark:hover:bg-[#1a1a1a] md:w-[158px]"
-            href="https://nextjs.org/docs?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            Documentation
-          </a>
+            <path d="M3 10.5 12 3l9 7.5" />
+            <path d="M5 9.5V20h14V9.5" />
+            <path d="M9.5 20v-5.5h5V20" />
+          </svg>
+        </EmptyStateIcon>
+
+        <div className="grid gap-2">
+          <EmptyStateTitle id="empty-dashboard-title">
+            No workspace records yet
+          </EmptyStateTitle>
+          <EmptyStateDescription>
+            Occupancy counts, due invoices, and check-ins will populate here
+            once operational modules are connected. Review Daisy’s component
+            reference below.
+          </EmptyStateDescription>
         </div>
-      </main>
-    </div>
+
+        <EmptyStateActions>
+          <Link
+            href="/design-system"
+            className={buttonClasses({ variant: "secondary" })}
+          >
+            View design system
+          </Link>
+        </EmptyStateActions>
+      </EmptyState>
+
+      <section aria-labelledby="planned-modules-heading" className="grid gap-4">
+        <h2
+          id="planned-modules-heading"
+          className="text-base font-semibold tracking-tight text-foreground"
+        >
+          Scheduled operational ledgers
+        </h2>
+        <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
+          {ledgerModules.map((item) => (
+            <Card key={item.index} className="grid content-start gap-2.5">
+              <span className="font-mono text-xs font-medium text-muted-foreground tabular-nums">
+                {item.index}
+              </span>
+              <h3 className="text-base font-semibold tracking-tight text-foreground">
+                {item.title}
+              </h3>
+              <p className="text-sm leading-6 text-muted-foreground">
+                {item.description}
+              </p>
+            </Card>
+          ))}
+        </div>
+      </section>
+    </WorkspaceShell>
   );
 }

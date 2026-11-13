@@ -1,6 +1,8 @@
 import { connection } from "next/server";
-import Link from "next/link";
+import { redirect } from "next/navigation";
+import { AuthShell } from "@/components/features/auth/auth-shell";
 import { ResetPasswordForm } from "@/components/features/auth/reset-password-form";
+import { isOwner } from "@/server/auth/owner";
 
 // Recovery is intentionally request-rendered and must not enter prerender caches.
 export const instant = false;
@@ -13,25 +15,24 @@ export const metadata = {
 
 export default async function ResetPasswordPage() {
   await connection();
+  let authenticated = false;
+  try {
+    authenticated = await isOwner();
+  } catch {
+    authenticated = false;
+  }
+
+  if (authenticated) {
+    redirect("/");
+  }
+
   return (
-    <main className="mx-auto flex min-h-svh w-full max-w-lg flex-col justify-center gap-8 px-5 py-12 sm:px-8">
-      <header className="grid gap-3">
-        <Link
-          href="/"
-          className="inline-flex min-h-11 w-fit items-center text-lg font-semibold text-primary"
-          aria-label="Daisy home"
-        >
-          Daisy
-        </Link>
-        <h1 className="text-3xl font-semibold tracking-tight">
-          Reset your password
-        </h1>
-        <p className="text-base leading-7 text-muted-foreground">
-          Get an email code to set your first password or replace one you’ve
-          forgotten.
-        </p>
-      </header>
+    <AuthShell
+      backHref="/auth/sign-in"
+      backLabel="Sign in"
+      statement="Set a new password and get back to your rooms and guests."
+    >
       <ResetPasswordForm />
-    </main>
+    </AuthShell>
   );
 }

@@ -43,3 +43,7 @@ next-env.d.ts
 !.env.example
 /src/generated/prisma/
 .neon
+
+# taste skill transient runs
+.taste-skill/chrome-*
+.taste-skill/*.log

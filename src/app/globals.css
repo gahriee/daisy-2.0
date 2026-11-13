@@ -2,32 +2,36 @@
 
 :root {
   color-scheme: light;
-  --background: #f7f6f0;
-  --foreground: #202c27;
+  --background: #f7f7f7;
+  --foreground: #222222;
   --surface: #ffffff;
-  --surface-muted: #eeefe7;
-  --muted-foreground: #59665e;
-  --border: #c6cdc2;
-  --control-border: #78877c;
-  --primary: #245747;
-  --primary-hover: #1b4538;
+  --surface-muted: #ebebeb;
+  --muted-foreground: #6a6a6a;
+  --border: #dddddd;
+  --control-border: #767676;
+  --primary: #e00b41;
+  --primary-hover: #bd0836;
   --primary-foreground: #ffffff;
-  --accent: #e6ce8c;
-  --accent-foreground: #59471c;
-  --success: #286344;
-  --success-surface: #eaf4ec;
-  --warning: #79530e;
-  --warning-surface: #fff3d1;
-  --danger: #a13932;
-  --danger-hover: #852d28;
-  --danger-surface: #fbedeb;
-  --info: #275a76;
-  --info-surface: #eaf3f8;
-  --focus: #245747;
+  --accent: #ffe8ee;
+  --accent-foreground: #8f0629;
+  --success: #1f6440;
+  --success-surface: #eaf5ee;
+  --success-border: #b8dac4;
+  --warning: #7a5209;
+  --warning-surface: #fff4d6;
+  --warning-border: #ead28e;
+  --danger: #c13515;
+  --danger-hover: #a32b10;
+  --danger-surface: #fdefeb;
+  --danger-border: #eec5ba;
+  --info: #23597a;
+  --info-surface: #ecf4fa;
+  --info-border: #b8d4e5;
+  --focus: #e00b41;
   --control-radius: 0.5rem;
-  --panel-radius: 0.5rem;
-  --duration-control: 140ms;
-  --ease-control: cubic-bezier(0.16, 1, 0.3, 1);
+  --panel-radius: 0.75rem;
+  --duration-control: 150ms;
+  --ease-control: cubic-bezier(0.2, 0.8, 0.2, 1);
 }
 
 @theme inline {
@@ -45,24 +49,28 @@
   --color-accent-foreground: var(--accent-foreground);
   --color-success: var(--success);
   --color-success-surface: var(--success-surface);
+  --color-success-border: var(--success-border);
   --color-warning: var(--warning);
   --color-warning-surface: var(--warning-surface);
+  --color-warning-border: var(--warning-border);
   --color-danger: var(--danger);
   --color-danger-hover: var(--danger-hover);
   --color-danger-surface: var(--danger-surface);
+  --color-danger-border: var(--danger-border);
   --color-info: var(--info);
   --color-info-surface: var(--info-surface);
+  --color-info-border: var(--info-border);
   --color-focus: var(--focus);
   --radius-control: var(--control-radius);
   --radius-panel: var(--panel-radius);
-  --font-sans: var(--font-geist-sans);
-  --font-mono: var(--font-geist-mono);
+  --font-sans: var(--font-host-grotesk);
+  --font-mono: var(--font-jetbrains-mono);
 }
 
 body {
   background: var(--background);
   color: var(--foreground);
-  font-family: var(--font-geist-sans), sans-serif;
+  font-family: var(--font-host-grotesk), system-ui, sans-serif;
 }
 
 @layer base {
@@ -99,6 +107,9 @@ body {
   @media (forced-colors: active) {
     :where(button, input, textarea, select):focus-visible {
       outline-color: Highlight;
+    }
+    input[type="checkbox"] {
+      appearance: auto;
     }
   }
 }
