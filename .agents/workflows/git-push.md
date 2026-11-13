@@ -5,10 +5,9 @@ description: Commit and push changes to GitHub following Conventional Commits an
 # Git Push & Branching Workflow
 
 ## Branching & Environment Lifecycle
-- **`feat/*`, `fix/*`, `chore/*`**: Feature branches created off `dev` for active tasks.
-- **`dev`**: Primary development integration branch. All feature branches merge here.
-- **`staging`**: Staging & test-merge environment for QA, integration testing, and client preview.
-- **`main`**: Official Production branch dedicated for NCDA turnover and production deployment.
+- **Local development**: Develop and verify changes locally on task branches created from `main` (default prefix: `codex/`).
+- **`main`**: Production branch. Merge reviewed changes only with explicit user authorization; deployment requires its own explicit authorization.
+- **Environments**: Local development and production only. Automated integration tests still require a separate, explicitly opted-in test database and must never use production data.
 
 ---
 
@@ -17,7 +16,7 @@ Please follow the git push workflow below:
 
 1. Check Active Branch & Changes:
    - Identify the current working branch: `git branch --show-current`
-   - Run `git status` and `git diff` to understand the full scope of changes before staging.
+   - Run `git status` and `git diff` to understand the full scope of changes before adding files to the commit.
 
 2. Generate a Conventional Commit Message:
    <type>(<scope>): <description>
@@ -43,8 +42,8 @@ Please follow the git push workflow below:
    Report the commit SHA, branch name, and push status.
 
 6. Next Steps & Merge Confirmation:
-   - After presenting the push summary, ask the user if they would like to proceed with subsequent lifecycle actions (e.g. merging into `dev`, `staging`, or `main`, creating a pull request, or ending the session).
-   - Prompt: "Would you like to proceed with merging this branch into `dev` / `staging` or perform any additional actions?"
+   - After presenting the push summary, ask the user if they would like to proceed with subsequent lifecycle actions (e.g. merging into `main`, creating a pull request, or ending the session).
+   - Prompt: "Would you like to proceed with merging this branch into `main` or perform any additional actions?"
    - **MANDATORY:** NEVER merge branches, switch branches, or delete feature branches automatically without explicit user confirmation.
 ```
 

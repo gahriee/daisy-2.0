@@ -1,0 +1,32 @@
+generator client {
+  provider = "prisma-client"
+  output   = "../src/generated/prisma"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+// Application-owned security records only. Provider auth tables remain excluded.
+enum SecurityAction {
+  RESET_REQUESTED
+  RESET_ATTEMPTED
+  RESET_COMPLETED
+  RESET_REJECTED
+}
+
+model SecurityEvent {
+  id          String         @id @default(uuid()) @db.Uuid
+  ownerUserId String
+  operationId String         @db.Uuid
+  action      SecurityAction
+  createdAt   DateTime       @default(now()) @db.Timestamptz(3)
+
+  @@index([ownerUserId, createdAt])
+}
+
+model SecurityRateLimit {
+  key      String   @id
+  count    Int
+  resetsAt DateTime @db.Timestamptz(3)
+}

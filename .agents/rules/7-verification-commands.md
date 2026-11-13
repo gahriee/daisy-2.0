@@ -26,6 +26,7 @@ Verification on real devices, including installation, airplane-mode reload, fore
 pnpm install --frozen-lockfile
 pnpm typecheck
 pnpm lint
+pnpm format
 pnpm format:check
 pnpm test
 pnpm test:unit
@@ -33,6 +34,9 @@ pnpm test:integration
 pnpm db:validate
 pnpm db:generate
 pnpm db:check
+pnpm check:neon
+pnpm check:app
+pnpm check:auth
 git diff --check
 ```
 
@@ -42,6 +46,8 @@ git diff --check
 - `pnpm db:validate` and `pnpm db:generate` validate the schema and regenerate client types without needing credentials. `db:check` is a read-only connection check. `db:migrate` and `db:deploy` are workflow commands that follow rule 4 and the task scope.
 - `pnpm test:e2e` runs Playwright offline and installation checks. Run it only on explicit request, and keep it out of routine verification.
 - Do not create visual regression snapshots or DOM accessibility audits unless the user asks for them.
+
+Operational checks: `check:neon` probes live Auth and one temporary storage object, deletes the probe and verifies absence. `check:app` checks a running localhost production server; `check:auth` additionally needs the bound Owner and temporary local verification credentials, signs out and removes those credential fields. Run against production only with explicit authorization for those operational checks; they never authorize database fixtures or migrations.
 
 ## 7.3 Results and failure handling
 

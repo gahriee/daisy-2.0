@@ -4,7 +4,7 @@
 
 Daisy is a single-Owner management system for a Philippine boarding house with long-stay tenants and short-stay transient guests. One business has one Owner account and any number of registered devices. Daisy manages tenants, transient guests, rooms and beds, allocations, invoices, payments and proofs, maintenance, notices, reports and audit records. Tenants and guests are managed records. They have no sign-in and there are no staff accounts.
 
-The application is one Next.js App Router deployment. Server pages, Server Actions and Route Handlers call server-only domain services. Browser-safe contracts are separate from server-only code. An installed device can reopen and operate core screens without a network connection, and it synchronizes through a durable outbox. PostgreSQL holds the authoritative state, change feed and audit records. Private object storage holds proof and maintenance photos.
+The application is one Next.js App Router deployment with a public transient booking surface and a protected Owner workspace. Visitors can browse published stay options and submit booking requests without an account; the Owner confirms reservations. Server pages, Server Actions and Route Handlers call server-only domain services. Browser-safe contracts are separate from server-only code. An installed Owner device can reopen and operate core screens offline through a durable outbox. PostgreSQL holds authoritative state, the change feed and audit records. Private object storage holds proof and maintenance photos.
 
 ### Business invariants
 
@@ -24,7 +24,7 @@ Next.js handles routing, rendering and HTTP APIs. Server Actions serve online-on
 
 Reads use fresh request authority and return bounded, allowlisted projections. Registers and reports use private, no-store responses, and results that span several queries use one consistent snapshot. Writes validate input and trusted origin, authorize under the relevant lock, and commit state, feed entries and audit together. Mutable records use integer versions. Retries use stable operation IDs, and a key reused with a different payload is rejected. External I/O stays outside database transactions. Database-backed limits use an atomic upsert with database time and separate read, write, upload and export workloads.
 
-Services enforce Owner scope, validation, business rules and transactions. Layout and session redirects are conveniences, not authorization.
+Services enforce Owner scope, validation, business rules and transactions. Public booking services resolve the configured business server-side and expose only the explicit capabilities in section 4.5; callers cannot select an Owner. Layout and session redirects are conveniences, not authorization.
 
 ### Offline delivery and local persistence
 
@@ -42,6 +42,7 @@ Encrypted IndexedDB stores server snapshots, pending projections, the outbox, at
 | Generate, adjust or void invoices, edit or reverse posted payments | Online only |
 | Inventory and rate changes, boarder assignments, move-in and move-out | Online only |
 | Reports, exports, audit, settings and security, notice delivery | Online only |
+| Public availability and booking-request submission; Owner approval or rejection of public requests | Online only; no public outbox or offline confirmation |
 
 An offline availability view cannot guarantee availability on another device. No official receipt and no booking or check-in is shown as confirmed before acknowledgement.
 
@@ -61,7 +62,7 @@ Conflicts are explicit record-level comparisons of integer versions, with no sil
 
 - Development and test use separate databases. Integration tests require a dedicated opt-in test connection and never run against production data.
 - Production uses a pooled runtime connection with limited credentials. Migrations use a separate direct connection. Apply reviewed incremental migrations only, preserve applied history and never reset routinely. Managed auth tables are never altered by application migrations.
-- The database holds structured records only. Photos and exported files live in private object storage. Because the database tier is small, the change history grows monotonically and storage is monitored against its limit.
+- The database holds structured records only. Photos and exported files live in private Neon Object Storage buckets. Because the database tier is small, the change history grows monotonically and database and object storage usage are monitored separately.
 - Recovery combines provider restore history, a scheduled encrypted logical backup in a separate private bucket, and authorized Owner exports. Restore is verified on a disposable database. Server backups cannot restore operations that were never uploaded from a device.
 
 ## 3. Identity and Owner authority
@@ -70,10 +71,21 @@ Daisy uses managed Better Auth with email and password and password recovery. Cr
 
 | Authority | Scope |
 | --- | --- |
-| Owner session | Full business authority. All server reads and writes require it |
+| Owner session | Full business authority. Required for all private reads and management writes |
+| Anonymous visitor | Read published transient options and bounded availability; submit a booking request only. No private record access or management authority |
 | Registered device | Authorizes sync, uploads and offline provisioning for this browser. It confers no business authority without an Owner session |
 | Offline unlock | Decrypts local data on a provisioned device. It never authorizes server access and cannot renew itself offline |
 | Scheduled job | Runs idempotent maintenance such as billing generation and upload cleanup, authenticated by a shared secret and scoped to the Owner |
+
+### Owner password recovery
+
+`/auth/reset-password` is an online-only, dynamic public page that requests an emailed code, then a new 12–128 character password. It uses native Garden Ledger fields and keeps email/code/password only in memory; POST forms, no-store/no-referrer headers and disabled incoming request logging keep secrets out of URLs, caches and logs. No recovery data enters the outbox. Codes work with shared development SMTP; custom SMTP and session revocation on reset are required before launch. The existing Owner account must have an accessible real email; no new account is created.
+
+Only `/api/auth/recovery/request` and `/api/auth/recovery/reset` are added to the proxy. Same-origin JSON requests are streamed with a 4 KB cap and validated server-side. A read-only provider lookup matches both configured Owner ID and normalized email; unmatched emails receive generic responses and never invoke Auth. The managed SDK owns code verification, expiry, consumption and password storage. Raw OTP/reset endpoints remain closed to callers.
+
+Application-owned `SecurityRateLimit` rows use atomic upserts and database time: a shared 60/minute probe cap, plus 3 sends or 10 resets per 15 minutes keyed by Owner/workload/HMAC(email). Unmatched addresses use equivalent independent counters, avoiding Owner quota exhaustion and differing response rules. Only expired counter rows are removed; audit and domain change history are untouched. Provider limits remain additional enforcement. Concurrent attempts are bounded; no process-local limiter or forwarded IP is trusted.
+
+`SecurityEvent` stores only IDs, action and database time. A durable request/attempt is recorded before external Auth I/O; rejected and acknowledged completion events follow. External Auth and app audit cannot share a transaction: lost provider responses or completion-audit failures preserve the attempt and return an uncertain-outcome message advising sign-in before another reset. Codes are never retried automatically. Only a confirmed, Owner-scoped completion projects the allowlisted “Your password was updated” notification to `/auth/reset-password`; routine attempts remain audit-only. These security records stay outside the domain change feed. The incremental migration affects only application-owned public-schema objects; it was validated on an isolated branch and applied to the selected production branch with explicit Owner approval. Production Auth disables public signup and revokes sessions on reset. Future production changes still need specific approval.
 
 ### Device registration and revocation
 
@@ -120,6 +132,16 @@ Proof photos are compressed on the device, encrypted while queued and bounded by
 
 Transient guests are managed records with name, contact details and notes. Reservations carry guest, bed or room, stay interval, daily rate and status (tentative, confirmed, checked in, checked out, cancelled, no show). Stay intervals convert to half-open allocation instants using the configured check-in and check-out times in Asia/Manila. Offline creation, check-in and check-out are tentative intents. On reconnect the server validates the transition and the allocation, and unavailable or overlapping requests move to Needs attention without overwriting server state. Rate tiers follow Owner configuration. Charges for a stay create an invoice through the normal billing workflow. Cancellation and no-show release the allocation.
 
+#### Public transient booking
+
+- **Surface and ownership.** `/book` is a public route outside the protected Owner layout, backed by narrowly scoped public booking handlers and services within the transients feature. The Owner chooses which transient options, descriptions, capacity, rates and policies are published. Visitors need no sign-in; tenant accounts, guest accounts and public sign-up remain out of scope.
+- **Availability and pricing.** Public reads return only published options, indicative server-calculated prices and availability for bounded dates and party sizes. They never expose occupants, guest details, internal notes, allocation records or private files. Availability uses the shared allocation engine and includes maintenance holds. Live availability is no-store and is advisory until approval; display prices as estimates and revalidate rates when confirming.
+- **Request lifecycle.** A separate `BookingRequest` stores a public reference, guest name and contact, requested option, stay dates, party size, quoted price, version and status (`pending`, `approved`, `rejected`, `withdrawn`). Collect only required contact information and show a privacy notice before submission. Submission acknowledges a pending request, creates no guest or allocation, and never claims a confirmed booking. Pending requests do not hold inventory. Approval is online only: an authorized Owner rechecks dates, capacity, current rates and availability, then atomically creates or links the guest, creates the confirmed reservation and allocation, and links the approved request. Rate changes require Owner review. Rejection or withdrawal closes the request without an allocation; confirmed cancellations use the existing reservation workflow.
+- **Authority and abuse controls.** Public handlers validate same-origin writes, bounded input and server-resolved published options. Apply database-backed read and submission limits using trusted platform client identity, never arbitrary forwarded headers, with HTTP 429 and Retry-After. Use unpredictable request references and idempotency keys bound to canonical payload fingerprints: matching retries return the same minimal acknowledgement, changed payloads conflict. A reference alone grants no lookup, edit, cancellation or private-data access. Anonymous status lookup, uploads and payment collection are outside the initial scope. Contact and request bodies stay out of logs, URLs and audit payloads.
+- **Audit, notifications and sync.** Submission and each transition record identifier-only events with an explicit public-submission or Owner actor. Commit request state, idempotency outcome, audit and Owner-scoped feed entries under the sync head lock in one transaction. Approval publishes the request, guest, reservation and allocation changes together. Owner devices receive request snapshots through the existing encrypted sync protocol; public clients never access it. Allowlist a new-request notification with destination `/transients/requests/<requestId>` in the protected workspace. Review transitions remain audit-only. Reads generate no audit event. No guest email or SMS is promised; the Owner contacts the guest using the supplied details.
+- **Caching and recovery.** Public booking is online only, outside the Owner offline navigation fallback. The worker must not cache live availability, submissions or acknowledgements, and public clients store no personal booking data in IndexedDB. On connection loss show that receipt is unconfirmed and allow a retry with the same key. Only explicitly public descriptive content may be cached, with invalidation on publishing changes; personal responses remain no-store.
+- **Implementation verification.** Backend tests must cover published-only projections, private-data isolation, invalid dates and capacity, origin checks, throttling, duplicate submission, changed-payload retries, Owner authorization, concurrent approval, allocation conflicts and rollback, and Owner-scoped audit, notifications and feed publication. Request sync uses version checks and the existing replay and tombstone rules. This section defines planned behavior; routes, schema and migrations require implementation before the public surface is available.
+
 ### 4.6 Reporting
 
 Reports are online only and read posted invoices, payments, allocations and maintenance records in a repeatable-read snapshot. They include occupancy, rent roll, receivables aging, collections by period and method, transient revenue and maintenance summaries. Historical reports preserve reversal dates and snapshot values. Exports are bounded authorized reads that produce CSV, record an audit event and are private and no-store. Every report states its as-of Asia/Manila date.
@@ -134,7 +156,7 @@ The interface shows connection state separately from sync status, with pending c
 
 ## 5. Dependencies Installed
 
-The package manifest and committed lockfile hold versions and scripts. Select compatible versions during scaffolding.
+The manifest and pnpm lockfile hold installed versions and scripts. Foundation: Node 26.13.1, pnpm 10.28.2, Prisma 7 and the Neon WebSocket adapter. CLI loads ignored `.env.local` and prefers `DIRECT_URL`, then Neon's `DATABASE_URL_UNPOOLED`; runtime uses pooled `DATABASE_URL`. The read-only `db:check` verifies connection and UTC, including the equivalent GMT zone. No business models or migrations exist yet. The Auth proxy and storage primitives are wired; Owner bootstrap, login UI, broader audit, PWA delivery and domain workflows remain pending; email-code recovery and its security records are implemented, with its security migration and provider settings active on the selected production branch. Dev and build use Webpack with Tailwind PostCSS after a Windows Turbopack CSS worker failure; Cloudflare Workers compatibility still needs deployment validation.
 
 | Scope | Core dependencies |
 | --- | --- |
@@ -142,56 +164,62 @@ The package manifest and committed lockfile hold versions and scripts. Select co
 | Persistence | PostgreSQL on Neon Free, Prisma Client, Prisma CLI and a PostgreSQL driver adapter |
 | Identity | Managed Better Auth through Neon, with email and password and recovery |
 | Offline | Dexie over IndexedDB, Web Crypto for AES-GCM, a reviewed service worker library or small custom worker |
-| Files | Cloudflare R2 through its S3-compatible API with signed upload and download URLs |
+| Files | Neon Object Storage through its S3-compatible API with private buckets and short-lived signed upload and download URLs |
 | Hosting and jobs | Cloudflare Workers through the OpenNext adapter, with Cron Triggers for scheduled jobs |
 | Verification | Vitest, real PostgreSQL integration tests and Playwright for end-to-end and offline checks |
 | Tooling | pnpm with a frozen lockfile |
+
+Neon provides the database, managed authentication and object storage; Cloudflare Workers remains the planned Next.js host and job scheduler. `neon.ts` declares Auth and a private `assets` bucket. The Node Next.js runtime uses the Neon Prisma WebSocket adapter and AWS S3 SDK with path-style addressing and 60-second signed downloads. The storage adapter uses the selected branch's S3 endpoint and scoped credentials, kept in ignored `.env.local` for local authorized operations and hosting secrets for production. The Owner explicitly selected production for initial provisioning; normal development and fixture tests still require separate targets. Browsers receive authorized short-lived signed URLs, never storage credentials. Keep development and test storage separate from production; child branches inherit their parent's objects, so branch isolation alone does not sanitize production photos. See [Neon Object Storage](https://neon.com/docs/storage/overview) and [storage authentication](https://neon.com/docs/storage/authentication).
+
+The app proxy exposes email sign-in, sign-out, Owner-scoped session and scoped recovery operations; it blocks public registration and checks write origins against `APP_ORIGIN`. Authority checks request a fresh provider session with cookie cache disabled, match user and session identity against `OWNER_USER_ID`, and validate expiry. `/api/system/status` is an Owner-only, private no-store read of database and bucket connectivity; it creates no audit or notification events. Sign-in/out currently use provider-managed session state; recovery has identifier-only audit and shared throttling, while broader login security infrastructure remains pending before a production login release. No attachment mutation endpoint is exposed before record ownership, audit and sync integration exist. Neon CLI/plugin tooling is separate from the application deployment; no frontend hosting was deployed.
 
 ### Free-tier budget
 
 | Resource | Free allowance | Design response |
 | --- | --- | --- |
 | Neon database | 1 GB per project, compute suspends when idle | Structured data only, cold-start tolerant clients, storage monitored |
-| R2 object storage | 10 GB, 1 million writes and 10 million reads per month, no egress fees | Compress proofs on device, cap files per record, no thumbnails server-side |
+| Neon Object Storage | 5 GB per project; downloads share the project's public network transfer allowance | Compress photos on device, cap files per record, monitor stored volume and transfer |
 | Workers | 100,000 requests per day | Client-rendered offline shell keeps server work to APIs and sync |
 | Vercel Hobby | Personal, non-commercial use only | Not used, because the business is commercial |
 
-Allowances change. Verify the database storage limit, Workers CPU time on real routes, driver adapter compatibility, scheduler availability and the free-tier inclusion of managed auth before selecting plans. The fallbacks are a paid Workers plan or a paid Vercel plan for hosting and a paid Neon plan for database history and storage.
+Allowances change; consult [Neon pricing](https://neon.com/pricing) for database, object storage and shared network transfer limits. Verify storage region availability, Workers CPU time on real routes, driver adapter compatibility, scheduler availability and the free-tier inclusion of managed auth before selecting plans. The fallbacks are a paid Workers plan or a paid Vercel plan for hosting and a paid Neon plan for database history and object storage.
 
 ## 6. Directory Structure
 
 ```text
-.agents/rules/                 Project conventions
-docs/architecture/             Design and decisions
+.agents/
+  rules/
+  workflows/
+docs/
+  architecture/
+  memory/
+  test/
 prisma/
-  schema.prisma                Server data model
-  migrations/                  Incremental migrations and reviewed SQL constraints
+  migrations/
 public/
-  icons/                       Installation assets
-  offline-shell.html           Public, non-personal bootstrap document
+  icons/
+scripts/
 src/
-  app/                         Thin routes, manifest, layouts and API handlers
-  features/<feature>/
-    schemas.ts, types.ts       Browser-safe schemas and DTOs
-    sync-contracts.ts          Browser-safe operation definitions
-    actions.ts                 Online-only Server Actions
-    service.ts, queries.ts     Server-only domain logic and reads
-    sync-handler.ts            Server-only operation adapter
+  app/
+  generated/
+    prisma/
+  features/
   components/
-    features/<feature>/        Feature components
-    common/                    Shared composites
-    layout/                    Mobile and desktop shell
-  server/                      Auth, db, security, audit, storage, sync, jobs
-  offline/                     db, repository, crypto, outbox, transport, sync, hooks
-  lib/                         Pure money, date and error helpers
-  hooks/                       Shared client hooks
-  config/                      Separate public and server configuration
-  sw.ts                        Worker source, output served at /sw.js
+    ui/
+    features/
+    common/
+    layout/
+  server/
+    db/
+    security/
+  offline/
+  lib/
+  hooks/
+  config/
 tests/
-  unit/                        Money, operations and state machines
-  integration/                 Transactions, idempotency, availability and feed races
-  e2e/                         Offline reload, reconnect and installation checks
-package.json                   Scripts
+  unit/
+  integration/
+  e2e/
 ```
 
 Do not mix shared operation schemas and server handlers in one module. Test concurrent replay, lost acknowledgements, repeated edits, dependency failures, session expiry, tombstones, expired cursors, quota failure, encrypted blob recovery and upgrades. Verify that cached content holds no personal data, and test real Android and iOS installation and airplane-mode foreground sync before release.

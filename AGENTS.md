@@ -79,7 +79,7 @@ All AI agents interacting with this repository MUST strictly adhere to the follo
 
 ## 3. Available Workspace Scripts
 
-Use [package.json](package.json) for script definitions, [README.md](README.md) for common workflows and [verification commands](.agents/rules/7-verification-commands.md) to choose checks. Follow Section 1.6 for database targets.
+Use [package.json](package.json) for script definitions, [README.md](README.md) for common workflows and [verification commands](.agents/rules/7-verification-commands.md) to choose checks. Follow Section 1.6 for database targets. Always format authored code with Prettier (`pnpm format`) and verify it with `pnpm format:check` before handoff.
 
 ## 4. Automated Testing Protocols
 

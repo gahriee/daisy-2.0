@@ -1,0 +1,16 @@
+node_modules/
+.next/
+out/
+build/
+coverage/
+src/generated/
+public/
+.env*
+.neon
+pnpm-lock.yaml
+docs/
+.agents/
+.impeccable/
+*.md
+*.tsbuildinfo
+next-env.d.ts
