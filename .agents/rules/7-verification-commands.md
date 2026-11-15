@@ -1,59 +1,70 @@
 # 7. Verification Commands
 
-Run commands from the repository root using the execution tool's working-directory setting. `package.json` is authoritative. This is a catalog of the intended scripts, not permission to install unrelated tools or mutate a database. Scripts are defined during scaffolding, so confirm a script exists before relying on it and update this rule when scripts change.
+Run commands from the repository root using the execution tool's working-directory setting. `package.json` is authoritative. This is a catalog of the intended scripts, not permission to install unrelated tools or mutate a database.
 
-## 7.1 Choose checks for the change
+## 7.1 Choose minimal checks for the change
 
-| Change | Relevant verification |
+Keep verification fast and focused. Always run the **narrowest targeted check** that verifies the edited files, and **skip slow full-suite integration runs (`pnpm test:integration` without file filters) and `pnpm build` by default**.
+
+| Change | Important checks only (fast default) |
 | --- | --- |
-| TypeScript or application logic | `pnpm typecheck`, `pnpm lint`, targeted unit tests. Production build when compilation is affected |
-| Route Handlers, Server Actions or sync endpoints | Targeted integration test that calls the handler against the test database, plus `pnpm typecheck` and `pnpm lint` |
-| Services, calculations and utilities | `pnpm test:unit` or a targeted unit file, plus `pnpm typecheck` |
-| Sync handlers, idempotency, allocation or numbering | Targeted integration tests against real PostgreSQL covering retries, concurrency and conflicts |
-| Offline repository, outbox, crypto or sync engine | Targeted unit tests using an in-memory IndexedDB implementation, covering persistence, replay and upgrade paths |
-| Prisma schema or migration | `pnpm db:validate`, `pnpm db:generate` and targeted integration tests against an authorized test database |
-| Connection or environment change | `pnpm db:check` against the intended database, inspecting metadata without printing credentials |
-| Service worker or installation | Build check and the user's manual device checklist. Playwright only on explicit request |
-| Markdown or rules only | Inspect paths, links and command names, and run `git diff --check`. No application build or database test is required for prose edits |
+| UI components, styling, copy, or layout edits | `pnpm exec prettier --check <paths>` + `pnpm exec eslint <paths>`, plus `pnpm typecheck` if TypeScript types/props changed. **Skip `pnpm test:integration` and `pnpm build`.** |
+| Services, schemas, calculations, or utilities | Targeted unit test (`pnpm test:unit tests/unit/<path>.test.ts`) + `pnpm typecheck` + `pnpm exec eslint <paths>`. (`pnpm test:unit` runs ~2 s total if multiple unit files changed.) |
+| Route Handlers, Server Actions, or domain services (DB-backed) | **Targeted** integration file(s) (`pnpm test:integration tests/integration/<domain>/<file>.test.ts`) + `pnpm typecheck` + `pnpm exec eslint <paths>`. **Do NOT run the unfiltered 13-file integration suite.** |
+| Sync engine, allocations, auth, or shared DB infrastructure | Targeted unit/integration tests for affected domains first; run full `pnpm test:integration` **only** when shared auth/db/sync-head/allocation core changes or on explicit request. |
+| Offline repository, outbox, crypto, or sync engine (`src/offline/`) | Targeted unit test (`pnpm test:unit tests/unit/offline/<path>.test.ts`) + `pnpm typecheck` + `pnpm exec eslint <paths>`. |
+| Prisma schema or migration | `pnpm db:validate`, `pnpm db:generate`, `pnpm typecheck`, and **only the affected** domain integration test file(s) against `test-integration`. |
+| Routes, layouts, `next.config.ts`, `globals.css`, service worker, or bundle boundaries | `pnpm typecheck`, `pnpm exec eslint <paths>` (or `pnpm lint`), and `pnpm build`. |
+| Connection or environment change | `pnpm db:check` against the intended database without printing credentials. |
+| Markdown, rules, memory, or test docs only | Inspect paths/links, run `pnpm exec prettier --check <paths>` and `git diff --check`. **Do NOT run `typecheck`, `lint`, tests, or `build`.** |
 
-Edits to routes, actions, schema, migrations, services, sync handlers and business logic require a relevant executed test. Add a meaningful test when no suitable coverage exists. Do not rerun unrelated suites once the relevant checks pass.
-
-Verification on real devices, including installation, airplane-mode reload, foreground sync and rendered interface checks, belongs to the user by default. Do not open or control browsers or devices, capture screenshots or start visual preview servers without an explicit request. Report code and backend results separately from pending user checks.
+- **No redundant re-runs:** Once `typecheck`, `lint`, and targeted tests pass on the final code edit, do **NOT** re-run them after updating `docs/` or memory files—run only `prettier --check <doc-paths>` and `git diff --check`. If one test fails and you fix it, re-run **only that test file**, never the whole suite.
+- Verification on real devices, including installation, airplane-mode reload, foreground sync and rendered interface checks, belongs to the user by default. Do not open browsers/emulators, capture screenshots, or start visual preview servers without an explicit request.
 
 ## 7.2 Current commands
 
+**Fast targeted commands (default):**
+
 ```sh
-pnpm install --frozen-lockfile
+pnpm exec prettier --write <changed-files>
+pnpm exec eslint <changed-files>
 pnpm typecheck
-pnpm lint
-pnpm format
-pnpm format:check
-pnpm test
-pnpm test:unit
-pnpm test:integration
+pnpm test:unit tests/unit/<path>.test.ts
+pnpm test:integration tests/integration/<domain>/<file>.test.ts
 pnpm db:validate
 pnpm db:generate
-pnpm db:check
-pnpm check:neon
-pnpm check:app
-pnpm check:auth
 git diff --check
 ```
 
-- `pnpm test` runs the Vitest unit suite, which covers pure logic, schema validation, money and date helpers, state machines and offline modules without a live database.
-- Target a single file with `pnpm vitest run tests/unit/<path>.test.ts`, substituting the changed test path.
-- `pnpm test:integration` runs against a real PostgreSQL test database or branch. It requires a dedicated opt-in connection setting and refuses to run against production. It covers transactions, idempotency, allocation conflicts, feed ordering and race behavior.
-- `pnpm db:validate` and `pnpm db:generate` validate the schema and regenerate client types without needing credentials. `db:check` is a read-only connection check. `db:migrate` and `db:deploy` are workflow commands that follow rule 4 and the task scope.
-- `pnpm test:e2e` runs Playwright offline and installation checks. Run it only on explicit request, and keep it out of routine verification.
-- Do not create visual regression snapshots or DOM accessibility audits unless the user asks for them.
+**Heavy / explicit-scope commands (use only when warranted above or requested):**
 
-Operational checks: `check:neon` probes live Auth and one temporary storage object, deletes the probe and verifies absence. `check:app` checks a running localhost production server; `check:auth` additionally needs the bound Owner and temporary local verification credentials, signs out and removes those credential fields. Run against production only with explicit authorization for those operational checks; they never authorize database fixtures or migrations.
+```sh
+pnpm format
+pnpm format:check
+pnpm lint
+pnpm test:unit
+pnpm test:integration
+pnpm build
+pnpm db:check
+pnpm db:seed
+pnpm check:neon
+pnpm check:app
+pnpm check:auth
+```
+
+- `pnpm test:unit` runs pure logic, schema validation, money/date helpers, scanner, and offline module unit tests without a live database (~2 s). Target individual files during iteration with `pnpm test:unit tests/unit/<path>.test.ts`.
+- `pnpm test:integration` runs against the remote PostgreSQL `test-integration` branch (~7+ min unfiltered). **Always pass explicit file path(s)** (`pnpm test:integration tests/integration/<domain>/<file>.test.ts`) covering only the changed feature and direct callers unless core shared database/auth/sync primitives changed.
+- `pnpm build` compiles all production routes (`~25–30 s`). Run it only when route files, layouts, `next.config.ts`, `globals.css`/Tailwind pipeline, or SSR/client bundle boundaries change.
+- `pnpm test:e2e` runs Playwright offline and installation checks. Run only on explicit request.
+- Do not create visual regression snapshots or DOM accessibility audits unless asked.
+
+Operational checks: `check:neon` probes live Auth and one temporary storage object, deletes the probe and verifies absence. `check:app` checks a running localhost production server; `check:auth` additionally needs the bound Owner and temporary local verification credentials, signs out and removes those fields. Run against production only with explicit authorization; they never authorize database fixtures or migrations.
 
 ## 7.3 Results and failure handling
 
-- Record every executed check with the command, runtime, counts, duration and the criteria verified. Retain failed runs together with the fix or blocker that followed.
-- Report the final applicable passing result and any remaining limitation. Never use placeholder credentials, disabled assertions or weakened authorization to manufacture a pass.
-- Documentation-only inspection and whitespace checks do not justify inventing a test file or result document.
+- Record executed tests in mirrored `docs/test/` files **only for test suites that actually ran** (do not touch unrelated `docs/test/` files). Retain failed runs together with the fix or blocker.
+- Report exact executed commands, pass counts, and any skipped heavy checks honestly (e.g., note when only targeted suites ran). Never weaken authorization or invent unrun results.
+- Documentation-only inspection and formatting checks do not justify inventing a test file or result document.
 
 ## 7.4 Test coverage expectations
 
@@ -65,5 +76,5 @@ Operational checks: `check:neon` probes live Auth and one temporary storage obje
 ## 7.5 Database environments
 
 - Development and test use separate databases. Production changes happen only through committed incremental migrations that have been validated locally and explicitly authorized.
-- After implementing a migration, validate it locally, then apply it to the authorized target with `pnpm db:deploy` and verify the connection with `pnpm db:check`. Never switch targets to manufacture success, and never run fixture suites against production.
+- After implementing a migration, validate it locally, then apply it to the authorized target with `pnpm db:deploy` and verify with `pnpm db:check`. Never switch targets to manufacture success, and never run fixture suites against production.
 - Seed and reset commands are destructive operator actions. Run them only with explicit authorization for the environment, and never run a reset routinely.

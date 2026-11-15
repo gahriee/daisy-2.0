@@ -1,7 +1,9 @@
 import { describe, expect, it } from "vitest";
 import {
+  BusinessSettingsModuleUpdateSchema,
   BusinessSettingsUpdateSchema,
   hasCompleteFinancialPolicies,
+  hasCompleteStaySchedule,
 } from "../../../../src/features/settings/schemas";
 
 describe("business settings schemas", () => {
@@ -55,6 +57,24 @@ describe("business settings schemas", () => {
     expect(parsed.invoicePrefix).toBe("INV-");
     expect(parsed.receiptPrefix).toBe("RCP-");
     expect(hasCompleteFinancialPolicies(parsed)).toBe(true);
+    expect(hasCompleteStaySchedule(parsed)).toBe(true);
+    expect(
+      hasCompleteStaySchedule({
+        checkInTimeManila: null,
+        checkOutTimeManila: null,
+      }),
+    ).toBe(false);
+    expect(
+      hasCompleteFinancialPolicies({
+        billingDayOfMonth: 5,
+        gracePeriodDays: 3,
+        prorationPolicy: "DAILY_EXACT",
+        depositPolicy: "HOLD_SEPARATE",
+        overpaymentPolicy: "CREDIT_NEXT_INVOICE",
+        invoicePrefix: "INV-",
+        receiptPrefix: "RCP-",
+      }),
+    ).toBe(true);
   });
 
   it("rejects out-of-range billing days and invalid times", () => {
@@ -78,5 +98,59 @@ describe("business settings schemas", () => {
       proofMaxFilesPerRecord: 5,
     });
     expect(badDay.success).toBe(false);
+  });
+
+  it("validates profile, policies, and operations modules independently", () => {
+    const profileOnly = BusinessSettingsModuleUpdateSchema.parse({
+      module: "profile",
+      expectedVersion: 0,
+      businessName: "  Daisy Residences  ",
+      businessPhone: "",
+      businessAddress: "",
+      tin: "",
+    });
+    expect(profileOnly.module).toBe("profile");
+    if (profileOnly.module === "profile") {
+      expect(profileOnly.businessName).toBe("Daisy Residences");
+      expect(profileOnly.businessPhone).toBeNull();
+    }
+
+    const policiesOnly = BusinessSettingsModuleUpdateSchema.parse({
+      module: "policies",
+      expectedVersion: 0,
+      billingDayOfMonth: 5,
+      gracePeriodDays: 3,
+      prorationPolicy: "DAILY_EXACT",
+      depositPolicy: "HOLD_SEPARATE",
+      overpaymentPolicy: "CREDIT_NEXT_INVOICE",
+      invoicePrefix: "inv-",
+      receiptPrefix: "rcp-",
+    });
+    expect(policiesOnly.module).toBe("policies");
+    if (policiesOnly.module === "policies") {
+      expect(policiesOnly.invoicePrefix).toBe("INV-");
+      expect(policiesOnly.receiptPrefix).toBe("RCP-");
+    }
+
+    const operationsOnly = BusinessSettingsModuleUpdateSchema.parse({
+      module: "operations",
+      expectedVersion: 1,
+      checkInTimeManila: "14:00",
+      checkOutTimeManila: "12:00",
+      offlineUnlockMaxDays: 7,
+      proofMaxMb: 5,
+      proofMaxFilesPerRecord: 5,
+    });
+    expect(operationsOnly.module).toBe("operations");
+
+    const badProfile = BusinessSettingsModuleUpdateSchema.safeParse({
+      module: "profile",
+      expectedVersion: 0,
+      businessName: "   ",
+      businessPhone: null,
+      businessAddress: null,
+      tin: null,
+    });
+    expect(badProfile.success).toBe(false);
   });
 });

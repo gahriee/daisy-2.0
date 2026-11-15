@@ -4,20 +4,23 @@ import { revalidatePath } from "next/cache";
 import { AppError } from "@/lib/errors";
 import { requireOwnerUserId } from "@/server/auth/owner";
 import {
-  BusinessSettingsUpdateSchema,
+  BusinessSettingsModuleUpdateSchema,
   type BusinessSettingsDto,
+  type SettingsModule,
 } from "./schemas";
-import { updateBusinessSettings } from "./service";
+import { updateBusinessSettingsModule } from "./service";
 
 export type SaveSettingsActionState =
   | { status: "idle" }
   | {
       status: "saved";
+      module: SettingsModule;
       message: string;
       settings: BusinessSettingsDto;
     }
   | {
       status: "error";
+      module?: SettingsModule;
       message: string;
       fieldErrors: Record<string, string>;
     };
@@ -46,37 +49,77 @@ function readRequiredInt(formData: FormData, key: string): number {
   return Number.isFinite(parsed) ? parsed : Number.NaN;
 }
 
+function buildModuleRawInput(formData: FormData, settingsModule: string) {
+  const expectedVersion = readRequiredInt(formData, "expectedVersion");
+
+  switch (settingsModule) {
+    case "profile":
+      return {
+        module: "profile",
+        expectedVersion,
+        businessName: readString(formData, "businessName"),
+        businessPhone: readNullableString(formData, "businessPhone"),
+        businessAddress: readNullableString(formData, "businessAddress"),
+        tin: readNullableString(formData, "tin"),
+      };
+    case "policies":
+      return {
+        module: "policies",
+        expectedVersion,
+        billingDayOfMonth: readNullableInt(formData, "billingDayOfMonth"),
+        gracePeriodDays: readNullableInt(formData, "gracePeriodDays"),
+        prorationPolicy: readNullableString(formData, "prorationPolicy"),
+        depositPolicy: readNullableString(formData, "depositPolicy"),
+        overpaymentPolicy: readNullableString(formData, "overpaymentPolicy"),
+        invoicePrefix: readNullableString(formData, "invoicePrefix"),
+        receiptPrefix: readNullableString(formData, "receiptPrefix"),
+      };
+    case "operations":
+      return {
+        module: "operations",
+        expectedVersion,
+        checkInTimeManila: readNullableString(formData, "checkInTimeManila"),
+        checkOutTimeManila: readNullableString(formData, "checkOutTimeManila"),
+        offlineUnlockMaxDays: readRequiredInt(formData, "offlineUnlockMaxDays"),
+        proofMaxMb: readRequiredInt(formData, "proofMaxMb"),
+        proofMaxFilesPerRecord: readRequiredInt(
+          formData,
+          "proofMaxFilesPerRecord",
+        ),
+      };
+    default:
+      return { module: settingsModule, expectedVersion };
+  }
+}
+
+function formatSavedMessage(
+  settingsModule: SettingsModule,
+  updated: BusinessSettingsDto,
+): string {
+  switch (settingsModule) {
+    case "profile":
+      return "Property profile saved.";
+    case "policies":
+      return updated.policiesComplete
+        ? "Billing & policies saved and configured."
+        : "Billing & policies saved. Configure the remaining policy fields before invoicing or payments.";
+    case "operations":
+      return updated.stayScheduleComplete
+        ? "Stays & limits saved and configured."
+        : "Stays & limits saved. Set standard check-in and check-out times to complete stay schedule setup.";
+  }
+}
+
 export async function saveBusinessSettingsAction(
   _prevState: SaveSettingsActionState,
   formData: FormData,
 ): Promise<SaveSettingsActionState> {
+  const rawModule = readString(formData, "module");
   try {
     const ownerUserId = await requireOwnerUserId();
+    const raw = buildModuleRawInput(formData, rawModule);
+    const parsed = BusinessSettingsModuleUpdateSchema.safeParse(raw);
 
-    const raw = {
-      expectedVersion: readRequiredInt(formData, "expectedVersion"),
-      businessName: readString(formData, "businessName"),
-      businessPhone: readNullableString(formData, "businessPhone"),
-      businessAddress: readNullableString(formData, "businessAddress"),
-      tin: readNullableString(formData, "tin"),
-      billingDayOfMonth: readNullableInt(formData, "billingDayOfMonth"),
-      gracePeriodDays: readNullableInt(formData, "gracePeriodDays"),
-      prorationPolicy: readNullableString(formData, "prorationPolicy"),
-      depositPolicy: readNullableString(formData, "depositPolicy"),
-      overpaymentPolicy: readNullableString(formData, "overpaymentPolicy"),
-      invoicePrefix: readNullableString(formData, "invoicePrefix"),
-      receiptPrefix: readNullableString(formData, "receiptPrefix"),
-      checkInTimeManila: readNullableString(formData, "checkInTimeManila"),
-      checkOutTimeManila: readNullableString(formData, "checkOutTimeManila"),
-      offlineUnlockMaxDays: readRequiredInt(formData, "offlineUnlockMaxDays"),
-      proofMaxMb: readRequiredInt(formData, "proofMaxMb"),
-      proofMaxFilesPerRecord: readRequiredInt(
-        formData,
-        "proofMaxFilesPerRecord",
-      ),
-    };
-
-    const parsed = BusinessSettingsUpdateSchema.safeParse(raw);
     if (!parsed.success) {
       const fieldErrors: Record<string, string> = {};
       for (const issue of parsed.error.issues) {
@@ -87,20 +130,29 @@ export async function saveBusinessSettingsAction(
       }
       return {
         status: "error",
+        ...(rawModule === "profile" ||
+        rawModule === "policies" ||
+        rawModule === "operations"
+          ? { module: rawModule }
+          : {}),
         message: "Review the highlighted fields before saving.",
         fieldErrors,
       };
     }
 
-    const updated = await updateBusinessSettings(ownerUserId, parsed.data);
-    revalidatePath("/settings");
+    const updated = await updateBusinessSettingsModule(
+      ownerUserId,
+      parsed.data,
+    );
+    revalidatePath("/", "layout");
+    revalidatePath("/settings", "layout");
+    revalidatePath("/billing");
     revalidatePath("/audit");
 
     return {
       status: "saved",
-      message: updated.policiesComplete
-        ? "Settings saved and financial policies configured."
-        : "Settings saved. Configure the remaining policies before invoicing or reservations.",
+      module: parsed.data.module,
+      message: formatSavedMessage(parsed.data.module, updated),
       settings: updated,
     };
   } catch (error) {

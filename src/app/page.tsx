@@ -20,9 +20,9 @@ export const instant = false;
 const ledgerModules = [
   {
     index: "01",
-    title: "Rooms and beds",
+    title: "Rooms and rates",
     description:
-      "Track room capacity, bed availability, maintenance holds, and monthly or daily rates.",
+      "Track room availability, maintenance holds, and monthly or daily rates.",
   },
   {
     index: "02",
@@ -64,7 +64,7 @@ export default async function Home() {
           Property overview
         </h1>
         <p className="max-w-prose text-base leading-6 text-muted-foreground">
-          Daily workspace for boarding house beds, transient stays, billing
+          Daily workspace for boarding house rooms, transient stays, billing
           dates, and collections.
         </p>
       </section>

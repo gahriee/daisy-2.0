@@ -1,4 +1,5 @@
 import "server-only";
+import type { Prisma } from "@/generated/prisma/client";
 import { toManilaDate } from "@/lib/dates";
 import {
   ConflictError,
@@ -20,6 +21,13 @@ import {
   lockAllocationResources,
 } from "@/features/allocations/service";
 import {
+  applyVerifiedRoomPhotoPlanInTx,
+  roomPhotoSelect,
+  splitRoomPhotoDtos,
+  verifyRoomPhotoManifestForWrite,
+  type RoomPhotoRow,
+} from "./photos";
+import {
   ArchiveRestoreBedSchema,
   ArchiveRestoreRoomSchema,
   ArchiveRestoreRoomTypeSchema,
@@ -35,6 +43,7 @@ import {
   type CreateRoomInput,
   type CreateRoomTypeInput,
   type InventoryOverviewDto,
+  type RoomBuildingValue,
   type RoomDto,
   type RoomTypeDto,
   type RoomWithBedsDto,
@@ -46,6 +55,7 @@ import {
 const roomTypeSelect = {
   id: true,
   version: true,
+  building: true,
   name: true,
   monthlyRate: true,
   dailyRate: true,
@@ -60,9 +70,10 @@ const roomTypeSelect = {
   },
 } as const;
 
-const roomSummarySelect = {
+export const roomSummarySelect = {
   id: true,
   version: true,
+  building: true,
   number: true,
   floor: true,
   roomTypeId: true,
@@ -76,7 +87,16 @@ const roomSummarySelect = {
   capacity: true,
   baseMonthlyRate: true,
   transientDailyRate: true,
+  isTransientPublished: true,
   notes: true,
+  photos: {
+    orderBy: [
+      { role: "asc" },
+      { sortOrder: "asc" },
+      { updatedAt: "asc" },
+    ] as Prisma.RoomPhotoOrderByWithRelationInput[],
+    select: roomPhotoSelect,
+  },
   archivedAt: true,
   createdAt: true,
   updatedAt: true,
@@ -89,8 +109,9 @@ function decimalToString(value: { toString(): string }): string {
 function toRoomTypeDto(row: {
   id: string;
   version: number;
+  building: RoomBuildingValue;
   name: string;
-  monthlyRate: { toString(): string };
+  monthlyRate: { toString(): string } | null;
   dailyRate: { toString(): string } | null;
   description: string | null;
   archivedAt: Date | null;
@@ -101,8 +122,9 @@ function toRoomTypeDto(row: {
   return {
     id: row.id,
     version: row.version,
+    building: row.building,
     name: row.name,
-    monthlyRate: decimalToString(row.monthlyRate),
+    monthlyRate: row.monthlyRate ? decimalToString(row.monthlyRate) : null,
     dailyRate: row.dailyRate ? decimalToString(row.dailyRate) : null,
     description: row.description,
     activeRoomCount: row._count?.rooms ?? 0,
@@ -112,9 +134,10 @@ function toRoomTypeDto(row: {
   };
 }
 
-function toRoomDto(row: {
+export function toRoomDto(row: {
   id: string;
   version: number;
+  building: RoomBuildingValue;
   number: string;
   floor: string | null;
   roomTypeId: string;
@@ -124,27 +147,36 @@ function toRoomDto(row: {
     archivedAt: Date | null;
   };
   capacity: number;
-  baseMonthlyRate: { toString(): string };
+  baseMonthlyRate: { toString(): string } | null;
   transientDailyRate: { toString(): string } | null;
+  isTransientPublished: boolean;
   notes: string | null;
+  photos?: RoomPhotoRow[];
   archivedAt: Date | null;
   createdAt: Date;
   updatedAt: Date;
 }): RoomDto {
+  const { previewPhoto, galleryPhotos } = splitRoomPhotoDtos(row.photos ?? []);
   return {
     id: row.id,
     version: row.version,
+    building: row.building,
     number: row.number,
     floor: row.floor,
     roomTypeId: row.roomTypeId,
     roomTypeName: row.roomType.name,
     roomTypeArchived: row.roomType.archivedAt !== null,
     capacity: row.capacity,
-    baseMonthlyRate: decimalToString(row.baseMonthlyRate),
+    baseMonthlyRate: row.baseMonthlyRate
+      ? decimalToString(row.baseMonthlyRate)
+      : null,
     transientDailyRate: row.transientDailyRate
       ? decimalToString(row.transientDailyRate)
       : null,
+    isTransientPublished: row.isTransientPublished,
     notes: row.notes,
+    previewPhoto,
+    galleryPhotos,
     archivedAt: row.archivedAt ? row.archivedAt.toISOString() : null,
     createdAt: row.createdAt.toISOString(),
     updatedAt: row.updatedAt.toISOString(),
@@ -158,7 +190,7 @@ function toBedDto(
     version: number;
     number: string;
     label: string | null;
-    monthlyRate: { toString(): string };
+    monthlyRate: { toString(): string } | null;
     dailyRate: { toString(): string } | null;
     status: BedStatusValue;
     archivedAt: Date | null;
@@ -176,7 +208,7 @@ function toBedDto(
     version: row.version,
     number: row.number,
     label: row.label,
-    monthlyRate: decimalToString(row.monthlyRate),
+    monthlyRate: row.monthlyRate ? decimalToString(row.monthlyRate) : null,
     dailyRate: row.dailyRate ? decimalToString(row.dailyRate) : null,
     status: row.status,
     activeAllocationCount: extra?.activeAllocationCount ?? 0,
@@ -187,21 +219,86 @@ function toBedDto(
   };
 }
 
+async function listRoomTypesForOwner(
+  db: ReturnType<typeof getDatabase>,
+  ownerUserId: string,
+  building?: RoomBuildingValue,
+): Promise<RoomTypeDto[]> {
+  const rows = await db.roomType.findMany({
+    where: { ownerUserId, ...(building ? { building } : {}) },
+    orderBy: [{ archivedAt: "asc" }, { name: "asc" }],
+    select: roomTypeSelect,
+  });
+  return rows.map(toRoomTypeDto);
+}
+
+export async function getRoomCreateContext(
+  ownerUserId: string,
+  building?: RoomBuildingValue,
+): Promise<{ activeRoomTypes: RoomTypeDto[] }> {
+  const db = getDatabase();
+  const roomTypes = await listRoomTypesForOwner(db, ownerUserId, building);
+  return {
+    activeRoomTypes: roomTypes.filter((rt) => rt.archivedAt === null),
+  };
+}
+
+export async function getRoomDetail(
+  ownerUserId: string,
+  roomId: string,
+  expectedBuilding?: RoomBuildingValue,
+): Promise<{
+  room: RoomDto & { activeAllocationCount: number };
+  roomTypes: RoomTypeDto[];
+} | null> {
+  const db = getDatabase();
+  const nowUtc = new Date();
+
+  const [roomTypes, roomRow, activeAllocationCount] = await Promise.all([
+    listRoomTypesForOwner(db, ownerUserId, expectedBuilding),
+    db.room.findFirst({
+      where: {
+        id: roomId,
+        ownerUserId,
+        ...(expectedBuilding ? { building: expectedBuilding } : {}),
+      },
+      select: roomSummarySelect,
+    }),
+    db.allocation.count({
+      where: {
+        ownerUserId,
+        roomId,
+        status: "ACTIVE",
+        endDate: { gt: nowUtc },
+      },
+    }),
+  ]);
+
+  if (!roomRow) {
+    return null;
+  }
+
+  return {
+    room: {
+      ...toRoomDto(roomRow),
+      activeAllocationCount,
+    },
+    roomTypes: roomTypes.filter((rt) => rt.building === roomRow.building),
+  };
+}
+
 export async function listInventoryOverview(
   ownerUserId: string,
-  options?: { asOfUtc?: Date },
+  options?: { building?: RoomBuildingValue; asOfUtc?: Date },
 ): Promise<InventoryOverviewDto> {
   const db = getDatabase();
   const asOfUtc = options?.asOfUtc ?? new Date();
+  const building = options?.building;
 
   const [roomTypes, rooms, activeAllocations] = await Promise.all([
-    db.roomType.findMany({
-      where: { ownerUserId },
-      orderBy: [{ archivedAt: "asc" }, { name: "asc" }],
-      select: roomTypeSelect,
-    }),
+    listRoomTypesForOwner(db, ownerUserId, building),
     db.room.findMany({
-      where: { ownerUserId },
+      where: { ownerUserId, ...(building ? { building } : {}) },
       orderBy: [{ archivedAt: "asc" }, { number: "asc" }],
       select: {
         ...roomSummarySelect,
@@ -228,6 +325,7 @@ export async function listInventoryOverview(
         ownerUserId,
         status: "ACTIVE",
         endDate: { gt: asOfUtc },
+        ...(building ? { room: { building } } : {}),
       },
       orderBy: { startDate: "asc" },
       select: {
@@ -308,7 +406,7 @@ export async function listInventoryOverview(
           coveringNow.startDate <= asOfUtc
             ? `Until ${toManilaDate(coveringNow.endDate)}`
             : `Starts ${toManilaDate(coveringNow.startDate)}`;
-        currentStaySummary = `${who} · ${timing}`;
+        currentStaySummary = `${who}\n${timing}`;
       }
 
       return toBedDto(
@@ -320,6 +418,11 @@ export async function listInventoryOverview(
       );
     });
 
+    if (room.archivedAt === null && room.beds.length === 0) {
+      totalActiveBeds += 1;
+      availableBeds += 1;
+    }
+
     return {
       ...toRoomDto(room),
       activeAllocationCount: roomAllocationCount,
@@ -328,6 +431,7 @@ export async function listInventoryOverview(
   });
 
   return {
+    ...(building ? { building } : {}),
     summary: {
       totalRooms: rooms.length,
       activeRooms,
@@ -336,7 +440,7 @@ export async function listInventoryOverview(
       occupiedBeds,
       maintenanceBeds,
     },
-    roomTypes: roomTypes.map(toRoomTypeDto),
+    roomTypes,
     rooms: roomDtos,
   };
 }
@@ -403,6 +507,7 @@ export async function createRoomType(
         data: {
           ownerUserId,
           version: 1,
+          building: input.building,
           name: input.name,
           monthlyRate: input.monthlyRate,
           dailyRate: input.dailyRate,
@@ -426,11 +531,11 @@ export async function createRoomType(
       isPgConstraintError(
         error,
         "23505",
-        "RoomType_ownerUserId_name_active_key",
+        "RoomType_ownerUserId_building_name_active_key",
       )
     ) {
       throw new ConflictError(
-        "An active room type with that name already exists.",
+        "An active room type with that name already exists in this building.",
       );
     }
     throw error;
@@ -455,7 +560,7 @@ export async function updateRoomType(
     return await db.$transaction(async (tx) => {
       const existing = await tx.roomType.findFirst({
         where: { id: input.roomTypeId, ownerUserId },
-        select: { id: true, version: true, archivedAt: true },
+        select: { id: true, building: true, version: true, archivedAt: true },
       });
       if (!existing) {
         throw new NotFoundError("The requested room type was not found.");
@@ -469,6 +574,37 @@ export async function updateRoomType(
         throw new ConflictError(
           "This room type changed elsewhere. Reload and try again.",
         );
+      }
+      if (
+        input.building !== undefined &&
+        input.building !== existing.building
+      ) {
+        throw new ValidationError(
+          "Room type building cannot be changed after creation.",
+        );
+      }
+      if (existing.building === "BOARDING") {
+        if (!input.monthlyRate) {
+          throw new ValidationError(
+            "Enter a monthly price for Boarding House room types.",
+          );
+        }
+        if (input.dailyRate !== null) {
+          throw new ValidationError(
+            "Boarding House room types use monthly pricing only.",
+          );
+        }
+      } else {
+        if (!input.dailyRate) {
+          throw new ValidationError(
+            "Enter a daily rate for Transient room types.",
+          );
+        }
+        if (input.monthlyRate !== null) {
+          throw new ValidationError(
+            "Transient room types use daily pricing only.",
+          );
+        }
       }
 
       const updated = await tx.roomType.updateMany({
@@ -512,11 +648,11 @@ export async function updateRoomType(
       isPgConstraintError(
         error,
         "23505",
-        "RoomType_ownerUserId_name_active_key",
+        "RoomType_ownerUserId_building_name_active_key",
       )
     ) {
       throw new ConflictError(
-        "An active room type with that name already exists.",
+        "An active room type with that name already exists in this building.",
       );
     }
     throw error;
@@ -657,11 +793,11 @@ export async function restoreRoomType(
       isPgConstraintError(
         error,
         "23505",
-        "RoomType_ownerUserId_name_active_key",
+        "RoomType_ownerUserId_building_name_active_key",
       )
     ) {
       throw new ConflictError(
-        "An active room type with that name already exists.",
+        "An active room type with that name already exists in this building.",
       );
     }
     throw error;
@@ -679,6 +815,11 @@ export async function createRoom(
     );
   }
   const input = parsed.data;
+  const photoPlan = await verifyRoomPhotoManifestForWrite({
+    ownerUserId,
+    roomId: null,
+    manifest: input.photos,
+  });
   const db = getDatabase();
 
   try {
@@ -689,6 +830,7 @@ export async function createRoom(
         where: { id: input.roomTypeId, ownerUserId },
         select: {
           id: true,
+          building: true,
           monthlyRate: true,
           dailyRate: true,
           archivedAt: true,
@@ -702,32 +844,66 @@ export async function createRoom(
           "Selected room type is archived. Restore it or choose an active room type.",
         );
       }
+      if (roomType.building !== input.building) {
+        throw new PreconditionError(
+          "Selected room type belongs to a different building.",
+        );
+      }
 
       const resolvedMonthlyRate =
-        input.baseMonthlyRate ?? decimalToString(roomType.monthlyRate);
+        input.building === "BOARDING"
+          ? (input.baseMonthlyRate ??
+            (roomType.monthlyRate
+              ? decimalToString(roomType.monthlyRate)
+              : null))
+          : null;
       const resolvedDailyRate =
-        rawInput.transientDailyRate === undefined
-          ? roomType.dailyRate
-            ? decimalToString(roomType.dailyRate)
-            : null
-          : input.transientDailyRate;
+        input.building === "TRANSIENT"
+          ? (input.transientDailyRate ??
+            (roomType.dailyRate ? decimalToString(roomType.dailyRate) : null))
+          : null;
+      if (input.building === "BOARDING" && !resolvedMonthlyRate) {
+        throw new ValidationError(
+          "Enter a monthly rate or select a Boarding House room type with a default monthly rate.",
+        );
+      }
+      if (input.building === "TRANSIENT" && !resolvedDailyRate) {
+        throw new ValidationError(
+          "Enter a daily rate or select a Transient room type with a default daily rate.",
+        );
+      }
 
       const created = await tx.room.create({
         data: {
           ownerUserId,
           version: 1,
+          building: input.building,
           number: input.number,
           floor: input.floor,
           roomTypeId: roomType.id,
           capacity: input.capacity,
           baseMonthlyRate: resolvedMonthlyRate,
           transientDailyRate: resolvedDailyRate,
+          isTransientPublished: false,
           notes: input.notes,
         },
         select: roomSummarySelect,
       });
 
-      const dto = toRoomDto(created);
+      const photoResult = await applyVerifiedRoomPhotoPlanInTx(tx, {
+        ownerUserId,
+        roomId: created.id,
+        plan: photoPlan,
+      });
+
+      const saved = photoResult.changed
+        ? await tx.room.findUniqueOrThrow({
+            where: { id: created.id },
+            select: roomSummarySelect,
+          })
+        : created;
+
+      const dto = toRoomDto(saved);
       const sequence = await allocateSyncSequence(tx, ownerUserId);
 
       await writeAuditEntry(tx, {
@@ -742,6 +918,7 @@ export async function createRoom(
         metadata: {
           roomTypeId: dto.roomTypeId,
           capacity: dto.capacity,
+          photoCount: (dto.previewPhoto ? 1 : 0) + dto.galleryPhotos.length,
         },
       });
 
@@ -759,10 +936,14 @@ export async function createRoom(
     });
   } catch (error) {
     if (
-      isPgConstraintError(error, "23505", "Room_ownerUserId_number_active_key")
+      isPgConstraintError(
+        error,
+        "23505",
+        "Room_ownerUserId_building_number_active_key",
+      )
     ) {
       throw new ConflictError(
-        "An active room with that number already exists.",
+        "An active room with that number already exists in this building.",
       );
     }
     throw error;
@@ -780,6 +961,11 @@ export async function updateRoom(
     );
   }
   const input = parsed.data;
+  const photoPlan = await verifyRoomPhotoManifestForWrite({
+    ownerUserId,
+    roomId: input.roomId,
+    manifest: input.photos,
+  });
   const db = getDatabase();
 
   try {
@@ -788,7 +974,13 @@ export async function updateRoom(
 
       const existing = await tx.room.findFirst({
         where: { id: input.roomId, ownerUserId },
-        select: { id: true, roomTypeId: true, version: true, archivedAt: true },
+        select: {
+          id: true,
+          building: true,
+          roomTypeId: true,
+          version: true,
+          archivedAt: true,
+        },
       });
       if (!existing) {
         throw new NotFoundError("The requested room was not found.");
@@ -801,13 +993,45 @@ export async function updateRoom(
           "This room changed elsewhere. Reload and try again.",
         );
       }
+      if (
+        input.building !== undefined &&
+        input.building !== existing.building
+      ) {
+        throw new ValidationError(
+          "Room building cannot be changed after creation.",
+        );
+      }
+      if (
+        existing.building === "BOARDING" &&
+        input.transientDailyRate !== null
+      ) {
+        throw new ValidationError(
+          "Boarding House rooms cannot set a transient daily rate.",
+        );
+      }
+      if (existing.building === "TRANSIENT" && input.baseMonthlyRate !== null) {
+        throw new ValidationError(
+          "Transient Building rooms cannot set a monthly boarding rate.",
+        );
+      }
 
       const roomType = await tx.roomType.findFirst({
         where: { id: input.roomTypeId, ownerUserId },
-        select: { id: true, archivedAt: true },
+        select: {
+          id: true,
+          building: true,
+          monthlyRate: true,
+          dailyRate: true,
+          archivedAt: true,
+        },
       });
       if (!roomType) {
         throw new NotFoundError("The selected room type was not found.");
+      }
+      if (roomType.building !== existing.building) {
+        throw new PreconditionError(
+          "Selected room type belongs to a different building.",
+        );
       }
       if (
         input.roomTypeId !== existing.roomTypeId &&
@@ -827,6 +1051,29 @@ export async function updateRoom(
         );
       }
 
+      const resolvedMonthlyRate =
+        existing.building === "BOARDING"
+          ? (input.baseMonthlyRate ??
+            (roomType.monthlyRate
+              ? decimalToString(roomType.monthlyRate)
+              : null))
+          : null;
+      const resolvedDailyRate =
+        existing.building === "TRANSIENT"
+          ? (input.transientDailyRate ??
+            (roomType.dailyRate ? decimalToString(roomType.dailyRate) : null))
+          : null;
+      if (existing.building === "BOARDING" && !resolvedMonthlyRate) {
+        throw new ValidationError(
+          "Enter a monthly rate or select a Boarding House room type with a default monthly rate.",
+        );
+      }
+      if (existing.building === "TRANSIENT" && !resolvedDailyRate) {
+        throw new ValidationError(
+          "Enter a daily rate or select a Transient room type with a default daily rate.",
+        );
+      }
+
       const updated = await tx.room.updateMany({
         where: {
           id: existing.id,
@@ -840,8 +1087,8 @@ export async function updateRoom(
           floor: input.floor,
           roomTypeId: roomType.id,
           capacity: input.capacity,
-          baseMonthlyRate: input.baseMonthlyRate,
-          transientDailyRate: input.transientDailyRate,
+          baseMonthlyRate: resolvedMonthlyRate,
+          transientDailyRate: resolvedDailyRate,
           notes: input.notes,
         },
       });
@@ -850,6 +1097,12 @@ export async function updateRoom(
           "This room changed elsewhere. Reload and try again.",
         );
       }
+
+      const photoResult = await applyVerifiedRoomPhotoPlanInTx(tx, {
+        ownerUserId,
+        roomId: existing.id,
+        plan: photoPlan,
+      });
 
       const saved = await tx.room.findUniqueOrThrow({
         where: { id: existing.id },
@@ -872,6 +1125,8 @@ export async function updateRoom(
           version: dto.version,
           roomTypeId: dto.roomTypeId,
           capacity: dto.capacity,
+          photosUpdated: photoResult.changed,
+          photoCount: (dto.previewPhoto ? 1 : 0) + dto.galleryPhotos.length,
         },
       });
 
@@ -889,10 +1144,14 @@ export async function updateRoom(
     });
   } catch (error) {
     if (
-      isPgConstraintError(error, "23505", "Room_ownerUserId_number_active_key")
+      isPgConstraintError(
+        error,
+        "23505",
+        "Room_ownerUserId_building_number_active_key",
+      )
     ) {
       throw new ConflictError(
-        "An active room with that number already exists.",
+        "An active room with that number already exists in this building.",
       );
     }
     throw error;
@@ -1152,10 +1411,14 @@ export async function restoreRoom(
     });
   } catch (error) {
     if (
-      isPgConstraintError(error, "23505", "Room_ownerUserId_number_active_key")
+      isPgConstraintError(
+        error,
+        "23505",
+        "Room_ownerUserId_building_number_active_key",
+      )
     ) {
       throw new ConflictError(
-        "An active room with that number already exists.",
+        "An active room with that number already exists in this building.",
       );
     }
     throw error;
@@ -1182,13 +1445,36 @@ export async function createBed(
 
       const room = await tx.room.findFirst({
         where: { id: input.roomId, ownerUserId },
-        select: { id: true, capacity: true, archivedAt: true },
+        select: { id: true, building: true, capacity: true, archivedAt: true },
       });
       if (!room) {
         throw new NotFoundError("The requested room was not found.");
       }
       if (room.archivedAt !== null) {
         throw new PreconditionError("Restore the room before adding a bed.");
+      }
+      if (room.building === "BOARDING") {
+        if (!input.monthlyRate) {
+          throw new ValidationError(
+            "Enter a monthly rate for Boarding House beds.",
+          );
+        }
+        if (input.dailyRate !== null) {
+          throw new ValidationError(
+            "Boarding House beds cannot set a daily rate.",
+          );
+        }
+      } else {
+        if (!input.dailyRate) {
+          throw new ValidationError(
+            "Enter a daily rate for Transient Building beds.",
+          );
+        }
+        if (input.monthlyRate !== null) {
+          throw new ValidationError(
+            "Transient Building beds cannot set a monthly rate.",
+          );
+        }
       }
 
       const activeBeds = await tx.bed.count({
@@ -1303,6 +1589,7 @@ export async function updateBed(
           version: true,
           status: true,
           archivedAt: true,
+          room: { select: { building: true } },
         },
       });
       if (!existing) {
@@ -1323,6 +1610,29 @@ export async function updateBed(
         throw new ConflictError(
           "This bed changed elsewhere. Reload and try again.",
         );
+      }
+      if (existing.room.building === "BOARDING") {
+        if (!input.monthlyRate) {
+          throw new ValidationError(
+            "Enter a monthly rate for Boarding House beds.",
+          );
+        }
+        if (input.dailyRate !== null) {
+          throw new ValidationError(
+            "Boarding House beds cannot set a daily rate.",
+          );
+        }
+      } else {
+        if (!input.dailyRate) {
+          throw new ValidationError(
+            "Enter a daily rate for Transient Building beds.",
+          );
+        }
+        if (input.monthlyRate !== null) {
+          throw new ValidationError(
+            "Transient Building beds cannot set a monthly rate.",
+          );
+        }
       }
 
       const activeCover = await tx.allocation.findFirst({
@@ -1702,4 +2012,232 @@ export async function restoreBed(
     }
     throw error;
   }
+}
+
+/**
+ * Ensures an active room has a backing unit Bed record synced with the room's
+ * monthly and transient daily rates so per-room tenant assignments, transient
+ * stays, and maintenance holds operate without manual bed configuration.
+ */
+export async function syncRoomUnitBed(
+  ownerUserId: string,
+  roomId: string,
+): Promise<string | null> {
+  const db = getDatabase();
+
+  return db.$transaction(async (tx) => {
+    await lockAllocationResources(tx, ownerUserId, [roomId], []);
+
+    const room = await tx.room.findFirst({
+      where: { id: roomId, ownerUserId },
+      select: {
+        id: true,
+        building: true,
+        number: true,
+        baseMonthlyRate: true,
+        transientDailyRate: true,
+        archivedAt: true,
+      },
+    });
+    if (!room || room.archivedAt !== null) {
+      return null;
+    }
+
+    const monthlyRate =
+      room.building === "BOARDING" && room.baseMonthlyRate
+        ? decimalToString(room.baseMonthlyRate)
+        : null;
+    const dailyRate =
+      room.building === "TRANSIENT" && room.transientDailyRate
+        ? decimalToString(room.transientDailyRate)
+        : null;
+
+    const activeBeds = await tx.bed.findMany({
+      where: { ownerUserId, roomId: room.id, archivedAt: null },
+      orderBy: { createdAt: "asc" },
+      select: {
+        id: true,
+        number: true,
+        monthlyRate: true,
+        dailyRate: true,
+      },
+    });
+
+    if (activeBeds.length === 0) {
+      const archivedBed = await tx.bed.findFirst({
+        where: { ownerUserId, roomId: room.id, archivedAt: { not: null } },
+        orderBy: { updatedAt: "desc" },
+        select: { id: true },
+      });
+
+      if (archivedBed) {
+        const restored = await tx.bed.update({
+          where: { id: archivedBed.id },
+          data: {
+            archivedAt: null,
+            status: "AVAILABLE",
+            number: room.number,
+            label: null,
+            monthlyRate,
+            dailyRate,
+            version: { increment: 1 },
+          },
+          select: {
+            id: true,
+            roomId: true,
+            version: true,
+            number: true,
+            label: true,
+            monthlyRate: true,
+            dailyRate: true,
+            status: true,
+            archivedAt: true,
+            createdAt: true,
+            updatedAt: true,
+          },
+        });
+        const dto = toBedDto(restored);
+        const sequence = await allocateSyncSequence(tx, ownerUserId);
+        await writeAuditEntry(tx, {
+          ownerUserId,
+          sequence,
+          area: "rooms",
+          action: "bed.restored",
+          actorType: "owner",
+          actorId: ownerUserId,
+          entityType: "bed",
+          entityId: dto.id,
+          metadata: { roomId: dto.roomId, version: dto.version },
+        });
+        await appendChangeFeed(tx, {
+          ownerUserId,
+          sequence,
+          entityType: "bed",
+          entityId: dto.id,
+          version: dto.version,
+          operation: "upsert",
+          payload: dto,
+        });
+        return dto.id;
+      }
+
+      const created = await tx.bed.create({
+        data: {
+          ownerUserId,
+          roomId: room.id,
+          version: 1,
+          number: room.number,
+          label: null,
+          monthlyRate,
+          dailyRate,
+          status: "AVAILABLE",
+        },
+        select: {
+          id: true,
+          roomId: true,
+          version: true,
+          number: true,
+          label: true,
+          monthlyRate: true,
+          dailyRate: true,
+          status: true,
+          archivedAt: true,
+          createdAt: true,
+          updatedAt: true,
+        },
+      });
+      const dto = toBedDto(created);
+      const sequence = await allocateSyncSequence(tx, ownerUserId);
+      await writeAuditEntry(tx, {
+        ownerUserId,
+        sequence,
+        area: "rooms",
+        action: "bed.created",
+        actorType: "owner",
+        actorId: ownerUserId,
+        entityType: "bed",
+        entityId: dto.id,
+        metadata: { roomId: dto.roomId },
+      });
+      await appendChangeFeed(tx, {
+        ownerUserId,
+        sequence,
+        entityType: "bed",
+        entityId: dto.id,
+        version: dto.version,
+        operation: "upsert",
+        payload: dto,
+      });
+      return dto.id;
+    }
+
+    for (const bed of activeBeds) {
+      const currentMonthly = bed.monthlyRate
+        ? decimalToString(bed.monthlyRate)
+        : null;
+      const currentDaily = bed.dailyRate
+        ? decimalToString(bed.dailyRate)
+        : null;
+      const nextNumber = activeBeds.length === 1 ? room.number : bed.number;
+
+      if (
+        currentMonthly === monthlyRate &&
+        currentDaily === dailyRate &&
+        bed.number === nextNumber
+      ) {
+        continue;
+      }
+
+      const updated = await tx.bed.update({
+        where: { id: bed.id },
+        data: {
+          number: nextNumber,
+          monthlyRate,
+          dailyRate,
+          version: { increment: 1 },
+        },
+        select: {
+          id: true,
+          roomId: true,
+          version: true,
+          number: true,
+          label: true,
+          monthlyRate: true,
+          dailyRate: true,
+          status: true,
+          archivedAt: true,
+          createdAt: true,
+          updatedAt: true,
+        },
+      });
+      const dto = toBedDto(updated);
+      const sequence = await allocateSyncSequence(tx, ownerUserId);
+      await writeAuditEntry(tx, {
+        ownerUserId,
+        sequence,
+        area: "rooms",
+        action: "bed.updated",
+        actorType: "owner",
+        actorId: ownerUserId,
+        entityType: "bed",
+        entityId: dto.id,
+        metadata: {
+          roomId: dto.roomId,
+          version: dto.version,
+          status: dto.status,
+        },
+      });
+      await appendChangeFeed(tx, {
+        ownerUserId,
+        sequence,
+        entityType: "bed",
+        entityId: dto.id,
+        version: dto.version,
+        operation: "upsert",
+        payload: dto,
+      });
+    }
+
+    return activeBeds[0]?.id ?? null;
+  });
 }

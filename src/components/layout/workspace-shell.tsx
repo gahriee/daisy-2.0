@@ -1,7 +1,8 @@
 "use client";
 
+import { ConfirmDialog } from "@/components/ui/confirm-dialog";
+
 import {
-  Suspense,
   useEffect,
   useRef,
   useState,
@@ -9,11 +10,12 @@ import {
   type ReactNode,
 } from "react";
 import Link from "next/link";
-import { usePathname, useRouter, useSearchParams } from "next/navigation";
+import { usePathname, useRouter } from "next/navigation";
 import { DaisyBrand } from "@/components/layout/daisy-brand";
 import { Alert } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
 import { Button, buttonClasses } from "@/components/ui/button";
+import { Separator } from "@/components/ui/separator";
 import {
   Sidebar,
   SidebarContent,
@@ -38,9 +40,12 @@ import type { OwnerWorkspaceProfile } from "@/server/auth/workspace-profile";
 import type { OwnerNotification } from "@/server/notifications/service";
 
 const SIDEBAR_STORAGE_KEY = "daisy:sidebar-collapsed";
+const SIDEBAR_ROOMS_STORAGE_KEY = "daisy:sidebar-nav:rooms";
+const SIDEBAR_TRANSIENT_ROOMS_STORAGE_KEY = "daisy:sidebar-nav:transient-rooms";
+const SIDEBAR_SETTINGS_STORAGE_KEY = "daisy:sidebar-nav:settings";
 const sidebarListeners = new Set<() => void>();
 
-function subscribeSidebarCollapsed(callback: () => void) {
+function subscribeSidebarState(callback: () => void) {
   sidebarListeners.add(callback);
   window.addEventListener("storage", callback);
   return () => {
@@ -49,28 +54,43 @@ function subscribeSidebarCollapsed(callback: () => void) {
   };
 }
 
-function getSidebarCollapsedSnapshot(): boolean {
+function readSidebarFlag(key: string, fallback: boolean): boolean {
   try {
-    return window.localStorage.getItem(SIDEBAR_STORAGE_KEY) === "1";
+    const raw = window.localStorage.getItem(key);
+    if (raw === "1") return true;
+    if (raw === "0") return false;
+    return fallback;
   } catch {
-    return false;
+    return fallback;
   }
 }
 
-function getSidebarCollapsedServerSnapshot(): boolean {
-  return false;
+function writeSidebarFlag(key: string, value: boolean) {
+  try {
+    window.localStorage.setItem(key, value ? "1" : "0");
+  } catch {
+    // Ignore storage write errors.
+  }
+  for (const listener of sidebarListeners) {
+    listener();
+  }
 }
 
 const ROOMS_SECTIONS = [
-  { href: "/rooms", label: "Rooms & beds" },
+  { href: "/rooms", label: "Rooms" },
   { href: "/rooms/types", label: "Room types" },
 ] as const;
 
+const TRANSIENT_ROOMS_SECTIONS = [
+  { href: "/transients/rooms", label: "Rooms" },
+  { href: "/transients/rooms/types", label: "Room types" },
+] as const;
+
 const SETTINGS_SECTIONS = [
-  { tab: "profile", label: "Property profile" },
-  { tab: "policies", label: "Billing & policies" },
-  { tab: "operations", label: "Stays & limits" },
-  { tab: "devices", label: "Trusted devices" },
+  { href: "/settings/profile", label: "Property profile" },
+  { href: "/settings/policies", label: "Billing & policies" },
+  { href: "/settings/operations", label: "Stays & limits" },
+  { href: "/settings/devices", label: "Trusted devices" },
 ] as const;
 
 function getInitials(label: string): string {
@@ -141,6 +161,25 @@ function TenantsIcon() {
   );
 }
 
+function BillingIcon() {
+  return (
+    <svg
+      aria-hidden="true"
+      className="size-4.5"
+      viewBox="0 0 20 20"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.65"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+    >
+      <path d="M5.5 3.25h9a1.25 1.25 0 0 1 1.25 1.25v12.25l-2.25-1.4-2.25 1.4-2.25-1.4-2.25 1.4-2.5-1.4V4.5A1.25 1.25 0 0 1 5.5 3.25Z" />
+      <path d="M7.5 7.25h5" />
+      <path d="M7.5 10.25h5" />
+    </svg>
+  );
+}
+
 function AuditIcon() {
   return (
     <svg
@@ -157,6 +196,25 @@ function AuditIcon() {
       <path d="M6.5 7.5h7" />
       <path d="M6.5 10.5h7" />
       <path d="M6.5 13.5h4.5" />
+    </svg>
+  );
+}
+
+function PaymentsIcon() {
+  return (
+    <svg
+      aria-hidden="true"
+      className="size-4.5"
+      viewBox="0 0 20 20"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.65"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+    >
+      <rect x="2.75" y="4.5" width="14.5" height="11" rx="1.75" />
+      <path d="M2.75 8.25h14.5" />
+      <path d="M6 12.25h3.5" />
     </svg>
   );
 }
@@ -179,25 +237,6 @@ function SettingsIcon() {
   );
 }
 
-function TokensIcon() {
-  return (
-    <svg
-      aria-hidden="true"
-      className="size-4.5"
-      viewBox="0 0 20 20"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="1.65"
-      strokeLinecap="round"
-      strokeLinejoin="round"
-    >
-      <rect x="3" y="4" width="14" height="5" rx="1.25" />
-      <rect x="3" y="11" width="6" height="5" rx="1.25" />
-      <rect x="11" y="11" width="6" height="5" rx="1.25" />
-    </svg>
-  );
-}
-
 function BellIcon() {
   return (
     <svg
@@ -216,19 +255,72 @@ function BellIcon() {
   );
 }
 
+function TransientsIcon() {
+  return (
+    <svg
+      aria-hidden="true"
+      className="size-4.5"
+      viewBox="0 0 20 20"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.65"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+    >
+      <rect x="3" y="4.5" width="14" height="12.5" rx="1.75" />
+      <path d="M6.5 2.75v3M13.5 2.75v3M3 8.25h14" />
+      <path d="m7.75 12.5 1.75 1.75 3.25-3.25" />
+    </svg>
+  );
+}
+
+function MaintenanceIcon() {
+  return (
+    <svg
+      aria-hidden="true"
+      className="size-4.5"
+      viewBox="0 0 20 20"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.65"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+    >
+      <path d="M12.5 3.75a3.75 3.75 0 0 0-4.95 4.95L4.1 12.15a1.5 1.5 0 1 0 2.12 2.12l3.45-3.45a3.75 3.75 0 0 0 4.95-4.95l-2.05 2.05-1.95-.42-.42-1.95 2.3-1.8Z" />
+      <path d="m11.5 12 4.25 4.25" />
+    </svg>
+  );
+}
+
+function NoticesIcon() {
+  return (
+    <svg
+      aria-hidden="true"
+      className="size-4.5"
+      viewBox="0 0 20 20"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.65"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+    >
+      <path d="M4.25 8.5v3a1.5 1.5 0 0 0 1.5 1.5h2l4.75 2.75V4.25L7.75 7h-2a1.5 1.5 0 0 0-1.5 1.5Z" />
+      <path d="M15 7.5a3.5 3.5 0 0 1 0 5" />
+      <path d="M6.5 13v2.75" />
+    </svg>
+  );
+}
+
 function SettingsSubLinks({ onNavigate }: { onNavigate: () => void }) {
   const pathname = usePathname();
-  const searchParams = useSearchParams();
-  const activeTab =
-    pathname === "/settings" ? (searchParams.get("tab") ?? "profile") : "";
 
   return (
     <>
       {SETTINGS_SECTIONS.map((item) => (
         <SidebarSubLink
-          key={item.tab}
-          href={`/settings?tab=${item.tab}`}
-          active={activeTab === item.tab}
+          key={item.href}
+          href={item.href}
+          active={pathname === item.href}
           onClick={onNavigate}
         >
           {item.label}
@@ -238,26 +330,47 @@ function SettingsSubLinks({ onNavigate }: { onNavigate: () => void }) {
   );
 }
 
+const SUBROUTE_PARENT_CRUMBS: ReadonlyArray<{
+  prefix: string;
+  label: string;
+  href: string;
+}> = [
+  { prefix: "/rooms/types", label: "Boarding rooms", href: "/rooms" },
+  { prefix: "/rooms/", label: "Boarding rooms", href: "/rooms" },
+  { prefix: "/tenants/", label: "Tenants", href: "/tenants" },
+  {
+    prefix: "/transients/rooms/types",
+    label: "Transient rooms",
+    href: "/transients/rooms",
+  },
+  {
+    prefix: "/transients/rooms/",
+    label: "Transient rooms",
+    href: "/transients/rooms",
+  },
+  { prefix: "/transients/", label: "Transient", href: "/transients" },
+  { prefix: "/billing/", label: "Billing", href: "/billing" },
+  { prefix: "/payments/", label: "Payments", href: "/payments" },
+  { prefix: "/maintenance/", label: "Maintenance", href: "/maintenance" },
+];
+
 function TopbarBreadcrumb({ title }: { title: string }) {
   const pathname = usePathname();
-  const searchParams = useSearchParams();
 
   let parentCrumb: { label: string; href: string } | null = null;
   let sectionTitle: string | null = null;
-  if (pathname === "/settings") {
-    const tab = searchParams.get("tab") ?? "profile";
-    const found = SETTINGS_SECTIONS.find((s) => s.tab === tab);
-    parentCrumb = { label: title, href: "/settings" };
-    sectionTitle = found ? found.label : "Property profile";
-  } else if (
-    pathname === "/rooms/types" ||
-    pathname.startsWith("/rooms/types/")
-  ) {
-    parentCrumb = { label: "Rooms & beds", href: "/rooms" };
-    sectionTitle = title;
-  } else if (pathname.startsWith("/tenants/") && pathname !== "/tenants") {
-    parentCrumb = { label: "Tenants", href: "/tenants" };
-    sectionTitle = title;
+  if (pathname.startsWith("/settings")) {
+    const found = SETTINGS_SECTIONS.find((s) => s.href === pathname);
+    parentCrumb = { label: "Settings", href: "/settings/profile" };
+    sectionTitle = found ? found.label : title;
+  } else {
+    const matched = SUBROUTE_PARENT_CRUMBS.find((entry) =>
+      pathname.startsWith(entry.prefix),
+    );
+    if (matched) {
+      parentCrumb = { label: matched.label, href: matched.href };
+      sectionTitle = title;
+    }
   }
 
   return (
@@ -345,11 +458,16 @@ function TopbarOwnerControls({ profile }: { profile: OwnerWorkspaceProfile }) {
     };
   }, [notifOpen, profileOpen]);
 
+  const [markReadConfirmOpen, setMarkReadConfirmOpen] = useState(false);
+  const [markReadError, setMarkReadError] = useState<string | null>(null);
+  const [signOutConfirmOpen, setSignOutConfirmOpen] = useState(false);
+
   const unreadCount = notifications.filter((n) => !n.read).length;
 
   async function markAllRead() {
     const unreadKeys = notifications.filter((n) => !n.read).map((n) => n.key);
     if (unreadKeys.length === 0 || markingRead) return;
+    setMarkReadError(null);
     setMarkingRead(true);
     try {
       const response = await fetch("/api/notifications/read", {
@@ -367,7 +485,12 @@ function TopbarOwnerControls({ profile }: { profile: OwnerWorkspaceProfile }) {
             readAt: item.readAt ?? nowIso,
           })),
         );
+        setMarkReadConfirmOpen(false);
+      } else {
+        setMarkReadError("Could not mark notifications as read right now.");
       }
+    } catch {
+      setMarkReadError("Connection interrupted while marking notifications.");
     } finally {
       setMarkingRead(false);
     }
@@ -451,7 +574,11 @@ function TopbarOwnerControls({ profile }: { profile: OwnerWorkspaceProfile }) {
                   size="sm"
                   variant="ghost"
                   loading={markingRead}
-                  onClick={markAllRead}
+                  onClick={() => {
+                    setNotifOpen(false);
+                    setMarkReadError(null);
+                    setMarkReadConfirmOpen(true);
+                  }}
                 >
                   Mark read
                 </Button>
@@ -482,7 +609,7 @@ function TopbarOwnerControls({ profile }: { profile: OwnerWorkspaceProfile }) {
                       </span>
                       {!item.read && <Badge tone="warning">Unread</Badge>}
                     </div>
-                    <p className="text-xs leading-5 text-muted-foreground">
+                    <p className="whitespace-pre-line text-xs leading-5 text-muted-foreground">
                       {item.message}
                     </p>
                   </Link>
@@ -548,17 +675,17 @@ function TopbarOwnerControls({ profile }: { profile: OwnerWorkspaceProfile }) {
             <div className="grid gap-0.5 py-1.5">
               <Link
                 role="menuitem"
-                href="/settings?tab=profile"
+                href="/settings/profile"
                 onClick={() => setProfileOpen(false)}
-                className="flex min-h-10 items-center rounded-control px-2.5 text-sm text-foreground transition-colors hover:bg-surface-muted"
+                className="flex min-h-9 items-center rounded-control px-2.5 py-1.5 text-sm leading-5 text-foreground transition-colors hover:bg-surface-muted"
               >
                 Property profile
               </Link>
               <Link
                 role="menuitem"
-                href="/settings?tab=devices"
+                href="/settings/devices"
                 onClick={() => setProfileOpen(false)}
-                className="flex min-h-10 items-center rounded-control px-2.5 text-sm text-foreground transition-colors hover:bg-surface-muted"
+                className="flex min-h-9 items-center rounded-control px-2.5 py-1.5 text-sm leading-5 text-foreground transition-colors hover:bg-surface-muted"
               >
                 Trusted devices
               </Link>
@@ -566,7 +693,7 @@ function TopbarOwnerControls({ profile }: { profile: OwnerWorkspaceProfile }) {
                 role="menuitem"
                 href="/audit"
                 onClick={() => setProfileOpen(false)}
-                className="flex min-h-10 items-center rounded-control px-2.5 text-sm text-foreground transition-colors hover:bg-surface-muted"
+                className="flex min-h-9 items-center rounded-control px-2.5 py-1.5 text-sm leading-5 text-foreground transition-colors hover:bg-surface-muted"
               >
                 Audit log
               </Link>
@@ -582,8 +709,11 @@ function TopbarOwnerControls({ profile }: { profile: OwnerWorkspaceProfile }) {
                 type="button"
                 role="menuitem"
                 disabled={signingOut}
-                onClick={handleSignOut}
-                className="flex min-h-10 w-full cursor-pointer items-center justify-between rounded-control px-2.5 text-left text-sm font-medium text-danger transition-colors hover:bg-danger-surface disabled:opacity-50"
+                onClick={() => {
+                  setProfileOpen(false);
+                  setSignOutConfirmOpen(true);
+                }}
+                className="flex min-h-9 w-full cursor-pointer items-center justify-between rounded-control px-2.5 py-1.5 text-left text-sm leading-5 text-danger transition-colors hover:bg-surface-muted disabled:opacity-50"
               >
                 <span>{signingOut ? "Signing out…" : "Sign out"}</span>
               </button>
@@ -591,6 +721,37 @@ function TopbarOwnerControls({ profile }: { profile: OwnerWorkspaceProfile }) {
           </div>
         )}
       </div>
+
+      <ConfirmDialog
+        open={markReadConfirmOpen}
+        onClose={() => {
+          if (!markingRead) {
+            setMarkReadError(null);
+            setMarkReadConfirmOpen(false);
+          }
+        }}
+        onConfirm={() => void markAllRead()}
+        title="Mark all notifications as read?"
+        description={`This clears ${unreadCount} unread notification${unreadCount === 1 ? "" : "s"} from your header badge.`}
+        errorMessage={markReadError}
+        confirmLabel="Mark all read"
+        confirmVariant="primary"
+        loading={markingRead}
+      />
+
+      <ConfirmDialog
+        open={signOutConfirmOpen}
+        onClose={() => {
+          if (!signingOut) setSignOutConfirmOpen(false);
+        }}
+        onConfirm={() => void handleSignOut()}
+        title="Sign out of Daisy?"
+        description="Your active session on this browser will end and you will be returned to the sign-in page."
+        errorMessage={signOutError}
+        confirmLabel="Sign out"
+        confirmVariant="danger"
+        loading={signingOut}
+      />
     </div>
   );
 }
@@ -611,7 +772,7 @@ function ManilaDateTime() {
   return (
     <div className="grid px-1">
       <span className="text-[11px] leading-4 text-muted-foreground">
-        Asia/Manila
+        Local time
       </span>
       <time
         dateTime={now ? now.toISOString() : undefined}
@@ -648,60 +809,51 @@ export function WorkspaceShell({
 }: WorkspaceShellProps) {
   const pathname = usePathname();
   const [sidebarOpen, setSidebarOpen] = useState(false);
+  const defaultRoomsExpanded = pathname.startsWith("/rooms");
+  const defaultTransientRoomsExpanded =
+    pathname.startsWith("/transients/rooms");
+  const defaultSettingsExpanded = pathname.startsWith("/settings");
+
   const sidebarCollapsed = useSyncExternalStore(
-    subscribeSidebarCollapsed,
-    getSidebarCollapsedSnapshot,
-    getSidebarCollapsedServerSnapshot,
+    subscribeSidebarState,
+    () => readSidebarFlag(SIDEBAR_STORAGE_KEY, false),
+    () => false,
   );
-  const [roomsNavExpanded, setRoomsNavExpanded] = useState(() =>
-    pathname.startsWith("/rooms"),
+  const roomsNavExpanded = useSyncExternalStore(
+    subscribeSidebarState,
+    () => readSidebarFlag(SIDEBAR_ROOMS_STORAGE_KEY, defaultRoomsExpanded),
+    () => defaultRoomsExpanded,
   );
-  const [settingsNavExpanded, setSettingsNavExpanded] = useState(
-    () => pathname === "/settings",
+  const transientRoomsNavExpanded = useSyncExternalStore(
+    subscribeSidebarState,
+    () =>
+      readSidebarFlag(
+        SIDEBAR_TRANSIENT_ROOMS_STORAGE_KEY,
+        defaultTransientRoomsExpanded,
+      ),
+    () => defaultTransientRoomsExpanded,
+  );
+  const settingsNavExpanded = useSyncExternalStore(
+    subscribeSidebarState,
+    () =>
+      readSidebarFlag(SIDEBAR_SETTINGS_STORAGE_KEY, defaultSettingsExpanded),
+    () => defaultSettingsExpanded,
   );
 
   function toggleSidebarCollapse() {
-    const next = !getSidebarCollapsedSnapshot();
-    try {
-      window.localStorage.setItem(SIDEBAR_STORAGE_KEY, next ? "1" : "0");
-    } catch {
-      // Ignore storage write errors.
-    }
-    for (const listener of sidebarListeners) {
-      listener();
-    }
+    writeSidebarFlag(
+      SIDEBAR_STORAGE_KEY,
+      !readSidebarFlag(SIDEBAR_STORAGE_KEY, false),
+    );
   }
 
-  function handleRoomsDisclosureToggle() {
+  function toggleDisclosureSection(key: string, fallback: boolean) {
     if (sidebarCollapsed) {
-      try {
-        window.localStorage.setItem(SIDEBAR_STORAGE_KEY, "0");
-      } catch {
-        // Ignore storage write errors.
-      }
-      for (const listener of sidebarListeners) {
-        listener();
-      }
-      setRoomsNavExpanded(true);
+      writeSidebarFlag(SIDEBAR_STORAGE_KEY, false);
+      writeSidebarFlag(key, true);
       return;
     }
-    setRoomsNavExpanded((open) => !open);
-  }
-
-  function handleSettingsDisclosureToggle() {
-    if (sidebarCollapsed) {
-      try {
-        window.localStorage.setItem(SIDEBAR_STORAGE_KEY, "0");
-      } catch {
-        // Ignore storage write errors.
-      }
-      for (const listener of sidebarListeners) {
-        listener();
-      }
-      setSettingsNavExpanded(true);
-      return;
-    }
-    setSettingsNavExpanded((open) => !open);
+    writeSidebarFlag(key, !readSidebarFlag(key, fallback));
   }
 
   return (
@@ -727,9 +879,9 @@ export function WorkspaceShell({
           />
         </SidebarHeader>
 
-        <SidebarContent className="gap-3 py-3">
-          <SidebarGroup>
-            <SidebarNav aria-label="Primary navigation">
+        <SidebarContent className="gap-2.5 py-3">
+          <SidebarNav aria-label="Primary navigation" className="gap-2.5">
+            <SidebarGroup label="Overview">
               <SidebarLink
                 href="/"
                 active={pathname === "/"}
@@ -739,17 +891,29 @@ export function WorkspaceShell({
               >
                 Dashboard
               </SidebarLink>
+            </SidebarGroup>
+
+            <Separator />
+
+            <SidebarGroup label="Boarding House">
               <SidebarNavDisclosure
-                label="Rooms & beds"
+                label="Rooms"
                 icon={<RoomsIcon />}
                 active={pathname.startsWith("/rooms")}
                 expanded={roomsNavExpanded}
-                onToggle={handleRoomsDisclosureToggle}
+                onToggle={() =>
+                  toggleDisclosureSection(
+                    SIDEBAR_ROOMS_STORAGE_KEY,
+                    defaultRoomsExpanded,
+                  )
+                }
               >
                 {ROOMS_SECTIONS.map((item) => {
                   const isItemActive =
                     item.href === "/rooms"
-                      ? pathname === "/rooms"
+                      ? pathname === "/rooms" ||
+                        (pathname.startsWith("/rooms/") &&
+                          !pathname.startsWith("/rooms/types"))
                       : pathname === item.href ||
                         pathname.startsWith(`${item.href}/`);
 
@@ -774,6 +938,102 @@ export function WorkspaceShell({
               >
                 Tenants
               </SidebarLink>
+            </SidebarGroup>
+
+            <Separator />
+
+            <SidebarGroup label="Transient">
+              <SidebarLink
+                href="/transients"
+                active={
+                  pathname.startsWith("/transients") &&
+                  !pathname.startsWith("/transients/rooms")
+                }
+                icon={<TransientsIcon />}
+                {...(sidebarCollapsed ? { title: "Stays & requests" } : {})}
+                onClick={() => setSidebarOpen(false)}
+              >
+                Stays &amp; requests
+              </SidebarLink>
+              <SidebarNavDisclosure
+                label="Transient rooms"
+                icon={<RoomsIcon />}
+                active={pathname.startsWith("/transients/rooms")}
+                expanded={transientRoomsNavExpanded}
+                onToggle={() =>
+                  toggleDisclosureSection(
+                    SIDEBAR_TRANSIENT_ROOMS_STORAGE_KEY,
+                    defaultTransientRoomsExpanded,
+                  )
+                }
+              >
+                {TRANSIENT_ROOMS_SECTIONS.map((item) => {
+                  const isItemActive =
+                    item.href === "/transients/rooms"
+                      ? pathname === "/transients/rooms" ||
+                        (pathname.startsWith("/transients/rooms/") &&
+                          !pathname.startsWith("/transients/rooms/types"))
+                      : pathname === item.href ||
+                        pathname.startsWith(`${item.href}/`);
+
+                  return (
+                    <SidebarSubLink
+                      key={item.href}
+                      href={item.href}
+                      active={isItemActive}
+                      onClick={() => setSidebarOpen(false)}
+                    >
+                      {item.label}
+                    </SidebarSubLink>
+                  );
+                })}
+              </SidebarNavDisclosure>
+            </SidebarGroup>
+
+            <Separator />
+
+            <SidebarGroup label="Finance & Facility">
+              <SidebarLink
+                href="/billing"
+                active={pathname.startsWith("/billing")}
+                icon={<BillingIcon />}
+                {...(sidebarCollapsed ? { title: "Billing" } : {})}
+                onClick={() => setSidebarOpen(false)}
+              >
+                Billing
+              </SidebarLink>
+              <SidebarLink
+                href="/payments"
+                active={pathname.startsWith("/payments")}
+                icon={<PaymentsIcon />}
+                {...(sidebarCollapsed ? { title: "Payments" } : {})}
+                onClick={() => setSidebarOpen(false)}
+              >
+                Payments
+              </SidebarLink>
+              <SidebarLink
+                href="/maintenance"
+                active={pathname.startsWith("/maintenance")}
+                icon={<MaintenanceIcon />}
+                {...(sidebarCollapsed ? { title: "Maintenance" } : {})}
+                onClick={() => setSidebarOpen(false)}
+              >
+                Maintenance
+              </SidebarLink>
+              <SidebarLink
+                href="/notices"
+                active={pathname.startsWith("/notices")}
+                icon={<NoticesIcon />}
+                {...(sidebarCollapsed ? { title: "Notices" } : {})}
+                onClick={() => setSidebarOpen(false)}
+              >
+                Notices
+              </SidebarLink>
+            </SidebarGroup>
+
+            <Separator />
+
+            <SidebarGroup label="System">
               <SidebarLink
                 href="/audit"
                 active={pathname === "/audit"}
@@ -786,30 +1046,19 @@ export function WorkspaceShell({
               <SidebarNavDisclosure
                 label="Settings"
                 icon={<SettingsIcon />}
-                active={pathname === "/settings"}
+                active={pathname.startsWith("/settings")}
                 expanded={settingsNavExpanded}
-                onToggle={handleSettingsDisclosureToggle}
+                onToggle={() =>
+                  toggleDisclosureSection(
+                    SIDEBAR_SETTINGS_STORAGE_KEY,
+                    defaultSettingsExpanded,
+                  )
+                }
               >
-                <Suspense fallback={null}>
-                  <SettingsSubLinks onNavigate={() => setSidebarOpen(false)} />
-                </Suspense>
+                <SettingsSubLinks onNavigate={() => setSidebarOpen(false)} />
               </SidebarNavDisclosure>
-            </SidebarNav>
-          </SidebarGroup>
-
-          <SidebarGroup className="border-t border-border pt-3">
-            <SidebarNav aria-label="System references">
-              <SidebarLink
-                href="/design-system"
-                active={pathname === "/design-system"}
-                icon={<TokensIcon />}
-                {...(sidebarCollapsed ? { title: "Design system" } : {})}
-                onClick={() => setSidebarOpen(false)}
-              >
-                Design system
-              </SidebarLink>
-            </SidebarNav>
-          </SidebarGroup>
+            </SidebarGroup>
+          </SidebarNav>
         </SidebarContent>
 
         <SidebarFooter onToggleCollapse={toggleSidebarCollapse}>
@@ -825,9 +1074,7 @@ export function WorkspaceShell({
               controls="workspace-sidebar"
               onClick={() => setSidebarOpen((open) => !open)}
             />
-            <Suspense fallback={<TopbarTitle>{title}</TopbarTitle>}>
-              <TopbarBreadcrumb title={title} />
-            </Suspense>
+            <TopbarBreadcrumb title={title} />
           </TopbarLeft>
 
           <TopbarActions>
@@ -846,9 +1093,9 @@ export function WorkspaceShell({
         <main
           id="main-content"
           tabIndex={-1}
-          className="flex-1 px-4 py-4 outline-none sm:px-5 sm:py-5 lg:px-6 lg:py-6"
+          className="flex-1 px-4 py-5 outline-none sm:px-6 sm:py-6 lg:px-10 lg:py-8 xl:px-14"
         >
-          <div className="grid w-full gap-5">{children}</div>
+          <div className="mx-auto grid w-full max-w-7xl gap-6">{children}</div>
         </main>
       </div>
     </div>

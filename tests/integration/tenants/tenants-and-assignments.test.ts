@@ -43,7 +43,12 @@ vi.mock("@/server/auth/owner", async (original) => {
   };
 });
 
-import { ConflictError, ForbiddenError } from "../../../src/lib/errors";
+import {
+  ConflictError,
+  ForbiddenError,
+  NotFoundError,
+  PreconditionError,
+} from "../../../src/lib/errors";
 import { listAuditLogs } from "../../../src/features/audit/service";
 import {
   createBed,
@@ -54,6 +59,8 @@ import {
   archiveTenant,
   assignTenantToBed,
   createTenant,
+  createTenantNote,
+  deleteTenantNote,
   getTenantDetail,
   listTenantsOverview,
   moveOutTenantAssignment,
@@ -109,6 +116,9 @@ afterAll(async () => {
     await db.allocation.deleteMany({
       where: { ownerUserId: { startsWith: prefix } },
     });
+    await db.tenantNote.deleteMany({
+      where: { ownerUserId: { startsWith: prefix } },
+    });
     await db.tenant.deleteMany({
       where: { ownerUserId: { startsWith: prefix } },
     });
@@ -132,6 +142,11 @@ afterAll(async () => {
     });
 
     expect(
+      await db.tenantNote.count({
+        where: { ownerUserId: { startsWith: prefix } },
+      }),
+    ).toBe(0);
+    expect(
       await db.tenant.count({ where: { ownerUserId: { startsWith: prefix } } }),
     ).toBe(0);
     expect(
@@ -152,10 +167,12 @@ describe("tenants CRUD/sync and online-only TenantAssignment integration", () =>
     state.authenticated = true;
 
     const doubleType = await createRoomType(state.ownerId, {
+      building: "BOARDING",
       name: "Double",
       monthlyRate: "4800",
     });
     const room = await createRoom(state.ownerId, {
+      building: "BOARDING",
       number: "301",
       roomTypeId: doubleType.id,
       capacity: 2,
@@ -171,6 +188,30 @@ describe("tenants CRUD/sync and online-only TenantAssignment integration", () =>
       monthlyRate: "4800",
     });
 
+    const transientType = await createRoomType(state.ownerId, {
+      building: "TRANSIENT",
+      name: "Transient Room",
+      dailyRate: "750",
+    });
+    const transientRoom = await createRoom(state.ownerId, {
+      building: "TRANSIENT",
+      number: "301",
+      roomTypeId: transientType.id,
+      capacity: 1,
+    });
+    const transientBed = await createBed(state.ownerId, {
+      roomId: transientRoom.id,
+      number: "1",
+      dailyRate: "750",
+    });
+
+    const overviewBeforeAssign = await listTenantsOverview(state.ownerId);
+    expect(
+      overviewBeforeAssign.assignableBeds.some(
+        (b) => b.bedId === transientBed.id,
+      ),
+    ).toBe(false);
+
     const tenantId = randomUUID();
     const tenant = await createTenant(state.ownerId, {
       id: tenantId,
@@ -183,6 +224,23 @@ describe("tenants CRUD/sync and online-only TenantAssignment integration", () =>
 
     // Move in immediately (asOfUtc inside [start, end)) -> bed moves AVAILABLE -> OCCUPIED.
     const now = new Date("2026-11-13T04:00:00.000Z"); // 2026-11-13 12:00 Manila
+
+    // Transient Building beds cannot be assigned to Boarding House tenants.
+    await expect(
+      assignTenantToBed(
+        state.ownerId,
+        {
+          tenantId: tenant.id,
+          bedId: transientBed.id,
+          startDateManila: "2026-11-13",
+          endDateManila: "2026-11-18",
+          monthlyRate: "4800",
+          securityDeposit: "4800",
+        },
+        now,
+      ),
+    ).rejects.toBeInstanceOf(PreconditionError);
+
     const assignment = await assignTenantToBed(
       state.ownerId,
       {
@@ -439,5 +497,134 @@ describe("tenants CRUD/sync and online-only TenantAssignment integration", () =>
         },
       }),
     ).rejects.toBeInstanceOf(ForbiddenError);
+  });
+
+  it("creates, lists newest-first, deletes, isolates across owners, blocks archived edits, and logs identifier-only audit and change feed entries for TenantNote", async () => {
+    const db = state.db!;
+    const foreignOwnerId = `${prefix}-foreign-${randomUUID()}`;
+
+    const tenant = await createTenant(state.ownerId, {
+      fullName: "Liza Mendoza",
+      notes: "Legacy imported remark",
+    });
+
+    // Updating tenant profile without passing notes preserves existing legacy notes column.
+    const updatedTenant = await updateTenant(state.ownerId, {
+      tenantId: tenant.id,
+      expectedVersion: tenant.version,
+      fullName: "Liza Mendoza-Santos",
+      phone: "+63 917 555 0101",
+    });
+    expect(updatedTenant.notes).toBe("Legacy imported remark");
+
+    const firstNote = await createTenantNote(state.ownerId, {
+      tenantId: tenant.id,
+      content: "Confidential reminder 1: submitted NBI clearance",
+    });
+    await new Promise((resolve) => setTimeout(resolve, 15));
+    const secondNote = await createTenantNote(state.ownerId, {
+      tenantId: tenant.id,
+      content: "Follow-up deposit receipt verified",
+    });
+
+    const overview = await listTenantsOverview(state.ownerId);
+    const overviewRow = overview.tenants.find((row) => row.id === tenant.id);
+    expect(overviewRow?.tenantNotes.map((n) => n.id)).toEqual([
+      secondNote.id,
+      firstNote.id,
+    ]);
+
+    const detail = await getTenantDetail(state.ownerId, tenant.id);
+    expect(detail?.tenantNotes.map((n) => n.id)).toEqual([
+      secondNote.id,
+      firstNote.id,
+    ]);
+
+    // Cross-owner isolation.
+    await expect(
+      createTenantNote(foreignOwnerId, {
+        tenantId: tenant.id,
+        content: "Unauthorized note",
+      }),
+    ).rejects.toBeInstanceOf(NotFoundError);
+    await expect(
+      deleteTenantNote(foreignOwnerId, {
+        tenantId: tenant.id,
+        noteId: firstNote.id,
+      }),
+    ).rejects.toBeInstanceOf(NotFoundError);
+
+    // Archived tenant blocks adding/deleting notes until restored.
+    const archived = await archiveTenant(state.ownerId, {
+      tenantId: tenant.id,
+      expectedVersion: updatedTenant.version,
+    });
+    await expect(
+      createTenantNote(state.ownerId, {
+        tenantId: tenant.id,
+        content: "While archived",
+      }),
+    ).rejects.toBeInstanceOf(ConflictError);
+    await expect(
+      deleteTenantNote(state.ownerId, {
+        tenantId: tenant.id,
+        noteId: firstNote.id,
+      }),
+    ).rejects.toBeInstanceOf(ConflictError);
+
+    await restoreTenant(state.ownerId, {
+      tenantId: tenant.id,
+      expectedVersion: archived.version,
+    });
+
+    const deleted = await deleteTenantNote(state.ownerId, {
+      tenantId: tenant.id,
+      noteId: firstNote.id,
+    });
+    expect(deleted).toEqual({
+      deletedNoteId: firstNote.id,
+      tenantId: tenant.id,
+    });
+
+    const detailAfterDelete = await getTenantDetail(state.ownerId, tenant.id);
+    expect(detailAfterDelete?.tenantNotes.map((n) => n.id)).toEqual([
+      secondNote.id,
+    ]);
+
+    const auditEntries = await db.auditLog.findMany({
+      where: {
+        ownerUserId: state.ownerId,
+        entityType: "tenant_note",
+      },
+      orderBy: { sequence: "asc" },
+    });
+    expect(auditEntries.map((entry) => entry.action)).toEqual([
+      "tenant_note.created",
+      "tenant_note.created",
+      "tenant_note.deleted",
+    ]);
+    const serializedAudit = JSON.stringify(auditEntries, (_key, value) =>
+      typeof value === "bigint" ? value.toString() : value,
+    );
+    expect(serializedAudit).not.toContain("Confidential");
+    expect(serializedAudit).not.toContain("Follow-up");
+
+    const feedEntries = await db.changeFeed.findMany({
+      where: {
+        ownerUserId: state.ownerId,
+        entityType: "tenant_note",
+      },
+      orderBy: { sequence: "asc" },
+    });
+    expect(
+      feedEntries.map((entry) => ({
+        entityId: entry.entityId,
+        operation: entry.operation,
+      })),
+    ).toEqual([
+      { entityId: firstNote.id, operation: "upsert" },
+      { entityId: secondNote.id, operation: "upsert" },
+      { entityId: firstNote.id, operation: "tombstone" },
+    ]);
   });
 });

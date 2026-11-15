@@ -195,6 +195,8 @@ export type CreateAllocationInput = {
   actorId?: string;
   roomId: string;
   bedId?: string;
+  transientReservationId?: string;
+  maintenanceRequestId?: string;
   scope: AllocationScopeValue;
   type: AllocationTypeValue;
   startDate: Date;
@@ -333,6 +335,8 @@ export async function createAllocationInTx(
           ownerUserId: input.ownerUserId,
           roomId: data.roomId,
           bedId: bed.id,
+          transientReservationId: input.transientReservationId ?? null,
+          maintenanceRequestId: input.maintenanceRequestId ?? null,
           allocationGroupId,
           scope: data.scope,
           type: data.type,

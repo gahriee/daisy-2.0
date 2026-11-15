@@ -1,16 +1,27 @@
 import type { ComponentProps } from "react";
 import { cn } from "@/lib/cn";
-import { controlBaseClasses, editableControlClasses } from "./control-styles";
+import {
+  compactSingleLineSizingClasses,
+  controlBaseClasses,
+  editableControlClasses,
+} from "./control-styles";
 
 /**
- * Single-line text input with mobile-safe 16px body size and pixel-compensated
- * border-only focus, active, and invalid states.
+ * Single-line text input defaulting to compact 40 px mobile / 36 px desktop
+ * sizing with pixel-compensated border-only focus, active, and invalid states.
  */
+export type InputProps = ComponentProps<"input"> & {
+  variant?: "default" | "filter";
+};
+
 export function Input({
   className,
   type = "text",
+  variant = "default",
   ...props
-}: ComponentProps<"input">) {
+}: InputProps) {
+  void variant;
+
   return (
     <input
       {...props}
@@ -18,7 +29,10 @@ export function Input({
       className={cn(
         controlBaseClasses,
         editableControlClasses,
-        "min-h-11 py-2 pr-3.5 pl-3.5 not-disabled:not-read-only:focus:py-[7px] not-disabled:not-read-only:focus:pl-[13px] not-disabled:not-read-only:active:py-[7px] not-disabled:not-read-only:active:pl-[13px] read-only:focus-visible:py-[7px] read-only:focus-visible:pl-[13px] aria-invalid:not-disabled:py-[7px] aria-invalid:not-disabled:pl-[13px]",
+        compactSingleLineSizingClasses,
+        "pr-3 pl-3",
+        type === "file" &&
+          "cursor-pointer py-1 file:mr-2.5 file:cursor-pointer file:rounded-control file:border file:border-border file:bg-surface-muted file:px-2.5 file:py-1 file:text-xs file:leading-none file:font-medium file:text-foreground",
         className,
       )}
     />

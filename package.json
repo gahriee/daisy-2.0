@@ -19,7 +19,8 @@
     "format": "prettier --write . --ignore-unknown",
     "format:check": "prettier --check . --ignore-unknown",
     "test:integration": "vitest run --config vitest.integration.config.mts",
-    "db:deploy": "prisma migrate deploy"
+    "db:deploy": "prisma migrate deploy",
+    "db:seed": "prisma db seed"
   },
   "dependencies": {
     "@aws-sdk/client-s3": "^3.1168.0",

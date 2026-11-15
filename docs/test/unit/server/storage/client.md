@@ -1,11 +1,11 @@
 # Private storage client
 
 - Status: PASS
-- Last run: 2026-11-13 16:55:34 (UTC+8)
+- Last run: 2026-11-13 23:41:44 (UTC+8)
 - Runtime: Windows, Node 24.20.0, pnpm 12.18.0, Vitest 5.1.0
 - Command: pnpm test:unit
-- Result: 3 passed here (17ms); suite 44 passed, 0 failed, 0 skipped across 10 files; 509 ms total suite.
-- Scope: 3 tests: missing secrets rejected, client cleanup on provider failure, 60-second signing and client cleanup.
+- Result: 4 passed here (27 ms); suite 84 passed, 0 failed, 0 skipped across 21 files; 1.19 s total suite.
+- Scope: 4 tests: missing secrets rejected, client cleanup on provider failure, 60-second download signing and client cleanup, plus `signPrivateUpload`, `putPrivateObject`, and `headPrivateObject` (`null` on `404`) with S3 client destruction.
 - External providers are mocked; live checks are recorded separately.
 
 ## Run History
@@ -22,6 +22,7 @@
 | 2026-11-13 16:43:20 | 3 passed | 491 ms (suite) |
 | 2026-11-13 16:50:09 | 3 passed | 484 ms (suite) |
 | 2026-11-13 16:55:34 | 3 passed | 509 ms (suite) |
+| 2026-11-13 23:41:44 | 4 passed (suite: 84/84 across 21 files) | 27 ms (1.19 s suite) |
 
 ### Formatting verification run
 - 2026-11-13 13:53:50 (UTC+8): pnpm test:unit passed after Prettier formatting; 25 passed, 0 failed/skipped across 7 files, 618 ms. Existing test criteria unchanged.

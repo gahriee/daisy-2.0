@@ -47,6 +47,7 @@ import { ConflictError, ForbiddenError } from "../../../src/lib/errors";
 import {
   getBusinessSettings,
   updateBusinessSettings,
+  updateBusinessSettingsModule,
 } from "../../../src/features/settings/service";
 import { listAuditLogs } from "../../../src/features/audit/service";
 import { lockActiveDeviceForShare } from "../../../src/server/auth/device";
@@ -185,6 +186,61 @@ describe("settings, devices, notifications and auth limits integration", () => {
     expect(audit.entries).toHaveLength(1);
     expect(audit.entries[0]?.action).toBe("settings.updated");
     expect(audit.entries[0]?.entityId).toBe(v1.id);
+  });
+
+  it("saves policies, operations, and profile modules independently without overwriting each other", async () => {
+    // Owner starts by configuring Billing & policies before ever saving Property profile.
+    const v1 = await updateBusinessSettingsModule(state.ownerId, {
+      module: "policies",
+      expectedVersion: 0,
+      billingDayOfMonth: 5,
+      gracePeriodDays: 4,
+      prorationPolicy: "DAILY_30",
+      depositPolicy: "APPLY_ON_MOVE_OUT",
+      overpaymentPolicy: "REJECT_OVERPAYMENT",
+      invoicePrefix: "inv-",
+      receiptPrefix: "rcp-",
+    });
+    expect(v1.version).toBe(1);
+    expect(v1.businessName).toBe("");
+    expect(v1.invoicePrefix).toBe("INV-");
+    expect(v1.policiesComplete).toBe(true);
+    expect(v1.stayScheduleComplete).toBe(false);
+
+    // Next save Stays & limits independently; policies values remain intact and stayScheduleComplete flips true.
+    const v2 = await updateBusinessSettingsModule(state.ownerId, {
+      module: "operations",
+      expectedVersion: v1.version,
+      checkInTimeManila: "14:00",
+      checkOutTimeManila: "12:00",
+      offlineUnlockMaxDays: 14,
+      proofMaxMb: 8,
+      proofMaxFilesPerRecord: 6,
+    });
+    expect(v2.version).toBe(2);
+    expect(v2.billingDayOfMonth).toBe(5);
+    expect(v2.invoicePrefix).toBe("INV-");
+    expect(v2.offlineUnlockMaxDays).toBe(14);
+    expect(v2.policiesComplete).toBe(true);
+    expect(v2.stayScheduleComplete).toBe(true);
+
+    // Finally save Property profile independently; policies and operations remain intact.
+    const v3 = await updateBusinessSettingsModule(state.ownerId, {
+      module: "profile",
+      expectedVersion: v2.version,
+      businessName: "  Daisy Residences  ",
+      businessPhone: "+63 917 000 1111",
+      businessAddress: "Sampaloc, Manila",
+      tin: "123-456-789-000",
+    });
+    expect(v3.version).toBe(3);
+    expect(v3.businessName).toBe("Daisy Residences");
+    expect(v3.billingDayOfMonth).toBe(5);
+    expect(v3.offlineUnlockMaxDays).toBe(14);
+    expect(v3.policiesComplete).toBe(true);
+
+    const audit = await listAuditLogs(state.ownerId, { area: "settings" });
+    expect(audit.entries).toHaveLength(3);
   });
 
   it("registers devices with HttpOnly cookies, reuses active tokens, and revokes idempotently", async () => {
@@ -331,6 +387,7 @@ describe("settings, devices, notifications and auth limits integration", () => {
     };
     const keys = json1.notifications.map((n) => n.key);
     expect(keys).toContain("settings:financial-policy-incomplete");
+    expect(keys).toContain("settings:stay-schedule-incomplete");
     expect(keys.some((k) => k.startsWith("sec:"))).toBe(true);
     expect(json1.notifications.every((n) => !n.read)).toBe(true);
 

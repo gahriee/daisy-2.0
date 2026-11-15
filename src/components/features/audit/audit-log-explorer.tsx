@@ -27,13 +27,45 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
+import { TablePagination } from "@/components/ui/table-pagination";
 import {
   AUDIT_AREA_LABELS,
   AUDIT_AREAS,
   type AuditAreaFilter,
   type AuditLogEntryDto,
 } from "@/features/audit/schemas";
+import { useTablePagination } from "@/hooks/use-table-pagination";
+import { useTableSort } from "@/hooks/use-table-sort";
 import { formatManilaDateTime } from "@/lib/dates";
+import type { SortColumnDef } from "@/lib/table-sort";
+
+type AuditSortKey =
+  "createdAt" | "area" | "action" | "actor" | "entity" | "seq";
+
+const AUDIT_SORT_COLUMNS: Record<
+  AuditSortKey,
+  SortColumnDef<AuditLogEntryDto>
+> = {
+  createdAt: {
+    getValue: (entry) => entry.createdAt,
+    kind: "date",
+    defaultDirection: "desc",
+  },
+  area: {
+    getValue: (entry) =>
+      AUDIT_AREA_LABELS[entry.area as AuditAreaFilter] ?? entry.area,
+  },
+  action: { getValue: (entry) => entry.action },
+  actor: { getValue: (entry) => `${entry.actorType} ${entry.actorId}`.trim() },
+  entity: {
+    getValue: (entry) => `${entry.entityType} ${entry.entityId}`.trim(),
+  },
+  seq: {
+    getValue: (entry) => entry.sequence,
+    kind: "number",
+    defaultDirection: "desc",
+  },
+};
 
 type AuditFiltersState = {
   area: AuditAreaFilter;
@@ -125,7 +157,9 @@ export function AuditLogExplorer({
         };
         if (controller.signal.aborted) return;
         if (!response.ok) {
-          setErrorMessage(data.error ?? "Could not filter audit entries.");
+          setErrorMessage(
+            data.error ?? "Could not load matching audit entries.",
+          );
           return;
         }
         if (Array.isArray(data.entries)) {
@@ -152,6 +186,22 @@ export function AuditLogExplorer({
 
     return () => controller.abort();
   }, [filters, refreshTick]);
+
+  const {
+    sortedRows: sortedEntries,
+    sortHeaderProps,
+    sort,
+  } = useTableSort(entries, AUDIT_SORT_COLUMNS, {
+    key: "createdAt",
+    direction: "desc",
+  });
+
+  const {
+    paginatedRows: paginatedEntries,
+    paginationProps: auditPaginationProps,
+  } = useTablePagination(sortedEntries, {
+    resetKey: `${filters.area}|${filters.query}|${filters.action}|${filters.fromDate}|${filters.toDate}|${sort?.key ?? ""}|${sort?.direction ?? ""}`,
+  });
 
   const hasActiveFilters =
     filters.area !== "all" ||
@@ -182,7 +232,7 @@ export function AuditLogExplorer({
           </h1>
           <p className="max-w-prose text-sm text-muted-foreground">
             Identifier-only activity across settings, devices, and records in
-            Asia/Manila time.
+            local time.
           </p>
         </div>
 
@@ -193,7 +243,6 @@ export function AuditLogExplorer({
             loading={updating}
             disabled={updating}
             onClick={() => setRefreshTick((tick) => tick + 1)}
-            className="border-border bg-surface text-foreground hover:bg-surface-muted active:bg-surface-muted"
           >
             {!updating && (
               <svg
@@ -218,21 +267,19 @@ export function AuditLogExplorer({
       </header>
 
       <SearchFilterBar
-        title="Filter activity"
-        resultCountText={`${entries.length} matching ${entries.length === 1 ? "record" : "records"} (max 50)`}
         updating={updating}
         hasActiveFilters={hasActiveFilters}
         onClearAll={clearAllFilters}
-        aria-label="Dynamic audit log search and filters"
+        aria-label="Find audit activity"
       >
-        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-[minmax(220px,1.7fr)_minmax(150px,0.9fr)_minmax(140px,0.8fr)_minmax(140px,0.8fr)]">
-          <Field id="audit-search" label="Search action, entity, actor, or ID">
+        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-[minmax(220px,1.7fr)_minmax(150px,0.9fr)_minmax(140px,0.8fr)_minmax(140px,0.8fr)]">
+          <Field id="audit-search" label="Find activity">
             {(props) => (
               <SearchFilterInput
                 {...props}
                 value={searchInput}
                 onValueChange={setSearchInput}
-                placeholder="e.g. settings.updated, device, owner"
+                placeholder="Action, entity, actor, or ID"
               />
             )}
           </Field>
@@ -241,6 +288,7 @@ export function AuditLogExplorer({
             {(props) => (
               <Select
                 {...props}
+                variant="filter"
                 value={filters.area}
                 onChange={(event) =>
                   setFilters((prev) => ({
@@ -258,10 +306,11 @@ export function AuditLogExplorer({
             )}
           </Field>
 
-          <Field id="audit-from" label="From date (Manila)">
+          <Field id="audit-from" label="From date">
             {(props) => (
               <Input
                 {...props}
+                variant="filter"
                 type="date"
                 value={filters.fromDate}
                 onChange={(event) =>
@@ -274,10 +323,11 @@ export function AuditLogExplorer({
             )}
           </Field>
 
-          <Field id="audit-to" label="To date (Manila)">
+          <Field id="audit-to" label="To date">
             {(props) => (
               <Input
                 {...props}
+                variant="filter"
                 type="date"
                 value={filters.toDate}
                 onChange={(event) =>
@@ -320,14 +370,14 @@ export function AuditLogExplorer({
             </EmptyStateTitle>
             <EmptyStateDescription>
               {hasActiveFilters
-                ? "Try clearing your search or broadening the Manila date range."
+                ? "Try clearing what you entered or broadening the date range."
                 : "Saved property settings and domain mutations appear here without exposing personal details."}
             </EmptyStateDescription>
           </div>
           {hasActiveFilters && (
             <EmptyStateActions>
               <Button variant="secondary" size="sm" onClick={clearAllFilters}>
-                Clear filters
+                Clear
               </Button>
             </EmptyStateActions>
           )}
@@ -346,7 +396,7 @@ export function AuditLogExplorer({
                 Recorded activity
               </h2>
               <p className="text-xs text-muted-foreground">
-                Read and filter requests never generate audit entries.
+                Read and query requests never generate audit entries.
               </p>
             </div>
             <span className="text-xs font-medium text-muted-foreground tabular-nums">
@@ -355,7 +405,7 @@ export function AuditLogExplorer({
           </div>
 
           <ul className="grid gap-3 p-3 md:hidden">
-            {entries.map((entry) => (
+            {paginatedEntries.map((entry) => (
               <li key={entry.id}>
                 <Card className="grid gap-2.5 p-4">
                   <div className="flex flex-wrap items-center justify-between gap-2">
@@ -372,9 +422,10 @@ export function AuditLogExplorer({
                     {entry.action}
                   </p>
                   <div className="flex flex-wrap items-center justify-between gap-2 text-xs text-muted-foreground">
-                    <span>
-                      {entry.actorType} · {entry.entityType}
-                    </span>
+                    <div className="grid gap-0.5">
+                      <span>{entry.actorType}</span>
+                      <span>{entry.entityType}</span>
+                    </div>
                     {entry.sequence && (
                       <span className="font-mono tabular-nums">
                         #{entry.sequence}
@@ -392,17 +443,23 @@ export function AuditLogExplorer({
           <div className="hidden md:block">
             <Table containerClassName="rounded-none border-0">
               <TableHeader>
-                <tr>
-                  <TableHead>Timestamp (Manila)</TableHead>
-                  <TableHead>Area</TableHead>
-                  <TableHead>Action</TableHead>
-                  <TableHead>Actor</TableHead>
-                  <TableHead>Entity &amp; record ID</TableHead>
-                  <TableHead numeric>Seq</TableHead>
-                </tr>
+                <TableRow>
+                  <TableHead {...sortHeaderProps("createdAt")}>
+                    Timestamp
+                  </TableHead>
+                  <TableHead {...sortHeaderProps("area")}>Area</TableHead>
+                  <TableHead {...sortHeaderProps("action")}>Action</TableHead>
+                  <TableHead {...sortHeaderProps("actor")}>Actor</TableHead>
+                  <TableHead {...sortHeaderProps("entity")}>
+                    Entity &amp; record ID
+                  </TableHead>
+                  <TableHead numeric {...sortHeaderProps("seq")}>
+                    Seq
+                  </TableHead>
+                </TableRow>
               </TableHeader>
               <TableBody>
-                {entries.map((entry) => (
+                {paginatedEntries.map((entry) => (
                   <TableRow key={entry.id}>
                     <TableCell className="whitespace-nowrap text-muted-foreground tabular-nums">
                       {formatManilaDateTime(new Date(entry.createdAt))}
@@ -438,6 +495,10 @@ export function AuditLogExplorer({
               </TableBody>
             </Table>
           </div>
+          <TablePagination
+            {...auditPaginationProps}
+            label="Audit log table pagination"
+          />
         </section>
       )}
     </div>

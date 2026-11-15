@@ -1,14 +1,14 @@
 "use client";
 
-import { useActionState, useState, useTransition } from "react";
+import { ConfirmDialog } from "@/components/ui/confirm-dialog";
+
+import { useState, useTransition } from "react";
 import Image from "next/image";
 import Link from "next/link";
 import { Alert } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
 import { Button, buttonClasses } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
-import { MetricCard } from "@/components/ui/metric-card";
-import { Dialog } from "@/components/ui/dialog";
 import {
   EmptyState,
   EmptyStateActions,
@@ -16,11 +16,15 @@ import {
   EmptyStateTitle,
 } from "@/components/ui/empty-state";
 import { Field } from "@/components/ui/field";
-import { Input } from "@/components/ui/input";
+import { MetricCard } from "@/components/ui/metric-card";
 import {
   SearchFilterBar,
   SearchFilterInput,
 } from "@/components/ui/search-filter";
+import {
+  RowActionMenu,
+  type RowActionItem,
+} from "@/components/ui/row-action-menu";
 import { Select } from "@/components/ui/select";
 import {
   Table,
@@ -30,32 +34,22 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
-import {
-  CreateRoomDialog,
-  EditRoomDialog,
-} from "@/components/features/rooms/room-dialogs";
-import {
-  archiveBedAction,
-  archiveRoomAction,
-  createBedAction,
-  createRoomAction,
-  restoreBedAction,
-  restoreRoomAction,
-  updateBedAction,
-  updateRoomAction,
-  type InventoryActionResult,
-} from "@/features/rooms/actions";
+import { TablePagination } from "@/components/ui/table-pagination";
+import { archiveRoomAction, restoreRoomAction } from "@/features/rooms/actions";
 import {
   BED_STATUS_LABELS,
-  EDITABLE_BED_STATUSES,
-  type BedDto,
+  BED_STATUSES,
   type BedStatusValue,
   type InventoryOverviewDto,
+  type RoomBuildingValue,
   type RoomWithBedsDto,
 } from "@/features/rooms/schemas";
+import { useTablePagination } from "@/hooks/use-table-pagination";
+import { useTableSort } from "@/hooks/use-table-sort";
 import { formatPhpCurrency } from "@/lib/money";
+import type { SortColumnDef } from "@/lib/table-sort";
 
-const BED_BADGE_TONE: Record<
+const STATUS_BADGE_TONE: Record<
   BedStatusValue,
   "success" | "info" | "warning" | "neutral"
 > = {
@@ -65,14 +59,8 @@ const BED_BADGE_TONE: Record<
   ARCHIVED: "neutral",
 };
 
-type InventoryViewFilter = "active" | "available" | "archived" | "all";
-
-type ActiveModalState =
-  | { kind: "none" }
-  | { kind: "create-room" }
-  | { kind: "edit-room"; room: RoomWithBedsDto }
-  | { kind: "create-bed"; room: RoomWithBedsDto }
-  | { kind: "edit-bed"; room: RoomWithBedsDto; bed: BedDto };
+type RoomViewFilter = "active" | "archived" | "all";
+type StatusFilter = "ALL" | BedStatusValue;
 
 function RefreshIcon() {
   return (
@@ -92,33 +80,90 @@ function RefreshIcon() {
   );
 }
 
+function deriveRoomStatus(room: RoomWithBedsDto): BedStatusValue {
+  if (room.archivedAt !== null) return "ARCHIVED";
+  const activeBeds = room.beds.filter((bed) => bed.archivedAt === null);
+  if (activeBeds.some((bed) => bed.status === "OCCUPIED")) return "OCCUPIED";
+  if (activeBeds.some((bed) => bed.status === "MAINTENANCE")) {
+    return "MAINTENANCE";
+  }
+  return "AVAILABLE";
+}
+
+function splitStaySummary(summary: string | null): string[] | null {
+  if (!summary) return null;
+  const lines = summary
+    .split(/\r?\n|\s·\s/)
+    .map((part) => part.trim())
+    .filter(Boolean);
+  return lines.length > 0 ? lines : null;
+}
+
+function deriveRoomStaySummary(room: RoomWithBedsDto): string | null {
+  for (const bed of room.beds) {
+    if (bed.currentStaySummary) return bed.currentStaySummary;
+  }
+  return null;
+}
+
+type RoomSortKey =
+  "room" | "roomType" | "monthlyRate" | "dailyRate" | "status" | "stay";
+
+const ROOM_SORT_COLUMNS: Record<RoomSortKey, SortColumnDef<RoomWithBedsDto>> = {
+  room: { getValue: (room) => room.number },
+  roomType: { getValue: (room) => room.roomTypeName },
+  monthlyRate: {
+    getValue: (room) => room.baseMonthlyRate ?? "0",
+    kind: "money",
+    defaultDirection: "desc",
+  },
+  dailyRate: {
+    getValue: (room) => room.transientDailyRate ?? "0",
+    kind: "money",
+    defaultDirection: "desc",
+  },
+  status: { getValue: (room) => BED_STATUS_LABELS[deriveRoomStatus(room)] },
+  stay: { getValue: (room) => deriveRoomStaySummary(room) },
+};
+
 export function RoomsWorkspace({
   initialOverview,
+  building = "BOARDING",
 }: {
   initialOverview: InventoryOverviewDto;
+  building?: RoomBuildingValue;
 }) {
+  const isTransient = building === "TRANSIENT";
+  const basePath = isTransient ? "/transients/rooms" : "/rooms";
+  const typesPath = `${basePath}/types`;
   const [overview, setOverview] =
     useState<InventoryOverviewDto>(initialOverview);
   const [searchQuery, setSearchQuery] = useState("");
-  const [roomTypeFilter, setRoomTypeFilter] = useState<string>("ALL");
-  const [viewFilter, setViewFilter] = useState<InventoryViewFilter>("active");
-  const [modal, setModal] = useState<ActiveModalState>({ kind: "none" });
+  const [statusFilter, setStatusFilter] = useState<StatusFilter>("ALL");
+  const [roomViewFilter, setRoomViewFilter] =
+    useState<RoomViewFilter>("active");
   const [refreshing, setRefreshing] = useState(false);
+  const [rowPendingId, setRowPendingId] = useState<string | null>(null);
+  const [confirmingRoom, setConfirmingRoom] = useState<RoomWithBedsDto | null>(
+    null,
+  );
+  const [confirmError, setConfirmError] = useState<string | null>(null);
   const [feedback, setFeedback] = useState<{
     tone: "success" | "danger";
     message: string;
   } | null>(null);
-  const [rowPendingId, setRowPendingId] = useState<string | null>(null);
   const [, startTransition] = useTransition();
 
   async function reloadInventory() {
     setRefreshing(true);
     try {
-      const response = await fetch("/api/rooms", { cache: "no-store" });
+      const response = await fetch(`/api/rooms?building=${building}`, {
+        cache: "no-store",
+      });
       if (!response.ok) {
         setFeedback({
           tone: "danger",
-          message: "Could not refresh room inventory right now.",
+          message: "Could not refresh rooms right now.",
         });
         return;
       }
@@ -127,84 +172,21 @@ export function RoomsWorkspace({
     } catch {
       setFeedback({
         tone: "danger",
-        message: "Connect to the internet to refresh room inventory.",
+        message: "Connect to the internet to refresh rooms.",
       });
     } finally {
       setRefreshing(false);
     }
   }
 
-  const [createRoomState, submitCreateRoom, createRoomPending] = useActionState(
-    async (
-      prev: InventoryActionResult,
-      formData: FormData,
-    ): Promise<InventoryActionResult> => {
-      const result = await createRoomAction(prev, formData);
-      if (result.status === "saved") {
-        setModal({ kind: "none" });
-        setFeedback({ tone: "success", message: result.message });
-        await reloadInventory();
-      }
-      return result;
-    },
-    { status: "idle" },
-  );
-
-  const [updateRoomState, submitUpdateRoom, updateRoomPending] = useActionState(
-    async (
-      prev: InventoryActionResult,
-      formData: FormData,
-    ): Promise<InventoryActionResult> => {
-      const result = await updateRoomAction(prev, formData);
-      if (result.status === "saved") {
-        setModal({ kind: "none" });
-        setFeedback({ tone: "success", message: result.message });
-        await reloadInventory();
-      }
-      return result;
-    },
-    { status: "idle" },
-  );
-
-  const [createBedState, submitCreateBed, createBedPending] = useActionState(
-    async (
-      prev: InventoryActionResult,
-      formData: FormData,
-    ): Promise<InventoryActionResult> => {
-      const result = await createBedAction(prev, formData);
-      if (result.status === "saved") {
-        setModal({ kind: "none" });
-        setFeedback({ tone: "success", message: result.message });
-        await reloadInventory();
-      }
-      return result;
-    },
-    { status: "idle" },
-  );
-
-  const [updateBedState, submitUpdateBed, updateBedPending] = useActionState(
-    async (
-      prev: InventoryActionResult,
-      formData: FormData,
-    ): Promise<InventoryActionResult> => {
-      const result = await updateBedAction(prev, formData);
-      if (result.status === "saved") {
-        setModal({ kind: "none" });
-        setFeedback({ tone: "success", message: result.message });
-        await reloadInventory();
-      }
-      return result;
-    },
-    { status: "idle" },
-  );
-
   function handleArchiveRestoreRoom(room: RoomWithBedsDto) {
     if (rowPendingId) return;
     setFeedback(null);
+    setConfirmError(null);
     setRowPendingId(room.id);
     startTransition(async () => {
       try {
-        const res =
+        const result =
           room.archivedAt === null
             ? await archiveRoomAction({
                 roomId: room.id,
@@ -214,11 +196,12 @@ export function RoomsWorkspace({
                 roomId: room.id,
                 expectedVersion: room.version,
               });
-        if (res.status === "saved") {
-          setFeedback({ tone: "success", message: res.message });
+        if (result.status === "saved") {
+          setConfirmingRoom(null);
+          setFeedback({ tone: "success", message: result.message });
           await reloadInventory();
-        } else if (res.status === "error") {
-          setFeedback({ tone: "danger", message: res.message });
+        } else if (result.status === "error") {
+          setConfirmError(result.message);
         }
       } finally {
         setRowPendingId(null);
@@ -226,94 +209,125 @@ export function RoomsWorkspace({
     });
   }
 
-  function handleArchiveRestoreBed(bed: BedDto) {
-    if (rowPendingId) return;
-    setFeedback(null);
-    setRowPendingId(bed.id);
-    startTransition(async () => {
-      try {
-        const res =
-          bed.archivedAt === null
-            ? await archiveBedAction({
-                bedId: bed.id,
-                expectedVersion: bed.version,
-              })
-            : await restoreBedAction({
-                bedId: bed.id,
-                expectedVersion: bed.version,
-              });
-        if (res.status === "saved") {
-          setFeedback({ tone: "success", message: res.message });
-          await reloadInventory();
-        } else if (res.status === "error") {
-          setFeedback({ tone: "danger", message: res.message });
-        }
-      } finally {
-        setRowPendingId(null);
-      }
-    });
-  }
-
-  const normalizedQuery = searchQuery.trim().toLowerCase();
-  const filteredRooms = overview.rooms.filter((room) => {
-    const isArchived = room.archivedAt !== null;
-    if (viewFilter === "active" && isArchived) return false;
-    if (viewFilter === "archived" && !isArchived) return false;
-    if (viewFilter === "available") {
-      if (isArchived) return false;
-      const hasAvailable = room.beds.some(
-        (bed) => bed.archivedAt === null && bed.status === "AVAILABLE",
-      );
-      if (!hasAvailable) return false;
-    }
-
-    if (roomTypeFilter !== "ALL" && room.roomTypeId !== roomTypeFilter)
-      return false;
-
-    if (!normalizedQuery) return true;
-    const roomHaystack = [
-      room.number,
-      room.floor ?? "",
-      room.roomTypeName,
-      room.notes ?? "",
-    ]
-      .join(" ")
-      .toLowerCase();
-    if (roomHaystack.includes(normalizedQuery)) return true;
-
-    return room.beds.some((bed) =>
-      [
-        bed.number,
-        bed.label ?? "",
-        bed.currentStaySummary ?? "",
-        BED_STATUS_LABELS[bed.status],
-      ]
-        .join(" ")
-        .toLowerCase()
-        .includes(normalizedQuery),
-    );
-  });
-
-  const hasFilters =
-    normalizedQuery !== "" ||
-    roomTypeFilter !== "ALL" ||
-    viewFilter !== "active";
-
-  const summary = overview.summary;
   const activeRoomTypes = overview.roomTypes.filter(
     (rt) => rt.archivedAt === null,
   );
 
+  const activeRoomsList = overview.rooms.filter((r) => r.archivedAt === null);
+  const availableRoomsCount = activeRoomsList.filter(
+    (r) => deriveRoomStatus(r) === "AVAILABLE",
+  ).length;
+  const occupiedRoomsCount = activeRoomsList.filter(
+    (r) => deriveRoomStatus(r) === "OCCUPIED",
+  ).length;
+  const maintenanceRoomsCount = activeRoomsList.filter(
+    (r) => deriveRoomStatus(r) === "MAINTENANCE",
+  ).length;
+
+  const normalizedQuery = searchQuery.trim().toLowerCase();
+
+  const filteredRooms = overview.rooms.filter((room) => {
+    const isRoomArchived = room.archivedAt !== null;
+    if (roomViewFilter === "active" && isRoomArchived) return false;
+    if (roomViewFilter === "archived" && !isRoomArchived) return false;
+
+    const roomStatus = deriveRoomStatus(room);
+    if (statusFilter !== "ALL" && roomStatus !== statusFilter) return false;
+
+    if (!normalizedQuery) return true;
+
+    const staySummary = deriveRoomStaySummary(room) ?? "";
+    const haystack = [
+      room.number,
+      room.floor ?? "",
+      room.roomTypeName,
+      room.notes ?? "",
+      staySummary,
+    ]
+      .join(" ")
+      .toLowerCase();
+
+    return haystack.includes(normalizedQuery);
+  });
+
+  const hasFilters =
+    normalizedQuery !== "" ||
+    statusFilter !== "ALL" ||
+    roomViewFilter !== "active";
+
+  const {
+    sortedRows: sortedRooms,
+    sort,
+    sortHeaderProps,
+  } = useTableSort(filteredRooms, ROOM_SORT_COLUMNS, {
+    key: "room",
+    direction: "asc",
+  });
+
+  const { paginatedRows: paginatedRooms, paginationProps } = useTablePagination(
+    sortedRooms,
+    {
+      resetKey: `${normalizedQuery}|${statusFilter}|${roomViewFilter}|${sort?.key ?? ""}|${sort?.direction ?? ""}`,
+    },
+  );
+
+  function getRoomRowActions(
+    room: RoomWithBedsDto,
+    isRoomArchived: boolean,
+    roomBusy: boolean,
+  ): RowActionItem[] {
+    return [
+      ...(!isRoomArchived
+        ? [
+            {
+              id: "edit",
+              label: "Edit",
+              href: `${basePath}/${room.id}`,
+            },
+            ...(isTransient
+              ? [
+                  {
+                    id: "listing",
+                    label: "Public listing",
+                    href: `/transients/listings/${room.id}`,
+                  },
+                ]
+              : []),
+          ]
+        : []),
+      {
+        id: isRoomArchived ? "restore" : "archive",
+        label: isRoomArchived ? "Restore" : "Archive",
+        tone: isRoomArchived ? ("default" as const) : ("danger" as const),
+        busy: roomBusy,
+        disabled: !isRoomArchived && room.activeAllocationCount > 0,
+        onSelect: () => {
+          setConfirmError(null);
+          setConfirmingRoom(room);
+        },
+      },
+    ];
+  }
+
   return (
     <div className="grid gap-5">
-      <header className="flex flex-wrap items-start justify-between gap-4 border-b border-border pb-4">
+      <header className="flex flex-wrap items-start justify-between gap-4">
         <div className="grid gap-1">
           <h1 className="text-xl font-semibold tracking-tight text-foreground sm:text-2xl">
-            Rooms &amp; beds
+            {isTransient ? "Transient rooms" : "Boarding House rooms"}
           </h1>
           <p className="max-w-2xl text-sm leading-6 text-muted-foreground">
-            Manage boarding rooms, bed capacity, and live bed availability
-            protected by database allocation rules.
+            {isTransient
+              ? "Manage transient building rooms, daily rates, public listings, and occupancy."
+              : "Manage boarding house rooms, monthly room rates, and live occupancy."}{" "}
+            Preset categories are configured in{" "}
+            <Link
+              href={typesPath}
+              className="font-medium text-foreground underline underline-offset-4 hover:text-primary"
+            >
+              Room types
+            </Link>
+            .
           </p>
         </div>
 
@@ -322,15 +336,23 @@ export function RoomsWorkspace({
             size="md"
             variant="secondary"
             loading={refreshing}
-            className="border-border bg-surface text-foreground hover:bg-surface-muted"
             onClick={() => void reloadInventory()}
           >
             {!refreshing && <RefreshIcon />}
             <span>{refreshing ? "Refreshing…" : "Refresh"}</span>
           </Button>
-          <Button size="md" onClick={() => setModal({ kind: "create-room" })}>
+          <Link
+            href={typesPath}
+            className={buttonClasses({ variant: "secondary", size: "md" })}
+          >
+            Manage room types
+          </Link>
+          <Link
+            href={`${basePath}/new`}
+            className={buttonClasses({ variant: "primary", size: "md" })}
+          >
             Add room
-          </Button>
+          </Link>
         </div>
       </header>
 
@@ -343,18 +365,31 @@ export function RoomsWorkspace({
         </Alert>
       )}
 
+      {activeRoomTypes.length === 0 && (
+        <Alert tone="info" role="status">
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <span>
+              No active room types configured yet. Create at least one room type
+              with a preset monthly price before adding rooms.
+            </span>
+            <Link
+              href={typesPath}
+              className={buttonClasses({ variant: "secondary", size: "sm" })}
+            >
+              Create room type
+            </Link>
+          </div>
+        </Alert>
+      )}
+
       <section
-        aria-label="Inventory summary"
+        aria-label="Room summary"
         className="grid grid-cols-1 gap-3.5 sm:grid-cols-2 lg:grid-cols-4"
       >
         <MetricCard
           label="Active rooms"
-          value={summary.activeRooms}
-          description={
-            summary.totalRooms > summary.activeRooms
-              ? `${summary.totalRooms - summary.activeRooms} archived of ${summary.totalRooms} total`
-              : `${summary.totalRooms} total rooms in inventory`
-          }
+          value={activeRoomsList.length}
+          description={`${overview.summary.totalRooms} total rooms recorded`}
           icon={
             <svg
               viewBox="0 0 20 20"
@@ -367,43 +402,14 @@ export function RoomsWorkspace({
               <path d="M4.5 16.5V4.5a1 1 0 0 1 1-1h7a1 1 0 0 1 1 1v12" />
               <path d="M13.5 7.5h2a1 1 0 0 1 1 1v8" />
               <path d="M2.5 16.5h15" />
-              <path d="M10.5 10h.01" />
             </svg>
           }
         />
         <MetricCard
-          label="Active beds"
-          value={summary.totalActiveBeds}
-          description={
-            summary.activeRooms === 0
-              ? "Total beds across active rooms"
-              : `Across ${summary.activeRooms} active ${summary.activeRooms === 1 ? "room" : "rooms"}`
-          }
-          icon={
-            <svg
-              viewBox="0 0 20 20"
-              fill="none"
-              stroke="currentColor"
-              strokeWidth="1.65"
-              strokeLinecap="round"
-              strokeLinejoin="round"
-            >
-              <path d="M3 15.5v-8" />
-              <path d="M3 12.5h14v3" />
-              <path d="M17 12.5v-2a2 2 0 0 0-2-2H8.5v4" />
-              <circle cx="5.75" cy="9.5" r="1.25" />
-            </svg>
-          }
-        />
-        <MetricCard
-          label="Available now"
-          value={summary.availableBeds}
+          label="Available rooms"
+          value={availableRoomsCount}
           tone="success"
-          description={
-            summary.availableBeds === 0
-              ? "No vacant beds ready right now"
-              : "Vacant beds ready for move-in"
-          }
+          description="Ready for tenant or transient stay"
           icon={
             <svg
               viewBox="0 0 20 20"
@@ -413,20 +419,16 @@ export function RoomsWorkspace({
               strokeLinecap="round"
               strokeLinejoin="round"
             >
-              <circle cx="10" cy="10" r="6.75" />
-              <path d="m7.25 10.25 1.85 1.85 3.65-3.85" />
+              <circle cx="10" cy="10" r="7" />
+              <path d="m7.25 10.25 2 2 3.75-4" />
             </svg>
           }
         />
         <MetricCard
-          label="Occupied / Maintenance"
-          value={summary.occupiedBeds}
-          tone={summary.maintenanceBeds > 0 ? "warning" : "neutral"}
-          description={
-            summary.maintenanceBeds > 0
-              ? `${summary.maintenanceBeds} in maintenance right now`
-              : "Currently assigned, 0 in maintenance"
-          }
+          label="Occupied rooms"
+          value={occupiedRoomsCount}
+          tone="info"
+          description="Active tenant or transient stay"
           icon={
             <svg
               viewBox="0 0 20 20"
@@ -436,69 +438,85 @@ export function RoomsWorkspace({
               strokeLinecap="round"
               strokeLinejoin="round"
             >
-              <path d="M12.2 4.3a3.5 3.5 0 0 0-4.4 4.4l-3.9 3.9a1.25 1.25 0 0 0 1.77 1.77l3.9-3.9a3.5 3.5 0 0 0 4.4-4.4l-1.9 1.9-1.77-1.77 1.9-1.9Z" />
+              <circle cx="10" cy="7" r="3" />
+              <path d="M4.5 16.5a5.5 5.5 0 0 1 11 0" />
+            </svg>
+          }
+        />
+        <MetricCard
+          label="In maintenance"
+          value={maintenanceRoomsCount}
+          tone={maintenanceRoomsCount > 0 ? "warning" : "neutral"}
+          description="Temporarily held from booking"
+          icon={
+            <svg
+              viewBox="0 0 20 20"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="1.65"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+            >
+              <path d="M10 3.25 17 16H3L10 3.25Z" />
+              <path d="M10 8.5v3.25" />
+              <circle cx="10" cy="13.9" r="0.65" fill="currentColor" />
             </svg>
           }
         />
       </section>
 
       <SearchFilterBar
-        title="Filter rooms & beds"
-        resultCountText={`${filteredRooms.length} ${
-          filteredRooms.length === 1 ? "room" : "rooms"
-        } shown`}
+        aria-label="Find rooms"
         hasActiveFilters={hasFilters}
         onClearAll={() => {
           setSearchQuery("");
-          setRoomTypeFilter("ALL");
-          setViewFilter("active");
+          setStatusFilter("ALL");
+          setRoomViewFilter("active");
         }}
       >
-        <div className="grid grid-cols-1 gap-3 md:grid-cols-2 lg:grid-cols-4">
-          <div className="grid min-w-0 gap-2 md:col-span-2">
-            <label
-              htmlFor="inventory-search"
-              className="text-sm font-medium leading-5 text-foreground"
-            >
-              Search rooms or beds
-            </label>
-            <SearchFilterInput
-              id="inventory-search"
-              value={searchQuery}
-              onValueChange={setSearchQuery}
-              placeholder="e.g. 101, Upper bunk, Single, occupied"
-            />
-          </div>
+        <div className="grid grid-cols-1 gap-3 md:grid-cols-3">
+          <Field id="inventory-search" label="Find a room">
+            {({ id }) => (
+              <SearchFilterInput
+                id={id}
+                value={searchQuery}
+                onValueChange={setSearchQuery}
+                placeholder="Room number, floor, room type, or occupant"
+              />
+            )}
+          </Field>
 
-          <Field id="inventory-room-type" label="Room type">
+          <Field id="inventory-status-filter" label="Room status">
             {(fieldProps) => (
               <Select
                 {...fieldProps}
-                value={roomTypeFilter}
-                onChange={(e) => setRoomTypeFilter(e.target.value)}
+                variant="filter"
+                value={statusFilter}
+                onChange={(e) =>
+                  setStatusFilter(e.target.value as StatusFilter)
+                }
               >
-                <option value="ALL">All types</option>
-                {overview.roomTypes.map((rt) => (
-                  <option key={rt.id} value={rt.id}>
-                    {rt.name}
-                    {rt.archivedAt !== null ? " (Archived)" : ""}
+                <option value="ALL">All statuses</option>
+                {BED_STATUSES.map((st) => (
+                  <option key={st} value={st}>
+                    {BED_STATUS_LABELS[st]}
                   </option>
                 ))}
               </Select>
             )}
           </Field>
 
-          <Field id="inventory-view-filter" label="Inventory view">
+          <Field id="inventory-room-view" label="Room view">
             {(fieldProps) => (
               <Select
                 {...fieldProps}
-                value={viewFilter}
+                variant="filter"
+                value={roomViewFilter}
                 onChange={(e) =>
-                  setViewFilter(e.target.value as InventoryViewFilter)
+                  setRoomViewFilter(e.target.value as RoomViewFilter)
                 }
               >
                 <option value="active">Active rooms</option>
-                <option value="available">With available beds</option>
                 <option value="archived">Archived rooms</option>
                 <option value="all">All rooms</option>
               </Select>
@@ -524,558 +542,286 @@ export function RoomsWorkspace({
             <EmptyStateTitle>
               {overview.rooms.length === 0
                 ? "No rooms configured yet"
-                : "No matching rooms or beds"}
+                : "No matching rooms"}
             </EmptyStateTitle>
             <EmptyStateDescription>
               {overview.rooms.length === 0
-                ? "Add your first room and beds to start tracking availability, monthly rates, and tenant assignments."
-                : "Try clearing a filter or searching by a different room number, bed label, or status."}
+                ? "Add your first room and set its monthly and daily rates to start assigning boarders and transient stays."
+                : "Try clearing what you entered or changing the room status."}
             </EmptyStateDescription>
           </div>
           <EmptyStateActions>
             {overview.rooms.length === 0 ? (
-              activeRoomTypes.length === 0 ? (
+              <>
                 <Link
-                  href="/rooms/types"
+                  href={typesPath}
+                  className={buttonClasses({ variant: "secondary" })}
+                >
+                  Manage room types
+                </Link>
+                <Link
+                  href={`${basePath}/new`}
                   className={buttonClasses({ size: "md" })}
                 >
-                  Create room type
-                </Link>
-              ) : (
-                <Button onClick={() => setModal({ kind: "create-room" })}>
                   Add room
-                </Button>
-              )
+                </Link>
+              </>
             ) : (
               <Button
                 variant="secondary"
                 onClick={() => {
                   setSearchQuery("");
-                  setRoomTypeFilter("ALL");
-                  setViewFilter("active");
+                  setStatusFilter("ALL");
+                  setRoomViewFilter("active");
                 }}
               >
-                Clear filters
+                Clear
               </Button>
             )}
           </EmptyStateActions>
         </EmptyState>
       ) : (
-        <div className="grid gap-4">
-          {filteredRooms.map((room) => {
-            const activeBedCount = room.beds.filter(
-              (bed) => bed.archivedAt === null,
-            ).length;
-            const visibleBeds =
-              viewFilter === "active" || viewFilter === "available"
-                ? room.beds.filter((bed) => bed.archivedAt === null)
-                : room.beds;
-            const isArchivedRoom = room.archivedAt !== null;
-            const isRowBusy = rowPendingId === room.id;
+        <Card className="overflow-hidden p-0 sm:p-0">
+          <div className="flex flex-wrap items-center justify-between gap-2 border-b border-border px-4 py-3 sm:px-6 sm:py-3.5">
+            <h2 className="text-sm font-semibold text-foreground">
+              Room directory
+            </h2>
+            <span className="text-xs text-muted-foreground tabular-nums">
+              {filteredRooms.length}{" "}
+              {filteredRooms.length === 1 ? "room" : "rooms"}
+            </span>
+          </div>
 
-            return (
-              <Card key={room.id} className="overflow-hidden p-0 sm:p-0">
-                <div className="flex flex-wrap items-start justify-between gap-4 border-b border-border bg-background/45 px-4 py-3.5 sm:px-6 sm:py-4">
-                  <div className="grid gap-1">
-                    <div className="flex flex-wrap items-center gap-2">
-                      <h2 className="text-base font-semibold text-foreground tabular-nums">
+          {/* Mobile 360px card layout */}
+          <div className="grid divide-y divide-border md:hidden">
+            {paginatedRooms.map((room) => {
+              const isRoomArchived = room.archivedAt !== null;
+              const roomBusy = rowPendingId === room.id;
+              const roomStatus = deriveRoomStatus(room);
+              const stayLines = splitStaySummary(deriveRoomStaySummary(room));
+
+              return (
+                <div key={room.id} className="grid gap-3 p-4">
+                  <div className="flex items-start justify-between gap-2">
+                    <div className="grid gap-0.5">
+                      <Link
+                        href={`${basePath}/${room.id}`}
+                        className="text-sm font-semibold text-foreground hover:text-primary"
+                      >
                         Room {room.number}
-                      </h2>
-                      <Badge tone={isArchivedRoom ? "neutral" : "info"}>
+                      </Link>
+                      <span className="text-xs text-muted-foreground">
                         {room.roomTypeName}
-                      </Badge>
+                      </span>
                       {room.floor && (
                         <span className="text-xs text-muted-foreground">
-                          Floor {room.floor}
+                          {room.floor}
                         </span>
                       )}
-                      {isArchivedRoom && <Badge tone="neutral">Archived</Badge>}
                     </div>
-                    <p className="text-xs text-muted-foreground tabular-nums">
-                      {activeBedCount} / {room.capacity}{" "}
-                      {room.capacity === 1 ? "bed" : "beds"} active · Base{" "}
-                      {formatPhpCurrency(room.baseMonthlyRate)}/mo
-                      {room.transientDailyRate
-                        ? ` · Daily ${formatPhpCurrency(room.transientDailyRate)}`
-                        : ""}
-                    </p>
-                    {room.notes && (
-                      <p className="text-xs text-muted-foreground">
-                        {room.notes}
-                      </p>
-                    )}
+                    <Badge tone={STATUS_BADGE_TONE[roomStatus]}>
+                      {BED_STATUS_LABELS[roomStatus]}
+                    </Badge>
                   </div>
 
-                  <div className="flex flex-wrap items-center gap-2">
-                    {!isArchivedRoom && (
-                      <>
-                        <Button
-                          size="sm"
-                          variant="secondary"
-                          disabled={activeBedCount >= room.capacity}
-                          onClick={() => setModal({ kind: "create-bed", room })}
-                        >
-                          Add bed
-                        </Button>
-                        <Button
-                          size="sm"
-                          variant="secondary"
-                          onClick={() => setModal({ kind: "edit-room", room })}
-                        >
-                          Edit room
-                        </Button>
-                      </>
-                    )}
-                    <Button
-                      size="sm"
-                      variant={isArchivedRoom ? "secondary" : "ghost"}
-                      loading={isRowBusy}
-                      disabled={
-                        !isArchivedRoom && room.activeAllocationCount > 0
-                      }
-                      onClick={() => handleArchiveRestoreRoom(room)}
-                    >
-                      {isArchivedRoom ? "Restore room" : "Archive"}
-                    </Button>
+                  <div className="flex flex-wrap items-start justify-between gap-2 text-xs text-muted-foreground tabular-nums">
+                    <div className="grid gap-0.5">
+                      {isTransient ? (
+                        <span>
+                          Daily{" "}
+                          <strong className="font-semibold text-foreground">
+                            {formatPhpCurrency(
+                              room.transientDailyRate ?? "0.00",
+                            )}
+                          </strong>
+                        </span>
+                      ) : (
+                        <span>
+                          Monthly{" "}
+                          <strong className="font-semibold text-foreground">
+                            {formatPhpCurrency(room.baseMonthlyRate ?? "0.00")}
+                          </strong>
+                        </span>
+                      )}
+                    </div>
+                    <div className="grid gap-0.5 text-right">
+                      {stayLines ? (
+                        <>
+                          <span className="font-medium text-foreground">
+                            {stayLines[0]}
+                          </span>
+                          {stayLines[1] && <span>{stayLines[1]}</span>}
+                        </>
+                      ) : (
+                        <span>No active stay</span>
+                      )}
+                    </div>
+                  </div>
+
+                  {room.notes && (
+                    <p className="text-xs leading-5 text-muted-foreground">
+                      {room.notes}
+                    </p>
+                  )}
+
+                  <div className="flex items-center justify-between gap-2 border-t border-border pt-2.5">
+                    <span className="text-xs text-muted-foreground">
+                      Actions
+                    </span>
+                    <RowActionMenu
+                      label={`Actions for Room ${room.number}`}
+                      items={getRoomRowActions(room, isRoomArchived, roomBusy)}
+                    />
                   </div>
                 </div>
+              );
+            })}
+          </div>
 
-                {!isArchivedRoom && room.activeAllocationCount > 0 && (
-                  <div className="border-b border-border bg-info-surface/40 px-4 py-2 text-xs text-info sm:px-6">
-                    Archival is blocked while {room.activeAllocationCount}{" "}
-                    active or upcoming{" "}
-                    {room.activeAllocationCount === 1
-                      ? "allocation"
-                      : "allocations"}{" "}
-                    remain on this room.
-                  </div>
-                )}
+          {/* Desktop data table */}
+          <div className="hidden md:block">
+            <Table containerClassName="rounded-none border-0">
+              <TableHeader>
+                <TableRow>
+                  <TableHead {...sortHeaderProps("room")}>Room</TableHead>
+                  <TableHead {...sortHeaderProps("roomType")}>
+                    Room type
+                  </TableHead>
+                  {isTransient ? (
+                    <TableHead numeric {...sortHeaderProps("dailyRate")}>
+                      Daily rate
+                    </TableHead>
+                  ) : (
+                    <TableHead numeric {...sortHeaderProps("monthlyRate")}>
+                      Monthly rate
+                    </TableHead>
+                  )}
+                  <TableHead {...sortHeaderProps("status")}>Status</TableHead>
+                  <TableHead {...sortHeaderProps("stay")}>
+                    Current / next stay
+                  </TableHead>
+                  <TableHead className="text-right">Actions</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {paginatedRooms.map((room) => {
+                  const isRoomArchived = room.archivedAt !== null;
+                  const roomBusy = rowPendingId === room.id;
+                  const roomStatus = deriveRoomStatus(room);
+                  const stayLines = splitStaySummary(
+                    deriveRoomStaySummary(room),
+                  );
 
-                {visibleBeds.length === 0 ? (
-                  <div className="flex flex-wrap items-center justify-between gap-3 px-4 py-5 text-sm text-muted-foreground sm:px-6">
-                    <span>
-                      {room.beds.length === 0
-                        ? "No beds added to this room yet."
-                        : "All beds in this room are archived."}
-                    </span>
-                    {!isArchivedRoom && activeBedCount < room.capacity && (
-                      <Button
-                        size="sm"
-                        variant="secondary"
-                        onClick={() => setModal({ kind: "create-bed", room })}
-                      >
-                        Add first bed
-                      </Button>
-                    )}
-                  </div>
-                ) : (
-                  <>
-                    {/* Mobile bed list (360 px safe) */}
-                    <div className="grid divide-y divide-border md:hidden">
-                      {visibleBeds.map((bed) => {
-                        const isBedArchived = bed.archivedAt !== null;
-                        const bedBusy = rowPendingId === bed.id;
-                        return (
-                          <div key={bed.id} className="grid gap-2.5 p-4">
-                            <div className="flex items-start justify-between gap-2">
-                              <div className="grid gap-0.5">
-                                <span className="text-sm font-semibold text-foreground tabular-nums">
-                                  Bed {bed.number}
-                                  {bed.label ? ` · ${bed.label}` : ""}
-                                </span>
-                                <span className="text-xs text-muted-foreground tabular-nums">
-                                  {formatPhpCurrency(bed.monthlyRate)}/mo
-                                  {bed.dailyRate
-                                    ? ` · ${formatPhpCurrency(bed.dailyRate)}/day`
-                                    : ""}
-                                </span>
-                              </div>
-                              <Badge tone={BED_BADGE_TONE[bed.status]}>
-                                {BED_STATUS_LABELS[bed.status]}
-                              </Badge>
-                            </div>
-
-                            {bed.currentStaySummary && (
-                              <p className="text-xs text-muted-foreground">
-                                {bed.currentStaySummary}
-                              </p>
-                            )}
-
-                            <div className="flex flex-wrap items-center gap-2 pt-1">
-                              {!isBedArchived && !isArchivedRoom && (
-                                <Button
-                                  size="sm"
-                                  variant="secondary"
-                                  onClick={() =>
-                                    setModal({ kind: "edit-bed", room, bed })
-                                  }
-                                >
-                                  Edit
-                                </Button>
-                              )}
-                              {(!isBedArchived || !isArchivedRoom) && (
-                                <Button
-                                  size="sm"
-                                  variant={
-                                    isBedArchived ? "secondary" : "ghost"
-                                  }
-                                  loading={bedBusy}
-                                  disabled={
-                                    !isBedArchived &&
-                                    bed.activeAllocationCount > 0
-                                  }
-                                  onClick={() => handleArchiveRestoreBed(bed)}
-                                >
-                                  {isBedArchived ? "Restore" : "Archive"}
-                                </Button>
-                              )}
-                            </div>
+                  return (
+                    <TableRow key={room.id}>
+                      <TableCell>
+                        <div className="grid gap-0.5">
+                          <Link
+                            href={`${basePath}/${room.id}`}
+                            className="font-semibold text-foreground hover:text-primary"
+                          >
+                            Room {room.number}
+                          </Link>
+                          {room.floor && (
+                            <span className="text-xs text-muted-foreground">
+                              {room.floor}
+                            </span>
+                          )}
+                          {room.notes && (
+                            <span className="text-xs text-muted-foreground">
+                              {room.notes}
+                            </span>
+                          )}
+                        </div>
+                      </TableCell>
+                      <TableCell>
+                        <div className="flex flex-wrap items-center gap-1.5">
+                          <span className="text-foreground">
+                            {room.roomTypeName}
+                          </span>
+                          {room.roomTypeArchived && (
+                            <Badge tone="neutral">Archived type</Badge>
+                          )}
+                        </div>
+                      </TableCell>
+                      <TableCell numeric className="font-medium">
+                        {formatPhpCurrency(
+                          isTransient
+                            ? (room.transientDailyRate ?? "0.00")
+                            : (room.baseMonthlyRate ?? "0.00"),
+                        )}
+                      </TableCell>
+                      <TableCell>
+                        <Badge tone={STATUS_BADGE_TONE[roomStatus]}>
+                          {BED_STATUS_LABELS[roomStatus]}
+                        </Badge>
+                      </TableCell>
+                      <TableCell className="text-xs text-muted-foreground tabular-nums">
+                        {stayLines ? (
+                          <div className="grid gap-0.5">
+                            <span className="font-medium text-foreground">
+                              {stayLines[0]}
+                            </span>
+                            {stayLines[1] && <span>{stayLines[1]}</span>}
                           </div>
-                        );
-                      })}
-                    </div>
+                        ) : (
+                          "No active stay"
+                        )}
+                      </TableCell>
+                      <TableCell className="text-right">
+                        <RowActionMenu
+                          label={`Actions for Room ${room.number}`}
+                          items={getRoomRowActions(
+                            room,
+                            isRoomArchived,
+                            roomBusy,
+                          )}
+                        />
+                      </TableCell>
+                    </TableRow>
+                  );
+                })}
+              </TableBody>
+            </Table>
+          </div>
 
-                    {/* Desktop table */}
-                    <div className="hidden md:block">
-                      <Table containerClassName="rounded-none border-0">
-                        <TableHeader>
-                          <TableRow>
-                            <TableHead>Bed</TableHead>
-                            <TableHead numeric>Monthly rate</TableHead>
-                            <TableHead numeric>Daily rate</TableHead>
-                            <TableHead>Status</TableHead>
-                            <TableHead>Current / upcoming stay</TableHead>
-                            <TableHead className="text-right">
-                              Actions
-                            </TableHead>
-                          </TableRow>
-                        </TableHeader>
-                        <TableBody>
-                          {visibleBeds.map((bed) => {
-                            const isBedArchived = bed.archivedAt !== null;
-                            const bedBusy = rowPendingId === bed.id;
-                            return (
-                              <TableRow key={bed.id}>
-                                <TableCell className="font-medium tabular-nums">
-                                  <div>Bed {bed.number}</div>
-                                  {bed.label && (
-                                    <div className="text-xs font-normal text-muted-foreground">
-                                      {bed.label}
-                                    </div>
-                                  )}
-                                </TableCell>
-                                <TableCell numeric>
-                                  {formatPhpCurrency(bed.monthlyRate)}
-                                </TableCell>
-                                <TableCell numeric>
-                                  {bed.dailyRate
-                                    ? formatPhpCurrency(bed.dailyRate)
-                                    : "—"}
-                                </TableCell>
-                                <TableCell>
-                                  <Badge tone={BED_BADGE_TONE[bed.status]}>
-                                    {BED_STATUS_LABELS[bed.status]}
-                                  </Badge>
-                                </TableCell>
-                                <TableCell className="text-xs text-muted-foreground">
-                                  {bed.currentStaySummary ?? "No active hold"}
-                                </TableCell>
-                                <TableCell className="text-right">
-                                  <div className="inline-flex items-center justify-end gap-2">
-                                    {!isBedArchived && !isArchivedRoom && (
-                                      <Button
-                                        size="sm"
-                                        variant="secondary"
-                                        onClick={() =>
-                                          setModal({
-                                            kind: "edit-bed",
-                                            room,
-                                            bed,
-                                          })
-                                        }
-                                      >
-                                        Edit
-                                      </Button>
-                                    )}
-                                    {(!isBedArchived || !isArchivedRoom) && (
-                                      <Button
-                                        size="sm"
-                                        variant={
-                                          isBedArchived ? "secondary" : "ghost"
-                                        }
-                                        loading={bedBusy}
-                                        disabled={
-                                          !isBedArchived &&
-                                          bed.activeAllocationCount > 0
-                                        }
-                                        onClick={() =>
-                                          handleArchiveRestoreBed(bed)
-                                        }
-                                      >
-                                        {isBedArchived ? "Restore" : "Archive"}
-                                      </Button>
-                                    )}
-                                  </div>
-                                </TableCell>
-                              </TableRow>
-                            );
-                          })}
-                        </TableBody>
-                      </Table>
-                    </div>
-                  </>
-                )}
-              </Card>
-            );
-          })}
-        </div>
+          <TablePagination
+            {...paginationProps}
+            label="Rooms table pagination"
+          />
+        </Card>
       )}
-
-      <CreateRoomDialog
-        open={modal.kind === "create-room"}
-        activeRoomTypes={activeRoomTypes}
-        pending={createRoomPending}
-        state={createRoomState}
-        onClose={() => setModal({ kind: "none" })}
-        onSubmit={submitCreateRoom}
-      />
-
-      <EditRoomDialog
-        room={modal.kind === "edit-room" ? modal.room : null}
-        roomTypes={overview.roomTypes}
-        pending={updateRoomPending}
-        state={updateRoomState}
-        onClose={() => setModal({ kind: "none" })}
-        onSubmit={submitUpdateRoom}
-      />
-
-      {/* Create Bed Dialog */}
-      <Dialog
-        open={modal.kind === "create-bed"}
-        onClose={() => setModal({ kind: "none" })}
-        dismissDisabled={createBedPending}
+      <ConfirmDialog
+        open={confirmingRoom !== null}
+        onClose={() => {
+          if (rowPendingId) return;
+          setConfirmError(null);
+          setConfirmingRoom(null);
+        }}
+        onConfirm={() => {
+          if (confirmingRoom) handleArchiveRestoreRoom(confirmingRoom);
+        }}
         title={
-          modal.kind === "create-bed"
-            ? `Add bed to Room ${modal.room.number}`
-            : "Add bed"
+          confirmingRoom
+            ? confirmingRoom.archivedAt === null
+              ? `Archive Room ${confirmingRoom.number}?`
+              : `Restore Room ${confirmingRoom.number}?`
+            : "Update room?"
         }
-        description="Assign a bed code and rate for monthly or daily stays."
-      >
-        {modal.kind === "create-bed" && (
-          <form
-            key={modal.room.id}
-            action={submitCreateBed}
-            className="grid gap-4"
-            noValidate
-          >
-            <input type="hidden" name="roomId" value={modal.room.id} />
-            {createBedState.status === "error" && (
-              <Alert tone="danger" role="alert">
-                {createBedState.message}
-              </Alert>
-            )}
-            <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-              <Field
-                id="create-bed-number"
-                label="Bed number"
-                required
-                error={
-                  createBedState.status === "error"
-                    ? createBedState.fieldErrors.number
-                    : undefined
-                }
-              >
-                {(fieldProps) => (
-                  <Input {...fieldProps} name="number" placeholder="e.g. A" />
-                )}
-              </Field>
-              <Field id="create-bed-label" label="Label (optional)">
-                {(fieldProps) => (
-                  <Input
-                    {...fieldProps}
-                    name="label"
-                    placeholder="e.g. Lower bunk"
-                  />
-                )}
-              </Field>
-              <Field
-                id="create-bed-monthly"
-                label="Monthly rate (₱)"
-                required
-                error={
-                  createBedState.status === "error"
-                    ? createBedState.fieldErrors.monthlyRate
-                    : undefined
-                }
-              >
-                {(fieldProps) => (
-                  <Input
-                    {...fieldProps}
-                    name="monthlyRate"
-                    inputMode="decimal"
-                    defaultValue={modal.room.baseMonthlyRate}
-                  />
-                )}
-              </Field>
-              <Field id="create-bed-daily" label="Daily rate (₱)">
-                {(fieldProps) => (
-                  <Input
-                    {...fieldProps}
-                    name="dailyRate"
-                    inputMode="decimal"
-                    defaultValue={modal.room.transientDailyRate ?? ""}
-                  />
-                )}
-              </Field>
-            </div>
-
-            <div className="flex flex-wrap justify-end gap-2.5 pt-2">
-              <Button
-                variant="secondary"
-                disabled={createBedPending}
-                onClick={() => setModal({ kind: "none" })}
-              >
-                Cancel
-              </Button>
-              <Button type="submit" loading={createBedPending}>
-                {createBedPending ? "Saving…" : "Save bed"}
-              </Button>
-            </div>
-          </form>
-        )}
-      </Dialog>
-
-      {/* Edit Bed Dialog */}
-      <Dialog
-        open={modal.kind === "edit-bed"}
-        onClose={() => setModal({ kind: "none" })}
-        dismissDisabled={updateBedPending}
-        title={
-          modal.kind === "edit-bed"
-            ? `Edit Bed ${modal.bed.number} (Room ${modal.room.number})`
-            : "Edit bed"
+        description={
+          confirmingRoom?.archivedAt === null
+            ? "Archiving hides this room from new assignments, stays, and active directory filters. You can restore it anytime."
+            : "Restoring makes this room active again for assignments, transient stays, and directory views."
         }
-        description="Adjust bed label, pricing, or serviceability."
-      >
-        {modal.kind === "edit-bed" && (
-          <form
-            key={modal.bed.id}
-            action={submitUpdateBed}
-            className="grid gap-4"
-            noValidate
-          >
-            <input type="hidden" name="bedId" value={modal.bed.id} />
-            <input
-              type="hidden"
-              name="expectedVersion"
-              value={modal.bed.version}
-            />
-            {updateBedState.status === "error" && (
-              <Alert tone="danger" role="alert">
-                {updateBedState.message}
-              </Alert>
-            )}
-            <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-              <Field
-                id="edit-bed-number"
-                label="Bed number"
-                required
-                error={
-                  updateBedState.status === "error"
-                    ? updateBedState.fieldErrors.number
-                    : undefined
-                }
-              >
-                {(fieldProps) => (
-                  <Input
-                    {...fieldProps}
-                    name="number"
-                    defaultValue={modal.bed.number}
-                  />
-                )}
-              </Field>
-              <Field id="edit-bed-label" label="Label (optional)">
-                {(fieldProps) => (
-                  <Input
-                    {...fieldProps}
-                    name="label"
-                    defaultValue={modal.bed.label ?? ""}
-                    placeholder="Optional"
-                  />
-                )}
-              </Field>
-              <Field
-                id="edit-bed-monthly"
-                label="Monthly rate (₱)"
-                required
-                error={
-                  updateBedState.status === "error"
-                    ? updateBedState.fieldErrors.monthlyRate
-                    : undefined
-                }
-              >
-                {(fieldProps) => (
-                  <Input
-                    {...fieldProps}
-                    name="monthlyRate"
-                    inputMode="decimal"
-                    defaultValue={modal.bed.monthlyRate}
-                  />
-                )}
-              </Field>
-              <Field id="edit-bed-daily" label="Daily rate (₱)">
-                {(fieldProps) => (
-                  <Input
-                    {...fieldProps}
-                    name="dailyRate"
-                    inputMode="decimal"
-                    defaultValue={modal.bed.dailyRate ?? ""}
-                  />
-                )}
-              </Field>
-              <Field
-                id="edit-bed-status"
-                label="Availability status"
-                description={
-                  modal.bed.activeAllocationCount > 0
-                    ? "Occupied state follows active allocations."
-                    : undefined
-                }
-              >
-                {(fieldProps) => (
-                  <Select
-                    {...fieldProps}
-                    name="status"
-                    defaultValue={
-                      modal.bed.status === "MAINTENANCE"
-                        ? "MAINTENANCE"
-                        : "AVAILABLE"
-                    }
-                  >
-                    {EDITABLE_BED_STATUSES.map((st) => (
-                      <option key={st} value={st}>
-                        {BED_STATUS_LABELS[st]}
-                      </option>
-                    ))}
-                  </Select>
-                )}
-              </Field>
-            </div>
-            <div className="flex flex-wrap justify-end gap-2.5 pt-2">
-              <Button
-                variant="secondary"
-                disabled={updateBedPending}
-                onClick={() => setModal({ kind: "none" })}
-              >
-                Cancel
-              </Button>
-              <Button type="submit" loading={updateBedPending}>
-                {updateBedPending ? "Saving…" : "Save changes"}
-              </Button>
-            </div>
-          </form>
-        )}
-      </Dialog>
+        errorMessage={confirmError}
+        confirmLabel={
+          confirmingRoom?.archivedAt === null ? "Archive" : "Restore"
+        }
+        confirmVariant={
+          confirmingRoom?.archivedAt === null ? "danger" : "primary"
+        }
+        loading={confirmingRoom !== null && rowPendingId === confirmingRoom.id}
+      />
     </div>
   );
 }

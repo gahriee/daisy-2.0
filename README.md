@@ -29,6 +29,7 @@ is a separate opt-in test connection (`test-integration` schema-only branch). Ke
 ```sh
 pnpm db:validate
 pnpm db:check
+pnpm db:seed
 pnpm dev
 ```
 
@@ -47,9 +48,7 @@ Storage uses the branch's `AWS_*` variables listed in `.env.example`.
 
 ## Verification
 
-Use `pnpm format` after editing code and `pnpm format:check` before handoff.
-Prettier is pinned locally; project VS Code settings enable format-on-save with
-the recommended Prettier extension. Generated files, secrets and docs are excluded.
+Use `pnpm format` (or `pnpm exec prettier --write <paths>`) after editing code and verify cleanly before handoff. Project VS Code settings enable format-on-save with Prettier.
 
 ```sh
 pnpm format:check
@@ -58,6 +57,8 @@ pnpm lint
 pnpm test:unit
 pnpm build
 ```
+
+For fast targeted iteration, filter ESLint/Vitest to changed files (`pnpm test:integration tests/integration/<domain>/<file>.test.ts`) and run `pnpm build` only when routes, layouts, CSS, or config change (see `.agents/rules/7-verification-commands.md`).
 
 Build and dev use Webpack/PostCSS because the starter's Turbopack CSS worker
 failed on this Windows setup. Workers hosting still needs its own deployment validation.

@@ -63,8 +63,10 @@ const optionalShortText = (max: number) =>
     .transform((val) => (val === "" ? null : val))
     .nullable();
 
-export const BusinessSettingsUpdateSchema = z.object({
-  expectedVersion: z.number().int().min(0),
+export const SETTINGS_MODULES = ["profile", "policies", "operations"] as const;
+export type SettingsModule = (typeof SETTINGS_MODULES)[number];
+
+const profileFields = {
   businessName: z
     .string()
     .trim()
@@ -73,6 +75,9 @@ export const BusinessSettingsUpdateSchema = z.object({
   businessPhone: optionalShortText(40),
   businessAddress: optionalShortText(240),
   tin: optionalShortText(40),
+};
+
+const policiesFields = {
   billingDayOfMonth: z
     .number()
     .int("Choose a whole day from 1 to 28.")
@@ -90,6 +95,9 @@ export const BusinessSettingsUpdateSchema = z.object({
   overpaymentPolicy: z.enum(OVERPAYMENT_POLICIES).nullable(),
   invoicePrefix: prefixSchema,
   receiptPrefix: prefixSchema,
+};
+
+const operationsFields = {
   checkInTimeManila: timeSchema,
   checkOutTimeManila: timeSchema,
   offlineUnlockMaxDays: z
@@ -107,6 +115,44 @@ export const BusinessSettingsUpdateSchema = z.object({
     .int()
     .min(1, "Allow at least 1 proof file per record.")
     .max(20, "Limit proof files per record to 20 or fewer."),
+};
+
+export const ProfileSettingsUpdateSchema = z.object({
+  module: z.literal("profile"),
+  expectedVersion: z.number().int().min(0),
+  ...profileFields,
+});
+
+export const PoliciesSettingsUpdateSchema = z.object({
+  module: z.literal("policies"),
+  expectedVersion: z.number().int().min(0),
+  ...policiesFields,
+});
+
+export const OperationsSettingsUpdateSchema = z.object({
+  module: z.literal("operations"),
+  expectedVersion: z.number().int().min(0),
+  ...operationsFields,
+});
+
+export const BusinessSettingsModuleUpdateSchema = z.discriminatedUnion(
+  "module",
+  [
+    ProfileSettingsUpdateSchema,
+    PoliciesSettingsUpdateSchema,
+    OperationsSettingsUpdateSchema,
+  ],
+);
+
+export type BusinessSettingsModuleUpdateInput = z.infer<
+  typeof BusinessSettingsModuleUpdateSchema
+>;
+
+export const BusinessSettingsUpdateSchema = z.object({
+  expectedVersion: z.number().int().min(0),
+  ...profileFields,
+  ...policiesFields,
+  ...operationsFields,
 });
 
 export type BusinessSettingsUpdateInput = z.infer<
@@ -134,6 +180,7 @@ export type BusinessSettingsDto = {
   proofMaxFilesPerRecord: number;
   updatedAt: string | null;
   policiesComplete: boolean;
+  stayScheduleComplete: boolean;
 };
 
 export function hasCompleteFinancialPolicies(settings: {
@@ -144,8 +191,6 @@ export function hasCompleteFinancialPolicies(settings: {
   overpaymentPolicy: OverpaymentPolicyValue | null;
   invoicePrefix: string | null;
   receiptPrefix: string | null;
-  checkInTimeManila: string | null;
-  checkOutTimeManila: string | null;
 }): boolean {
   return (
     settings.billingDayOfMonth !== null &&
@@ -154,8 +199,15 @@ export function hasCompleteFinancialPolicies(settings: {
     settings.depositPolicy !== null &&
     settings.overpaymentPolicy !== null &&
     Boolean(settings.invoicePrefix) &&
-    Boolean(settings.receiptPrefix) &&
-    Boolean(settings.checkInTimeManila) &&
-    Boolean(settings.checkOutTimeManila)
+    Boolean(settings.receiptPrefix)
+  );
+}
+
+export function hasCompleteStaySchedule(settings: {
+  checkInTimeManila: string | null;
+  checkOutTimeManila: string | null;
+}): boolean {
+  return (
+    Boolean(settings.checkInTimeManila) && Boolean(settings.checkOutTimeManila)
   );
 }

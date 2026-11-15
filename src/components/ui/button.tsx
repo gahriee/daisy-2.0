@@ -5,7 +5,7 @@ const variants = {
   primary:
     "border-transparent bg-primary text-primary-foreground hover:bg-primary-hover active:bg-primary-hover",
   secondary:
-    "border-transparent bg-surface-muted text-foreground hover:bg-[color-mix(in_oklab,var(--foreground)_10%,var(--surface-muted))] active:bg-[color-mix(in_oklab,var(--foreground)_14%,var(--surface-muted))]",
+    "border-control-border bg-surface text-foreground hover:bg-surface-muted/70 active:bg-surface-muted",
   ghost:
     "border-transparent bg-transparent text-primary hover:bg-surface-muted hover:text-primary-hover active:bg-surface-muted",
   danger:

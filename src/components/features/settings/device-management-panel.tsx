@@ -6,6 +6,7 @@ import { Alert } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
+import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import {
   EmptyState,
   EmptyStateActions,
@@ -16,10 +17,9 @@ import { Field } from "@/components/ui/field";
 import { Input } from "@/components/ui/input";
 import {
   SearchFilterBar,
-  SearchFilterChips,
   SearchFilterInput,
-  type FilterChipOption,
 } from "@/components/ui/search-filter";
+import { Select } from "@/components/ui/select";
 import { Separator } from "@/components/ui/separator";
 import {
   Table,
@@ -29,6 +29,45 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
+import { TablePagination } from "@/components/ui/table-pagination";
+import { useTablePagination } from "@/hooks/use-table-pagination";
+import { useTableSort } from "@/hooks/use-table-sort";
+import type { SortColumnDef } from "@/lib/table-sort";
+
+type DeviceSortKey = "device" | "status" | "createdAt" | "lastSeen";
+
+type DeviceSortRow = {
+  label: string;
+  createdAt: string;
+  lastSeenAt: string | null;
+  revokedAt: string | null;
+  isCurrent: boolean;
+};
+
+const DEVICE_SORT_COLUMNS: Record<
+  DeviceSortKey,
+  SortColumnDef<DeviceSortRow>
+> = {
+  device: { getValue: (device) => device.label },
+  status: {
+    getValue: (device) =>
+      device.revokedAt
+        ? "Revoked"
+        : device.isCurrent
+          ? "Active (this device)"
+          : "Active",
+  },
+  createdAt: {
+    getValue: (device) => device.createdAt,
+    kind: "date",
+    defaultDirection: "desc",
+  },
+  lastSeen: {
+    getValue: (device) => device.lastSeenAt,
+    kind: "date",
+    defaultDirection: "desc",
+  },
+};
 
 export type ClientDeviceSummary = {
   id: string;
@@ -41,7 +80,10 @@ export type ClientDeviceSummary = {
 
 type DeviceStatusFilter = "all" | "active" | "revoked";
 
-const DEVICE_FILTER_OPTIONS: readonly FilterChipOption<DeviceStatusFilter>[] = [
+const DEVICE_STATUS_OPTIONS: readonly {
+  value: DeviceStatusFilter;
+  label: string;
+}[] = [
   { value: "all", label: "All devices" },
   { value: "active", label: "Active" },
   { value: "revoked", label: "Revoked" },
@@ -86,6 +128,22 @@ export function DeviceManagementPanel({
     const q = searchQuery.trim().toLowerCase();
     if (q && !device.label.toLowerCase().includes(q)) return false;
     return true;
+  });
+
+  const {
+    sortedRows: sortedDevices,
+    sortHeaderProps,
+    sort,
+  } = useTableSort(filteredDevices, DEVICE_SORT_COLUMNS, {
+    key: "createdAt",
+    direction: "desc",
+  });
+
+  const {
+    paginatedRows: paginatedDevices,
+    paginationProps: devicesPaginationProps,
+  } = useTablePagination(sortedDevices, {
+    resetKey: `${searchQuery.trim()}|${statusFilter}|${sort?.key ?? ""}|${sort?.direction ?? ""}`,
   });
 
   const hasFilters = searchQuery.trim() !== "" || statusFilter !== "all";
@@ -144,10 +202,15 @@ export function DeviceManagementPanel({
     }
   }
 
+  const [confirmingDevice, setConfirmingDevice] =
+    useState<ClientDeviceSummary | null>(null);
+  const [revokeError, setRevokeError] = useState<string | null>(null);
+
   async function handleRevoke(deviceId: string) {
     if (revokingId) return;
     setStatusMessage("");
     setErrorMessage("");
+    setRevokeError(null);
     setRevokingId(deviceId);
     try {
       const response = await fetch(`/api/devices/${deviceId}/revoke`, {
@@ -158,15 +221,16 @@ export function DeviceManagementPanel({
         error?: string;
       };
       if (!response.ok) {
-        setErrorMessage(data.error ?? "Could not revoke device.");
+        setRevokeError(data.error ?? "Could not revoke device.");
         return;
       }
+      setConfirmingDevice(null);
       setStatusMessage(
         "Device revoked. Its next sync or upload request will be denied; your sign-in session remains active.",
       );
       await refreshDevices();
     } catch {
-      setErrorMessage("Connection interrupted while revoking device.");
+      setRevokeError("Connection interrupted while revoking device.");
     } finally {
       setRevokingId(null);
     }
@@ -207,32 +271,35 @@ export function DeviceManagementPanel({
           <>
             <Separator />
             <form onSubmit={handleRegister} noValidate className="grid gap-4">
-              <div className="grid grid-cols-1 items-end gap-3 sm:grid-cols-[minmax(0,1fr)_auto]">
-                <Field
-                  id="device-label"
-                  label="Register this browser"
-                  description="Name this phone or computer so you can recognize it later."
-                  required
-                  {...(labelError ? { error: labelError } : {})}
-                >
-                  {(props) => (
+              <Field
+                id="device-label"
+                label="Register this browser"
+                description="Name this phone or computer so you can recognize it later."
+                required
+                {...(labelError ? { error: labelError } : {})}
+              >
+                {(props) => (
+                  <div className="flex flex-col gap-2.5 sm:flex-row sm:items-center">
                     <Input
                       {...props}
                       value={label}
                       onChange={(event) => setLabel(event.target.value)}
                       placeholder="e.g. Owner phone"
                       maxLength={60}
+                      className="sm:flex-1"
                     />
-                  )}
-                </Field>
-                <Button
-                  type="submit"
-                  loading={registering}
-                  disabled={registering}
-                >
-                  {registering ? "Registering…" : "Register device"}
-                </Button>
-              </div>
+                    <Button
+                      type="submit"
+                      size="sm"
+                      loading={registering}
+                      disabled={registering}
+                      className="min-h-10 shrink-0 sm:min-h-9"
+                    >
+                      {registering ? "Registering…" : "Register device"}
+                    </Button>
+                  </div>
+                )}
+              </Field>
             </form>
           </>
         )}
@@ -240,28 +307,45 @@ export function DeviceManagementPanel({
 
       {devices.length > 0 && (
         <SearchFilterBar
-          title="Filter devices"
-          resultCountText={`${filteredDevices.length} of ${devices.length} shown`}
           hasActiveFilters={hasFilters}
           onClearAll={() => {
             setSearchQuery("");
             setStatusFilter("all");
           }}
-          aria-label="Filter registered devices"
+          aria-label="Find registered devices"
         >
-          <div className="grid grid-cols-1 gap-3 md:grid-cols-[minmax(0,1fr)_auto] md:items-center">
-            <SearchFilterInput
-              aria-label="Search registered devices"
-              value={searchQuery}
-              onValueChange={setSearchQuery}
-              placeholder="Search device name…"
-            />
-            <SearchFilterChips
-              label="Filter by device status"
-              options={DEVICE_FILTER_OPTIONS}
-              value={statusFilter}
-              onValueChange={setStatusFilter}
-            />
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-3 sm:items-end">
+            <div className="sm:col-span-2">
+              <Field id="devices-search" label="Find a device">
+                {(fieldProps) => (
+                  <SearchFilterInput
+                    {...fieldProps}
+                    value={searchQuery}
+                    onValueChange={setSearchQuery}
+                    placeholder="Device name"
+                  />
+                )}
+              </Field>
+            </div>
+
+            <Field id="devices-status-filter" label="Status">
+              {(fieldProps) => (
+                <Select
+                  {...fieldProps}
+                  variant="filter"
+                  value={statusFilter}
+                  onChange={(event) =>
+                    setStatusFilter(event.target.value as DeviceStatusFilter)
+                  }
+                >
+                  {DEVICE_STATUS_OPTIONS.map((option) => (
+                    <option key={option.value} value={option.value}>
+                      {option.label}
+                    </option>
+                  ))}
+                </Select>
+              )}
+            </Field>
           </div>
         </SearchFilterBar>
       )}
@@ -309,7 +393,7 @@ export function DeviceManagementPanel({
               No matching devices
             </EmptyStateTitle>
             <EmptyStateDescription>
-              Clear the device filter or search text to see all registered
+              Clear what you entered or reset the status to see all registered
               browsers.
             </EmptyStateDescription>
           </div>
@@ -322,7 +406,7 @@ export function DeviceManagementPanel({
                 setStatusFilter("all");
               }}
             >
-              Clear filters
+              Clear
             </Button>
           </EmptyStateActions>
         </EmptyState>
@@ -350,7 +434,7 @@ export function DeviceManagementPanel({
           </div>
 
           <ul className="grid gap-3 p-3 md:hidden">
-            {filteredDevices.map((device) => {
+            {paginatedDevices.map((device) => {
               const isRevoked = device.revokedAt !== null;
               return (
                 <li key={device.id}>
@@ -366,20 +450,27 @@ export function DeviceManagementPanel({
                         </Badge>
                       </div>
                     </div>
-                    <p className="text-xs text-muted-foreground tabular-nums">
-                      Added {formatTimestamp(device.createdAt)} · Last seen{" "}
-                      {formatTimestamp(device.lastSeenAt)}
-                      {isRevoked &&
-                        ` · Revoked ${formatTimestamp(device.revokedAt)}`}
-                    </p>
+                    <div className="grid gap-0.5 text-xs text-muted-foreground tabular-nums">
+                      <span>Added {formatTimestamp(device.createdAt)}</span>
+                      <span>
+                        Last seen {formatTimestamp(device.lastSeenAt)}
+                      </span>
+                      {isRevoked && (
+                        <span>Revoked {formatTimestamp(device.revokedAt)}</span>
+                      )}
+                    </div>
                     {!isRevoked && (
                       <div className="flex justify-end">
                         <Button
                           variant="secondary"
+                          className="text-danger"
                           size="sm"
                           loading={revokingId === device.id}
                           disabled={revokingId !== null}
-                          onClick={() => handleRevoke(device.id)}
+                          onClick={() => {
+                            setRevokeError(null);
+                            setConfirmingDevice(device);
+                          }}
                         >
                           {revokingId === device.id ? "Revoking…" : "Revoke"}
                         </Button>
@@ -394,16 +485,18 @@ export function DeviceManagementPanel({
           <div className="hidden md:block">
             <Table containerClassName="rounded-none border-0">
               <TableHeader>
-                <tr>
-                  <TableHead>Device</TableHead>
-                  <TableHead>Status</TableHead>
-                  <TableHead>Added (Manila)</TableHead>
-                  <TableHead>Last seen (Manila)</TableHead>
+                <TableRow>
+                  <TableHead {...sortHeaderProps("device")}>Device</TableHead>
+                  <TableHead {...sortHeaderProps("status")}>Status</TableHead>
+                  <TableHead {...sortHeaderProps("createdAt")}>Added</TableHead>
+                  <TableHead {...sortHeaderProps("lastSeen")}>
+                    Last seen
+                  </TableHead>
                   <TableHead className="text-right">Action</TableHead>
-                </tr>
+                </TableRow>
               </TableHeader>
               <TableBody>
-                {filteredDevices.map((device) => {
+                {paginatedDevices.map((device) => {
                   const isRevoked = device.revokedAt !== null;
                   return (
                     <TableRow key={device.id}>
@@ -432,10 +525,14 @@ export function DeviceManagementPanel({
                         {!isRevoked ? (
                           <Button
                             variant="secondary"
+                            className="text-danger"
                             size="sm"
                             loading={revokingId === device.id}
                             disabled={revokingId !== null}
-                            onClick={() => handleRevoke(device.id)}
+                            onClick={() => {
+                              setRevokeError(null);
+                              setConfirmingDevice(device);
+                            }}
                           >
                             {revokingId === device.id ? "Revoking…" : "Revoke"}
                           </Button>
@@ -451,8 +548,40 @@ export function DeviceManagementPanel({
               </TableBody>
             </Table>
           </div>
+          <TablePagination
+            {...devicesPaginationProps}
+            label="Devices table pagination"
+          />
         </section>
       )}
+      <ConfirmDialog
+        open={confirmingDevice !== null}
+        onClose={() => {
+          if (revokingId !== null) return;
+          setRevokeError(null);
+          setConfirmingDevice(null);
+        }}
+        onConfirm={() => {
+          if (confirmingDevice) void handleRevoke(confirmingDevice.id);
+        }}
+        title={
+          confirmingDevice
+            ? `Revoke device "${confirmingDevice.label}"?`
+            : "Revoke device?"
+        }
+        description="Its next sync or upload request will be denied immediately. Your current sign-in session remains active."
+        warningMessage={
+          confirmingDevice?.isCurrent
+            ? "This is the browser you are currently using. Revoking stops offline sync until you register a replacement device."
+            : undefined
+        }
+        errorMessage={revokeError}
+        confirmLabel="Revoke device"
+        confirmVariant="danger"
+        loading={
+          confirmingDevice !== null && revokingId === confirmingDevice.id
+        }
+      />
     </div>
   );
 }

@@ -4,7 +4,7 @@
 
 - Daisy is one Next.js App Router application at the repository root. It uses React, strict TypeScript, Zod, Tailwind CSS, Prisma, PostgreSQL and Dexie. Use pnpm with the committed lockfile.
 - `package.json`, the lockfile and `docs/architecture/architecture.md` are authoritative for versions and design. Do not upgrade packages as an incidental part of a feature.
-- Always format authored code with the project-local Prettier configuration. Run `pnpm format` after code edits and `pnpm format:check` before handoff; never hand-format around the formatter. Generated output, secrets and documentation follow `.prettierignore`.
+- Always format authored code with the project-local Prettier configuration (`pnpm exec prettier --write <paths>` or `pnpm format`) and verify changed files cleanly before handoff; never hand-format around the formatter. Generated output, secrets and documentation follow `.prettierignore`.
 - Use the documentation bundled with the installed Next.js package for framework behavior. Read the relevant installed or project skills as directed by `AGENTS.md`.
 - The runtime may be a Workers-style edge environment rather than a full Node.js server. Before using a Node-only API in server code, confirm it works on the chosen host.
 

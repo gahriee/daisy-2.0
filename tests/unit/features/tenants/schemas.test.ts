@@ -1,9 +1,16 @@
 import { describe, expect, it } from "vitest";
 import { randomUUID } from "node:crypto";
 import {
+  CONTRACT_MAX_FILE_BYTES,
+  CONTRACT_MAX_PAGES,
   CreateTenantAssignmentSchema,
+  CreateTenantContractIntentSchema,
+  CreateTenantContractSchema,
+  CreateTenantNoteSchema,
   CreateTenantSchema,
+  DeleteTenantNoteSchema,
   MoveOutTenantAssignmentSchema,
+  UpdateTenantSchema,
 } from "@/features/tenants/schemas";
 import {
   canonicalizeSyncJson,
@@ -94,5 +101,114 @@ describe("tenants, assignments, and sync contract schemas", () => {
       },
     });
     expect(parsedOp.type).toBe("tenant.create");
+  });
+
+  it("validates separate tenant note schemas and optional omitted notes on tenant profile updates", () => {
+    const tenantId = randomUUID();
+    const noteId = randomUUID();
+
+    expect(
+      CreateTenantNoteSchema.safeParse({
+        tenantId,
+        content: "   ",
+      }).success,
+    ).toBe(false);
+
+    expect(
+      CreateTenantNoteSchema.safeParse({
+        tenantId,
+        content: "x".repeat(1001),
+      }).success,
+    ).toBe(false);
+
+    const validNote = CreateTenantNoteSchema.parse({
+      tenantId,
+      content: "  Submitted clearance and ID  ",
+    });
+    expect(validNote).toEqual({
+      tenantId,
+      content: "Submitted clearance and ID",
+    });
+
+    const validDelete = DeleteTenantNoteSchema.parse({ tenantId, noteId });
+    expect(validDelete).toEqual({ tenantId, noteId });
+
+    const createdWithoutNotes = CreateTenantSchema.parse({
+      fullName: "Ana Gomez",
+    });
+    expect(createdWithoutNotes.notes).toBeNull();
+
+    const updatedWithoutNotes = UpdateTenantSchema.parse({
+      tenantId,
+      expectedVersion: 1,
+      fullName: "Ana Gomez",
+    });
+    expect(updatedWithoutNotes.notes).toBeUndefined();
+  });
+
+  it("validates signed contract upload intents and multi-page contract payloads", () => {
+    const tenantId = randomUUID();
+    const sha256 = "a".repeat(64);
+
+    expect(
+      CreateTenantContractIntentSchema.safeParse({
+        tenantId,
+        fileName: "contract-page-1.jpg",
+        mimeType: "image/jpeg",
+        byteSize: 1024,
+        sha256,
+      }).success,
+    ).toBe(true);
+
+    expect(
+      CreateTenantContractIntentSchema.safeParse({
+        tenantId,
+        fileName: "signed-lease.pdf",
+        mimeType: "application/pdf",
+        byteSize: CONTRACT_MAX_FILE_BYTES + 1,
+        sha256,
+      }).success,
+    ).toBe(false);
+
+    const intentId = randomUUID();
+    const parsedContract = CreateTenantContractSchema.parse({
+      tenantId,
+      title: "  Signed Room 101 Lease  ",
+      signedDateManila: "2026-11-14",
+      notes: "  Signed in person  ",
+      pages: [
+        {
+          intentId,
+          filterMode: "MAGIC_WHITE",
+          label: "  Page 1  ",
+        },
+      ],
+    });
+    expect(parsedContract.title).toBe("Signed Room 101 Lease");
+    expect(parsedContract.assignmentId).toBeNull();
+    expect(parsedContract.pages[0]?.label).toBe("Page 1");
+
+    // Duplicate intentId or exceeding max pages fails validation
+    expect(
+      CreateTenantContractSchema.safeParse({
+        tenantId,
+        title: "Contract",
+        pages: [
+          { intentId, filterMode: "MAGIC_WHITE" },
+          { intentId, filterMode: "BW_SCAN" },
+        ],
+      }).success,
+    ).toBe(false);
+
+    expect(
+      CreateTenantContractSchema.safeParse({
+        tenantId,
+        title: "Too many pages",
+        pages: Array.from({ length: CONTRACT_MAX_PAGES + 1 }, () => ({
+          intentId: randomUUID(),
+          filterMode: "ORIGINAL" as const,
+        })),
+      }).success,
+    ).toBe(false);
   });
 });

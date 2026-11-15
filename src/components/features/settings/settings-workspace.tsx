@@ -1,25 +1,15 @@
-"use client";
-
-import { useSearchParams } from "next/navigation";
 import type { BusinessSettingsDto } from "@/features/settings/schemas";
 import {
   BusinessSettingsForm,
-  type SettingsTabKey,
+  type SettingsSectionKey,
 } from "./business-settings-form";
 import {
   DeviceManagementPanel,
   type ClientDeviceSummary,
 } from "./device-management-panel";
 
-const VALID_TABS: readonly SettingsTabKey[] = [
-  "profile",
-  "policies",
-  "operations",
-  "devices",
-];
-
 const SECTION_HEADERS: Record<
-  SettingsTabKey,
+  SettingsSectionKey,
   { title: string; description: string }
 > = {
   profile: {
@@ -35,7 +25,7 @@ const SECTION_HEADERS: Record<
   operations: {
     title: "Stays & limits",
     description:
-      "Standard Asia/Manila check-in/out schedule, offline unlock window, and attachment size limits.",
+      "Standard check-in/out schedule, offline unlock window, and attachment size limits.",
   },
   devices: {
     title: "Trusted devices",
@@ -44,35 +34,16 @@ const SECTION_HEADERS: Record<
   },
 };
 
-function resolveTab(
-  raw: string | null | undefined,
-  fallback: SettingsTabKey,
-): SettingsTabKey {
-  return VALID_TABS.includes(raw as SettingsTabKey)
-    ? (raw as SettingsTabKey)
-    : fallback;
-}
-
 export function SettingsWorkspace({
+  section,
   initialSettings,
-  initialDevices,
-  initialTab = "profile",
+  initialDevices = [],
 }: {
-  initialSettings: BusinessSettingsDto;
-  initialDevices: ClientDeviceSummary[];
-  initialTab?: SettingsTabKey;
+  section: SettingsSectionKey;
+  initialSettings?: BusinessSettingsDto;
+  initialDevices?: ClientDeviceSummary[];
 }) {
-  const searchParams = useSearchParams();
-  const activeTab = resolveTab(searchParams.get("tab"), initialTab);
-  const activeHeader = SECTION_HEADERS[activeTab];
-
-  function selectSection(nextSection: SettingsTabKey) {
-    try {
-      window.history.replaceState(null, "", `/settings?tab=${nextSection}`);
-    } catch {
-      // Ignore restricted history updates.
-    }
-  }
+  const activeHeader = SECTION_HEADERS[section];
 
   return (
     <div className="grid gap-5">
@@ -88,14 +59,15 @@ export function SettingsWorkspace({
         </p>
       </header>
 
-      <BusinessSettingsForm
-        initialSettings={initialSettings}
-        activeTab={activeTab}
-        onSelectTab={selectSection}
-      />
-
-      {activeTab === "devices" && (
+      {section === "devices" ? (
         <DeviceManagementPanel initialDevices={initialDevices} />
+      ) : (
+        initialSettings && (
+          <BusinessSettingsForm
+            initialSettings={initialSettings}
+            activeSection={section}
+          />
+        )
       )}
     </div>
   );

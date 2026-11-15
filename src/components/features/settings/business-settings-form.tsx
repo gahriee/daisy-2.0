@@ -20,9 +20,10 @@ import {
   PRORATION_POLICIES,
   PRORATION_POLICY_LABELS,
   type BusinessSettingsDto,
+  type SettingsModule,
 } from "@/features/settings/schemas";
 
-export type SettingsTabKey = "profile" | "policies" | "operations" | "devices";
+export type SettingsSectionKey = SettingsModule | "devices";
 
 type DraftState = {
   version: number;
@@ -43,26 +44,89 @@ type DraftState = {
   proofMaxMb: string;
   proofMaxFilesPerRecord: string;
   policiesComplete: boolean;
+  stayScheduleComplete: boolean;
 };
 
-const FIELD_TAB_MAP: Record<string, Exclude<SettingsTabKey, "devices">> = {
-  businessName: "profile",
-  businessPhone: "profile",
-  businessAddress: "profile",
-  tin: "profile",
-  billingDayOfMonth: "policies",
-  gracePeriodDays: "policies",
-  prorationPolicy: "policies",
-  depositPolicy: "policies",
-  overpaymentPolicy: "policies",
-  invoicePrefix: "policies",
-  receiptPrefix: "policies",
-  checkInTimeManila: "operations",
-  checkOutTimeManila: "operations",
-  offlineUnlockMaxDays: "operations",
-  proofMaxMb: "operations",
-  proofMaxFilesPerRecord: "operations",
+const MODULE_DRAFT_KEYS: Record<SettingsModule, readonly (keyof DraftState)[]> =
+  {
+    profile: ["businessName", "businessPhone", "businessAddress", "tin"],
+    policies: [
+      "billingDayOfMonth",
+      "gracePeriodDays",
+      "prorationPolicy",
+      "depositPolicy",
+      "overpaymentPolicy",
+      "invoicePrefix",
+      "receiptPrefix",
+    ],
+    operations: [
+      "checkInTimeManila",
+      "checkOutTimeManila",
+      "offlineUnlockMaxDays",
+      "proofMaxMb",
+      "proofMaxFilesPerRecord",
+    ],
+  };
+
+const MODULE_META: Record<
+  SettingsModule,
+  {
+    dirtyLabel: string;
+    cleanLabel: string;
+    footerHint: string;
+    submitLabel: string;
+    pendingLabel: string;
+  }
+> = {
+  profile: {
+    dirtyLabel: "Unsaved profile edits",
+    cleanLabel: "Profile saved",
+    footerHint: "Saves property profile independently online.",
+    submitLabel: "Save property profile",
+    pendingLabel: "Saving profile…",
+  },
+  policies: {
+    dirtyLabel: "Unsaved policy edits",
+    cleanLabel: "Policies saved",
+    footerHint: "Saves billing & policies independently online.",
+    submitLabel: "Save billing & policies",
+    pendingLabel: "Saving policies…",
+  },
+  operations: {
+    dirtyLabel: "Unsaved stays & limits edits",
+    cleanLabel: "Stays & limits saved",
+    footerHint: "Saves stays & limits independently online.",
+    submitLabel: "Save stays & limits",
+    pendingLabel: "Saving stays & limits…",
+  },
 };
+
+function mergeSavedModule(
+  prevDraft: DraftState,
+  savedDraft: DraftState,
+  settingsModule: SettingsModule,
+): DraftState {
+  const next: DraftState = {
+    ...prevDraft,
+    version: savedDraft.version,
+    policiesComplete: savedDraft.policiesComplete,
+    stayScheduleComplete: savedDraft.stayScheduleComplete,
+  };
+  for (const key of MODULE_DRAFT_KEYS[settingsModule]) {
+    (next[key] as DraftState[typeof key]) = savedDraft[key];
+  }
+  return next;
+}
+
+function isModuleDirty(
+  draft: DraftState,
+  savedSnapshot: DraftState,
+  settingsModule: SettingsModule,
+): boolean {
+  return MODULE_DRAFT_KEYS[settingsModule].some(
+    (key) => draft[key] !== savedSnapshot[key],
+  );
+}
 
 const FIELD_ELEMENT_ID_MAP: Record<string, string> = {
   businessName: "settings-business-name",
@@ -107,14 +171,8 @@ function toDraft(settings: BusinessSettingsDto): DraftState {
     proofMaxMb: String(Math.round(settings.proofMaxBytes / (1024 * 1024))),
     proofMaxFilesPerRecord: String(settings.proofMaxFilesPerRecord),
     policiesComplete: settings.policiesComplete,
+    stayScheduleComplete: settings.stayScheduleComplete,
   };
-}
-
-function hasFieldErrorInTab(
-  fieldErrors: Record<string, string>,
-  tab: Exclude<SettingsTabKey, "devices">,
-): boolean {
-  return Object.keys(fieldErrors).some((key) => FIELD_TAB_MAP[key] === tab);
 }
 
 function SettingsRow({
@@ -146,27 +204,23 @@ function SettingsRow({
   );
 }
 
-/**
- * Atomic, version-checked property settings form split across Profile, Policies,
- * and Stays & limits while preserving unsaved drafts across navigation sections.
- */
-export function BusinessSettingsForm({
-  initialSettings,
-  activeTab,
-  onSelectTab,
-  onSaved,
+function SettingsModulePanel({
+  settingsModule,
+  draft,
+  savedSnapshot,
+  banner,
+  onModuleSaved,
+  children,
 }: {
-  initialSettings: BusinessSettingsDto;
-  activeTab: SettingsTabKey;
-  onSelectTab: (tab: SettingsTabKey) => void;
-  onSaved?: (settings: BusinessSettingsDto) => void;
+  settingsModule: SettingsModule;
+  draft: DraftState;
+  savedSnapshot: DraftState;
+  banner?: ReactNode;
+  onModuleSaved: (saved: BusinessSettingsDto) => void;
+  children: (fieldErrors: Record<string, string>) => ReactNode;
 }) {
-  const [savedSnapshot, setSavedSnapshot] = useState<DraftState>(() =>
-    toDraft(initialSettings),
-  );
-  const [draft, setDraft] = useState<DraftState>(() =>
-    toDraft(initialSettings),
-  );
+  const dirty = isModuleDirty(draft, savedSnapshot, settingsModule);
+  const meta = MODULE_META[settingsModule];
 
   const [state, formAction, pending] = useActionState<
     SaveSettingsActionState,
@@ -175,17 +229,10 @@ export function BusinessSettingsForm({
     async (prev, formData) => {
       const next = await saveBusinessSettingsAction(prev, formData);
       if (next.status === "saved") {
-        const nextDraft = toDraft(next.settings);
-        setSavedSnapshot(nextDraft);
-        setDraft(nextDraft);
-        onSaved?.(next.settings);
+        onModuleSaved(next.settings);
       } else if (next.status === "error") {
         const firstField = Object.keys(next.fieldErrors)[0];
         if (firstField) {
-          const targetTab = FIELD_TAB_MAP[firstField];
-          if (targetTab && targetTab !== activeTab) {
-            onSelectTab(targetTab);
-          }
           const elementId = FIELD_ELEMENT_ID_MAP[firstField];
           if (elementId) {
             requestAnimationFrame(() => {
@@ -200,387 +247,472 @@ export function BusinessSettingsForm({
   );
 
   const fieldErrors = state.status === "error" ? state.fieldErrors : {};
-  const isDirty = JSON.stringify(draft) !== JSON.stringify(savedSnapshot);
 
   return (
-    <form
-      action={formAction}
-      noValidate
-      hidden={activeTab === "devices"}
-      className={activeTab === "devices" ? "hidden" : "grid gap-5"}
-    >
-      <input type="hidden" name="expectedVersion" value={draft.version} />
+    <form action={formAction} noValidate className="grid gap-5">
+      <input type="hidden" name="module" value={settingsModule} />
+      <input
+        type="hidden"
+        name="expectedVersion"
+        value={savedSnapshot.version}
+      />
 
-      {activeTab !== "devices" && !draft.policiesComplete && (
-        <Alert tone="warning" title="Required before billing or bookings">
-          Configure billing day, grace period, proration, deposit, overpayment,
-          document prefixes, and stay check-in/out times. No financial policy
-          has an implicit default.
-        </Alert>
-      )}
+      {banner}
 
-      {activeTab !== "devices" && state.status === "saved" && (
+      {state.status === "saved" && (
         <Alert tone="success" role="status">
           {state.message}
         </Alert>
       )}
 
-      {activeTab !== "devices" && state.status === "error" && (
+      {state.status === "error" && (
         <Alert tone="danger" role="alert">
           {state.message}
-          {hasFieldErrorInTab(fieldErrors, "profile") &&
-            activeTab !== "profile" &&
-            " Check Property profile."}
-          {hasFieldErrorInTab(fieldErrors, "policies") &&
-            activeTab !== "policies" &&
-            " Check Billing & policies."}
-          {hasFieldErrorInTab(fieldErrors, "operations") &&
-            activeTab !== "operations" &&
-            " Check Stays & limits."}
         </Alert>
       )}
 
       <div className="overflow-hidden rounded-panel border border-border bg-surface">
-        <section
-          hidden={activeTab !== "profile"}
-          aria-hidden={activeTab !== "profile"}
-          className="divide-y divide-border"
-        >
-          <SettingsRow
-            title="Property identity"
-            description="Boarding house name, primary phone, and street address printed on invoices and notices."
-          >
-            <Field
-              id="settings-business-name"
-              label="Boarding house name"
-              required
-              {...(fieldErrors.businessName
-                ? { error: fieldErrors.businessName }
-                : {})}
-            >
-              {(props) => (
-                <Input
-                  {...props}
-                  name="businessName"
-                  value={draft.businessName}
-                  onChange={(event) =>
-                    setDraft((prev) => ({
-                      ...prev,
-                      businessName: event.target.value,
-                    }))
-                  }
-                  placeholder="e.g. Daisy Residences"
-                  autoComplete="organization"
-                />
-              )}
-            </Field>
-
-            <Field
-              id="settings-business-phone"
-              label="Contact phone"
-              {...(fieldErrors.businessPhone
-                ? { error: fieldErrors.businessPhone }
-                : {})}
-            >
-              {(props) => (
-                <Input
-                  {...props}
-                  name="businessPhone"
-                  type="tel"
-                  inputMode="tel"
-                  value={draft.businessPhone}
-                  onChange={(event) =>
-                    setDraft((prev) => ({
-                      ...prev,
-                      businessPhone: event.target.value,
-                    }))
-                  }
-                  placeholder="+63 917 000 0000"
-                  autoComplete="tel"
-                />
-              )}
-            </Field>
-
-            <Field
-              id="settings-business-address"
-              label="Property address"
-              className="sm:col-span-2"
-              {...(fieldErrors.businessAddress
-                ? { error: fieldErrors.businessAddress }
-                : {})}
-            >
-              {(props) => (
-                <Textarea
-                  {...props}
-                  name="businessAddress"
-                  value={draft.businessAddress}
-                  onChange={(event) =>
-                    setDraft((prev) => ({
-                      ...prev,
-                      businessAddress: event.target.value,
-                    }))
-                  }
-                  placeholder="Street, barangay, city"
-                  className="min-h-20"
-                />
-              )}
-            </Field>
-          </SettingsRow>
-
-          <SettingsRow
-            title="Tax registration"
-            description="Optional BIR Tax Identification Number shown on issued receipts and billing statements."
-          >
-            <Field
-              id="settings-tin"
-              label="TIN (optional)"
-              {...(fieldErrors.tin ? { error: fieldErrors.tin } : {})}
-            >
-              {(props) => (
-                <Input
-                  {...props}
-                  name="tin"
-                  value={draft.tin}
-                  onChange={(event) =>
-                    setDraft((prev) => ({ ...prev, tin: event.target.value }))
-                  }
-                  placeholder="000-000-000-000"
-                />
-              )}
-            </Field>
-          </SettingsRow>
+        <section className="divide-y divide-border">
+          {children(fieldErrors)}
         </section>
 
-        <section
-          hidden={activeTab !== "policies"}
-          aria-hidden={activeTab !== "policies"}
-          className="divide-y divide-border"
-        >
+        <div className="flex flex-wrap items-center justify-between gap-3 border-t border-border bg-background/60 px-5 py-4 sm:px-6">
+          <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
+            <Badge tone={dirty ? "warning" : "neutral"}>
+              {dirty ? meta.dirtyLabel : meta.cleanLabel}
+            </Badge>
+            <span>{meta.footerHint}</span>
+          </div>
+          <Button type="submit" loading={pending} disabled={pending}>
+            {pending ? meta.pendingLabel : meta.submitLabel}
+          </Button>
+        </div>
+      </div>
+    </form>
+  );
+}
+
+/**
+ * Independent, version-checked Settings module form rendered on its dedicated
+ * page route (Profile, Billing & policies, or Stays & limits).
+ */
+export function BusinessSettingsForm({
+  initialSettings,
+  activeSection,
+  onSaved,
+}: {
+  initialSettings: BusinessSettingsDto;
+  activeSection: SettingsModule;
+  onSaved?: (settings: BusinessSettingsDto) => void;
+}) {
+  const [savedSnapshot, setSavedSnapshot] = useState<DraftState>(() =>
+    toDraft(initialSettings),
+  );
+  const [draft, setDraft] = useState<DraftState>(() =>
+    toDraft(initialSettings),
+  );
+
+  function handleModuleSaved(saved: BusinessSettingsDto) {
+    const nextSaved = toDraft(saved);
+    setSavedSnapshot(nextSaved);
+    setDraft((prev) => mergeSavedModule(prev, nextSaved, activeSection));
+    onSaved?.(saved);
+  }
+
+  const missingPoliciesBanner = !savedSnapshot.policiesComplete ? (
+    <Alert tone="warning" title="Required before billing or payments">
+      Configure billing day, grace period, proration policy, deposit policy,
+      overpayment policy, invoice prefix, and receipt prefix. No financial
+      policy has an implicit default.
+    </Alert>
+  ) : null;
+
+  const missingStayScheduleBanner = !savedSnapshot.stayScheduleComplete ? (
+    <Alert tone="warning" title="Stay schedule incomplete">
+      Configure standard check-in and check-out times for transient check-ins
+      and turnovers.
+    </Alert>
+  ) : null;
+
+  if (activeSection === "profile") {
+    return (
+      <SettingsModulePanel
+        settingsModule="profile"
+        draft={draft}
+        savedSnapshot={savedSnapshot}
+        onModuleSaved={handleModuleSaved}
+      >
+        {(fieldErrors) => (
+          <>
+            <SettingsRow
+              title="Property identity"
+              description="Boarding house name, primary phone, and street address printed on invoices and notices."
+            >
+              <Field
+                id="settings-business-name"
+                label="Boarding house name"
+                required
+                {...(fieldErrors.businessName
+                  ? { error: fieldErrors.businessName }
+                  : {})}
+              >
+                {(props) => (
+                  <Input
+                    {...props}
+                    name="businessName"
+                    value={draft.businessName}
+                    onChange={(event) =>
+                      setDraft((prev) => ({
+                        ...prev,
+                        businessName: event.target.value,
+                      }))
+                    }
+                    placeholder="e.g. Daisy Residences"
+                    autoComplete="organization"
+                  />
+                )}
+              </Field>
+
+              <Field
+                id="settings-business-phone"
+                label="Contact phone"
+                {...(fieldErrors.businessPhone
+                  ? { error: fieldErrors.businessPhone }
+                  : {})}
+              >
+                {(props) => (
+                  <Input
+                    {...props}
+                    name="businessPhone"
+                    type="tel"
+                    inputMode="tel"
+                    value={draft.businessPhone}
+                    onChange={(event) =>
+                      setDraft((prev) => ({
+                        ...prev,
+                        businessPhone: event.target.value,
+                      }))
+                    }
+                    placeholder="+63 917 000 0000"
+                    autoComplete="tel"
+                  />
+                )}
+              </Field>
+
+              <Field
+                id="settings-business-address"
+                label="Property address"
+                className="sm:col-span-2"
+                {...(fieldErrors.businessAddress
+                  ? { error: fieldErrors.businessAddress }
+                  : {})}
+              >
+                {(props) => (
+                  <Textarea
+                    {...props}
+                    name="businessAddress"
+                    value={draft.businessAddress}
+                    onChange={(event) =>
+                      setDraft((prev) => ({
+                        ...prev,
+                        businessAddress: event.target.value,
+                      }))
+                    }
+                    placeholder="Street, barangay, city"
+                    className="min-h-20"
+                  />
+                )}
+              </Field>
+            </SettingsRow>
+
+            <SettingsRow
+              title="Tax registration"
+              description="Optional BIR Tax Identification Number shown on issued receipts and billing statements."
+            >
+              <Field
+                id="settings-tin"
+                label="TIN (optional)"
+                {...(fieldErrors.tin ? { error: fieldErrors.tin } : {})}
+              >
+                {(props) => (
+                  <Input
+                    {...props}
+                    name="tin"
+                    value={draft.tin}
+                    onChange={(event) =>
+                      setDraft((prev) => ({ ...prev, tin: event.target.value }))
+                    }
+                    placeholder="000-000-000-000"
+                  />
+                )}
+              </Field>
+            </SettingsRow>
+          </>
+        )}
+      </SettingsModulePanel>
+    );
+  }
+
+  if (activeSection === "policies") {
+    return (
+      <SettingsModulePanel
+        settingsModule="policies"
+        draft={draft}
+        savedSnapshot={savedSnapshot}
+        banner={missingPoliciesBanner}
+        onModuleSaved={handleModuleSaved}
+      >
+        {(fieldErrors) => (
+          <>
+            <SettingsRow
+              title="Billing schedule"
+              description="Monthly rent generation day and payment grace window before invoices are marked overdue."
+              badge={
+                <Badge
+                  tone={savedSnapshot.policiesComplete ? "success" : "warning"}
+                >
+                  {savedSnapshot.policiesComplete
+                    ? "Configured"
+                    : "Action needed"}
+                </Badge>
+              }
+            >
+              <Field
+                id="settings-billing-day"
+                label="Monthly billing day (1–28)"
+                description="Day of each month rent invoices generate."
+                {...(fieldErrors.billingDayOfMonth
+                  ? { error: fieldErrors.billingDayOfMonth }
+                  : {})}
+              >
+                {(props) => (
+                  <Input
+                    {...props}
+                    name="billingDayOfMonth"
+                    type="number"
+                    inputMode="numeric"
+                    min={1}
+                    max={28}
+                    value={draft.billingDayOfMonth}
+                    onChange={(event) =>
+                      setDraft((prev) => ({
+                        ...prev,
+                        billingDayOfMonth: event.target.value,
+                      }))
+                    }
+                    placeholder="1"
+                  />
+                )}
+              </Field>
+
+              <Field
+                id="settings-grace-days"
+                label="Payment grace period (days)"
+                description="Days after billing date before due date."
+                {...(fieldErrors.gracePeriodDays
+                  ? { error: fieldErrors.gracePeriodDays }
+                  : {})}
+              >
+                {(props) => (
+                  <Input
+                    {...props}
+                    name="gracePeriodDays"
+                    type="number"
+                    inputMode="numeric"
+                    min={0}
+                    max={60}
+                    value={draft.gracePeriodDays}
+                    onChange={(event) =>
+                      setDraft((prev) => ({
+                        ...prev,
+                        gracePeriodDays: event.target.value,
+                      }))
+                    }
+                    placeholder="5"
+                  />
+                )}
+              </Field>
+            </SettingsRow>
+
+            <SettingsRow
+              title="Financial policies"
+              description="Explicit Owner rules for mid-month move-ins, deposits, and surplus payments."
+            >
+              <Field
+                id="settings-proration"
+                label="Proration policy"
+                {...(fieldErrors.prorationPolicy
+                  ? { error: fieldErrors.prorationPolicy }
+                  : {})}
+              >
+                {(props) => (
+                  <Select
+                    {...props}
+                    name="prorationPolicy"
+                    value={draft.prorationPolicy}
+                    onChange={(event) =>
+                      setDraft((prev) => ({
+                        ...prev,
+                        prorationPolicy: event.target.value,
+                      }))
+                    }
+                  >
+                    <option value="">Not configured yet</option>
+                    {PRORATION_POLICIES.map((policy) => (
+                      <option key={policy} value={policy}>
+                        {PRORATION_POLICY_LABELS[policy]}
+                      </option>
+                    ))}
+                  </Select>
+                )}
+              </Field>
+
+              <Field
+                id="settings-deposit"
+                label="Security deposit policy"
+                {...(fieldErrors.depositPolicy
+                  ? { error: fieldErrors.depositPolicy }
+                  : {})}
+              >
+                {(props) => (
+                  <Select
+                    {...props}
+                    name="depositPolicy"
+                    value={draft.depositPolicy}
+                    onChange={(event) =>
+                      setDraft((prev) => ({
+                        ...prev,
+                        depositPolicy: event.target.value,
+                      }))
+                    }
+                  >
+                    <option value="">Not configured yet</option>
+                    {DEPOSIT_POLICIES.map((policy) => (
+                      <option key={policy} value={policy}>
+                        {DEPOSIT_POLICY_LABELS[policy]}
+                      </option>
+                    ))}
+                  </Select>
+                )}
+              </Field>
+
+              <Field
+                id="settings-overpayment"
+                label="Overpayment policy"
+                className="sm:col-span-2"
+                {...(fieldErrors.overpaymentPolicy
+                  ? { error: fieldErrors.overpaymentPolicy }
+                  : {})}
+              >
+                {(props) => (
+                  <Select
+                    {...props}
+                    name="overpaymentPolicy"
+                    value={draft.overpaymentPolicy}
+                    onChange={(event) =>
+                      setDraft((prev) => ({
+                        ...prev,
+                        overpaymentPolicy: event.target.value,
+                      }))
+                    }
+                  >
+                    <option value="">Not configured yet</option>
+                    {OVERPAYMENT_POLICIES.map((policy) => (
+                      <option key={policy} value={policy}>
+                        {OVERPAYMENT_POLICY_LABELS[policy]}
+                      </option>
+                    ))}
+                  </Select>
+                )}
+              </Field>
+            </SettingsRow>
+
+            <SettingsRow
+              title="Document numbering"
+              description="Uppercase prefixes prepended to generated invoices and official payment receipts."
+            >
+              <Field
+                id="settings-invoice-prefix"
+                label="Invoice number prefix"
+                description="2–12 uppercase letters, numbers, or hyphens."
+                {...(fieldErrors.invoicePrefix
+                  ? { error: fieldErrors.invoicePrefix }
+                  : {})}
+              >
+                {(props) => (
+                  <Input
+                    {...props}
+                    name="invoicePrefix"
+                    value={draft.invoicePrefix}
+                    onChange={(event) =>
+                      setDraft((prev) => ({
+                        ...prev,
+                        invoicePrefix: event.target.value.toUpperCase(),
+                      }))
+                    }
+                    placeholder="INV-"
+                  />
+                )}
+              </Field>
+
+              <Field
+                id="settings-receipt-prefix"
+                label="Receipt number prefix"
+                description="2–12 uppercase letters, numbers, or hyphens."
+                {...(fieldErrors.receiptPrefix
+                  ? { error: fieldErrors.receiptPrefix }
+                  : {})}
+              >
+                {(props) => (
+                  <Input
+                    {...props}
+                    name="receiptPrefix"
+                    value={draft.receiptPrefix}
+                    onChange={(event) =>
+                      setDraft((prev) => ({
+                        ...prev,
+                        receiptPrefix: event.target.value.toUpperCase(),
+                      }))
+                    }
+                    placeholder="RCP-"
+                  />
+                )}
+              </Field>
+            </SettingsRow>
+          </>
+        )}
+      </SettingsModulePanel>
+    );
+  }
+
+  return (
+    <SettingsModulePanel
+      settingsModule="operations"
+      draft={draft}
+      savedSnapshot={savedSnapshot}
+      banner={missingStayScheduleBanner}
+      onModuleSaved={handleModuleSaved}
+    >
+      {(fieldErrors) => (
+        <>
           <SettingsRow
-            title="Billing schedule"
-            description="Monthly rent generation day and payment grace window before invoices are marked overdue."
+            title="Stay check-in & check-out"
+            description="Default daily schedule used for transient check-ins and turnovers."
             badge={
-              <Badge tone={draft.policiesComplete ? "success" : "warning"}>
-                {draft.policiesComplete ? "Configured" : "Action needed"}
+              <Badge
+                tone={
+                  savedSnapshot.stayScheduleComplete ? "success" : "warning"
+                }
+              >
+                {savedSnapshot.stayScheduleComplete
+                  ? "Configured"
+                  : "Action needed"}
               </Badge>
             }
           >
             <Field
-              id="settings-billing-day"
-              label="Monthly billing day (1–28)"
-              description="Day of each month rent invoices generate."
-              {...(fieldErrors.billingDayOfMonth
-                ? { error: fieldErrors.billingDayOfMonth }
-                : {})}
-            >
-              {(props) => (
-                <Input
-                  {...props}
-                  name="billingDayOfMonth"
-                  type="number"
-                  inputMode="numeric"
-                  min={1}
-                  max={28}
-                  value={draft.billingDayOfMonth}
-                  onChange={(event) =>
-                    setDraft((prev) => ({
-                      ...prev,
-                      billingDayOfMonth: event.target.value,
-                    }))
-                  }
-                  placeholder="1"
-                />
-              )}
-            </Field>
-
-            <Field
-              id="settings-grace-days"
-              label="Payment grace period (days)"
-              description="Days after billing date before due date."
-              {...(fieldErrors.gracePeriodDays
-                ? { error: fieldErrors.gracePeriodDays }
-                : {})}
-            >
-              {(props) => (
-                <Input
-                  {...props}
-                  name="gracePeriodDays"
-                  type="number"
-                  inputMode="numeric"
-                  min={0}
-                  max={60}
-                  value={draft.gracePeriodDays}
-                  onChange={(event) =>
-                    setDraft((prev) => ({
-                      ...prev,
-                      gracePeriodDays: event.target.value,
-                    }))
-                  }
-                  placeholder="5"
-                />
-              )}
-            </Field>
-          </SettingsRow>
-
-          <SettingsRow
-            title="Financial policies"
-            description="Explicit Owner rules for mid-month move-ins, deposits, and surplus payments."
-          >
-            <Field
-              id="settings-proration"
-              label="Proration policy"
-              {...(fieldErrors.prorationPolicy
-                ? { error: fieldErrors.prorationPolicy }
-                : {})}
-            >
-              {(props) => (
-                <Select
-                  {...props}
-                  name="prorationPolicy"
-                  value={draft.prorationPolicy}
-                  onChange={(event) =>
-                    setDraft((prev) => ({
-                      ...prev,
-                      prorationPolicy: event.target.value,
-                    }))
-                  }
-                >
-                  <option value="">Not configured yet</option>
-                  {PRORATION_POLICIES.map((policy) => (
-                    <option key={policy} value={policy}>
-                      {PRORATION_POLICY_LABELS[policy]}
-                    </option>
-                  ))}
-                </Select>
-              )}
-            </Field>
-
-            <Field
-              id="settings-deposit"
-              label="Security deposit policy"
-              {...(fieldErrors.depositPolicy
-                ? { error: fieldErrors.depositPolicy }
-                : {})}
-            >
-              {(props) => (
-                <Select
-                  {...props}
-                  name="depositPolicy"
-                  value={draft.depositPolicy}
-                  onChange={(event) =>
-                    setDraft((prev) => ({
-                      ...prev,
-                      depositPolicy: event.target.value,
-                    }))
-                  }
-                >
-                  <option value="">Not configured yet</option>
-                  {DEPOSIT_POLICIES.map((policy) => (
-                    <option key={policy} value={policy}>
-                      {DEPOSIT_POLICY_LABELS[policy]}
-                    </option>
-                  ))}
-                </Select>
-              )}
-            </Field>
-
-            <Field
-              id="settings-overpayment"
-              label="Overpayment policy"
-              className="sm:col-span-2"
-              {...(fieldErrors.overpaymentPolicy
-                ? { error: fieldErrors.overpaymentPolicy }
-                : {})}
-            >
-              {(props) => (
-                <Select
-                  {...props}
-                  name="overpaymentPolicy"
-                  value={draft.overpaymentPolicy}
-                  onChange={(event) =>
-                    setDraft((prev) => ({
-                      ...prev,
-                      overpaymentPolicy: event.target.value,
-                    }))
-                  }
-                >
-                  <option value="">Not configured yet</option>
-                  {OVERPAYMENT_POLICIES.map((policy) => (
-                    <option key={policy} value={policy}>
-                      {OVERPAYMENT_POLICY_LABELS[policy]}
-                    </option>
-                  ))}
-                </Select>
-              )}
-            </Field>
-          </SettingsRow>
-
-          <SettingsRow
-            title="Document numbering"
-            description="Uppercase prefixes prepended to generated invoices and official payment receipts."
-          >
-            <Field
-              id="settings-invoice-prefix"
-              label="Invoice number prefix"
-              description="2–12 uppercase letters, numbers, or hyphens."
-              {...(fieldErrors.invoicePrefix
-                ? { error: fieldErrors.invoicePrefix }
-                : {})}
-            >
-              {(props) => (
-                <Input
-                  {...props}
-                  name="invoicePrefix"
-                  value={draft.invoicePrefix}
-                  onChange={(event) =>
-                    setDraft((prev) => ({
-                      ...prev,
-                      invoicePrefix: event.target.value.toUpperCase(),
-                    }))
-                  }
-                  placeholder="INV-"
-                />
-              )}
-            </Field>
-
-            <Field
-              id="settings-receipt-prefix"
-              label="Receipt number prefix"
-              description="2–12 uppercase letters, numbers, or hyphens."
-              {...(fieldErrors.receiptPrefix
-                ? { error: fieldErrors.receiptPrefix }
-                : {})}
-            >
-              {(props) => (
-                <Input
-                  {...props}
-                  name="receiptPrefix"
-                  value={draft.receiptPrefix}
-                  onChange={(event) =>
-                    setDraft((prev) => ({
-                      ...prev,
-                      receiptPrefix: event.target.value.toUpperCase(),
-                    }))
-                  }
-                  placeholder="RCP-"
-                />
-              )}
-            </Field>
-          </SettingsRow>
-        </section>
-
-        <section
-          hidden={activeTab !== "operations"}
-          aria-hidden={activeTab !== "operations"}
-          className="divide-y divide-border"
-        >
-          <SettingsRow
-            title="Stay check-in & check-out"
-            description="Default Asia/Manila daily schedule used for transient check-ins and turnovers."
-          >
-            <Field
               id="settings-checkin-time"
-              label="Standard check-in time (Asia/Manila)"
+              label="Standard check-in time"
               description="24-hour HH:MM (e.g. 14:00)."
               {...(fieldErrors.checkInTimeManila
                 ? { error: fieldErrors.checkInTimeManila }
@@ -604,7 +736,7 @@ export function BusinessSettingsForm({
 
             <Field
               id="settings-checkout-time"
-              label="Standard check-out time (Asia/Manila)"
+              label="Standard check-out time"
               description="24-hour HH:MM (e.g. 12:00)."
               {...(fieldErrors.checkOutTimeManila
                 ? { error: fieldErrors.checkOutTimeManila }
@@ -712,24 +844,8 @@ export function BusinessSettingsForm({
               )}
             </Field>
           </SettingsRow>
-        </section>
-
-        {activeTab !== "devices" && (
-          <div className="flex flex-wrap items-center justify-between gap-3 border-t border-border bg-background/60 px-5 py-4 sm:px-6">
-            <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
-              <Badge tone={isDirty ? "warning" : "neutral"}>
-                {isDirty ? "Unsaved edits" : "All changes saved"}
-              </Badge>
-              <span>
-                Applies across all settings sections atomically online.
-              </span>
-            </div>
-            <Button type="submit" loading={pending} disabled={pending}>
-              {pending ? "Saving settings…" : "Save settings"}
-            </Button>
-          </div>
-        )}
-      </div>
-    </form>
+        </>
+      )}
+    </SettingsModulePanel>
   );
 }

@@ -7,7 +7,8 @@ function createClient(connectionString: string): PrismaClient {
   return new PrismaClient({ adapter: new PrismaNeon({ connectionString }) });
 }
 
-const PRISMA_CLIENT_SCHEMA_TAG = "20261113150000_room_types_with_pricing";
+const PRISMA_CLIENT_SCHEMA_TAG =
+  "20261114150000_building_separation_and_tenant_contracts";
 
 // The module survives between requests; development HMR reuses compatible clients.
 const globalDatabase = globalThis as typeof globalThis & {

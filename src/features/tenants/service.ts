@@ -27,20 +27,32 @@ import {
   lockAllocationResources,
 } from "@/features/allocations/service";
 import {
+  getTenantDerivedBalancesMap,
+  listTenantInvoices,
+} from "@/features/billing/service";
+import { listTenantPayments } from "@/features/payments/service";
+import { syncRoomUnitBed } from "@/features/rooms/service";
+import { listTenantContractsForTenant } from "./contracts";
+import {
   ArchiveRestoreTenantSchema,
   CreateTenantAssignmentSchema,
+  CreateTenantNoteSchema,
   CreateTenantSchema,
+  DeleteTenantNoteSchema,
   MoveOutTenantAssignmentSchema,
   UpdateTenantSchema,
   type AssignableBedOptionDto,
   type CreateTenantAssignmentInput,
   type CreateTenantInput,
+  type CreateTenantNoteInput,
+  type DeleteTenantNoteInput,
   type MoveOutTenantAssignmentInput,
   type TenantAssignmentDto,
   type TenantAssignmentStatusValue,
   type TenantDetailDto,
   type TenantDto,
   type TenantListItemDto,
+  type TenantNoteDto,
   type TenantsOverviewDto,
   type UpdateTenantInput,
 } from "./schemas";
@@ -125,6 +137,30 @@ function toAssignmentDto(row: {
   };
 }
 
+function toTenantNoteDto(row: {
+  id: string;
+  tenantId: string;
+  content: string;
+  createdAt: Date;
+  updatedAt: Date;
+}): TenantNoteDto {
+  return {
+    id: row.id,
+    tenantId: row.tenantId,
+    content: row.content,
+    createdAt: row.createdAt.toISOString(),
+    updatedAt: row.updatedAt.toISOString(),
+  };
+}
+
+const tenantNoteSelect = {
+  id: true,
+  tenantId: true,
+  content: true,
+  createdAt: true,
+  updatedAt: true,
+} as const;
+
 const tenantSelect = {
   id: true,
   version: true,
@@ -179,11 +215,24 @@ async function listAssignableBeds(
   ownerUserId: string,
 ): Promise<AssignableBedOptionDto[]> {
   const db = getDatabase();
+  const activeRoomsWithoutBeds = await db.room.findMany({
+    where: {
+      ownerUserId,
+      building: "BOARDING",
+      archivedAt: null,
+      beds: { none: { archivedAt: null } },
+    },
+    select: { id: true },
+  });
+  for (const room of activeRoomsWithoutBeds) {
+    await syncRoomUnitBed(ownerUserId, room.id);
+  }
+
   const beds = await db.bed.findMany({
     where: {
       ownerUserId,
       archivedAt: null,
-      room: { archivedAt: null },
+      room: { building: "BOARDING", archivedAt: null },
       status: { in: ["AVAILABLE", "OCCUPIED"] },
     },
     orderBy: [{ room: { number: "asc" } }, { number: "asc" }],
@@ -194,7 +243,9 @@ async function listAssignableBeds(
       label: true,
       monthlyRate: true,
       status: true,
-      room: { select: { number: true, floor: true } },
+      room: {
+        select: { number: true, floor: true, baseMonthlyRate: true },
+      },
     },
   });
 
@@ -205,7 +256,9 @@ async function listAssignableBeds(
     roomFloor: bed.room.floor,
     bedNumber: bed.number,
     bedLabel: bed.label,
-    monthlyRate: decimalToString(bed.monthlyRate),
+    monthlyRate: bed.room.baseMonthlyRate
+      ? decimalToString(bed.room.baseMonthlyRate)
+      : decimalToString(bed.monthlyRate ?? "0.00"),
     status: bed.status,
   }));
 }
@@ -214,7 +267,7 @@ export async function listTenantsOverview(
   ownerUserId: string,
 ): Promise<TenantsOverviewDto> {
   const db = getDatabase();
-  const [tenants, assignableBeds] = await Promise.all([
+  const [tenants, assignableBeds, balancesMap] = await Promise.all([
     db.tenant.findMany({
       where: { ownerUserId },
       orderBy: [{ archivedAt: "asc" }, { fullName: "asc" }],
@@ -225,9 +278,14 @@ export async function listTenantsOverview(
           take: 1,
           select: assignmentSelect,
         },
+        tenantNotes: {
+          orderBy: [{ createdAt: "desc" }, { id: "desc" }],
+          select: tenantNoteSelect,
+        },
       },
     }),
     listAssignableBeds(ownerUserId),
+    getTenantDerivedBalancesMap(db, ownerUserId),
   ]);
 
   const items: TenantListItemDto[] = tenants.map((row) => ({
@@ -235,8 +293,8 @@ export async function listTenantsOverview(
     activeAssignment: row.assignments[0]
       ? toAssignmentDto(row.assignments[0])
       : null,
-    // Balances derive from invoices & payments once billing is implemented.
-    derivedBalance: "0.00",
+    tenantNotes: row.tenantNotes.map(toTenantNoteDto),
+    derivedBalance: balancesMap.get(row.id) ?? "0.00",
   }));
 
   return {
@@ -250,7 +308,14 @@ export async function getTenantDetail(
   tenantId: string,
 ): Promise<TenantDetailDto | null> {
   const db = getDatabase();
-  const [tenant, assignableBeds] = await Promise.all([
+  const [
+    tenant,
+    assignableBeds,
+    balancesMap,
+    invoices,
+    paymentHistory,
+    contracts,
+  ] = await Promise.all([
     db.tenant.findFirst({
       where: { id: tenantId, ownerUserId },
       select: {
@@ -260,9 +325,17 @@ export async function getTenantDetail(
           take: 50,
           select: assignmentSelect,
         },
+        tenantNotes: {
+          orderBy: [{ createdAt: "desc" }, { id: "desc" }],
+          select: tenantNoteSelect,
+        },
       },
     }),
     listAssignableBeds(ownerUserId),
+    getTenantDerivedBalancesMap(db, ownerUserId, [tenantId]),
+    listTenantInvoices(ownerUserId, tenantId),
+    listTenantPayments(ownerUserId, tenantId),
+    listTenantContractsForTenant(db, ownerUserId, tenantId),
   ]);
 
   if (!tenant) return null;
@@ -275,8 +348,13 @@ export async function getTenantDetail(
     tenant: toTenantDto(tenant),
     activeAssignment,
     assignments,
-    derivedBalance: "0.00",
+    tenantNotes: tenant.tenantNotes.map(toTenantNoteDto),
+    contracts,
+    derivedBalance: balancesMap.get(tenant.id) ?? "0.00",
+    unallocatedCredit: paymentHistory.unallocatedCredit,
     assignableBeds,
+    invoices,
+    payments: paymentHistory.payments,
   };
 }
 
@@ -409,7 +487,7 @@ export async function updateTenantInTx(
       email: input.email,
       address: input.address,
       emergencyContact: input.emergencyContact,
-      notes: input.notes,
+      ...(input.notes !== undefined ? { notes: input.notes } : {}),
     },
   });
   if (updated.count === 0) {
@@ -701,10 +779,19 @@ export async function assignTenantToBed(
 
       const bed = await tx.bed.findFirst({
         where: { id: input.bedId, ownerUserId },
-        select: { id: true, roomId: true },
+        select: {
+          id: true,
+          roomId: true,
+          room: { select: { building: true } },
+        },
       });
       if (!bed) {
         throw new NotFoundError("The requested bed was not found.");
+      }
+      if (bed.room.building !== "BOARDING") {
+        throw new PreconditionError(
+          "Only Boarding House rooms can be assigned to tenants.",
+        );
       }
 
       await lockAllocationResources(tx, ownerUserId, [bed.roomId], [bed.id]);
@@ -967,5 +1054,147 @@ export async function moveOutTenantAssignment(
     });
 
     return dto;
+  });
+}
+
+export async function createTenantNote(
+  ownerUserId: string,
+  rawInput: CreateTenantNoteInput,
+): Promise<TenantNoteDto> {
+  const parsed = CreateTenantNoteSchema.safeParse(rawInput);
+  if (!parsed.success) {
+    throw new ValidationError(
+      parsed.error.issues[0]?.message ?? "Enter a note before saving.",
+    );
+  }
+  const input = parsed.data;
+  const db = getDatabase();
+
+  return db.$transaction(async (tx) => {
+    await lockTenantRow(tx, ownerUserId, input.tenantId);
+
+    const existingTenant = await tx.tenant.findFirst({
+      where: { id: input.tenantId, ownerUserId },
+      select: { id: true, archivedAt: true },
+    });
+    if (!existingTenant) {
+      throw new NotFoundError("The requested tenant was not found.");
+    }
+    if (existingTenant.archivedAt !== null) {
+      throw new ConflictError(
+        "Restore the archived tenant before adding notes.",
+      );
+    }
+
+    const saved = await tx.tenantNote.create({
+      data: {
+        id: randomUUID(),
+        ownerUserId,
+        tenantId: existingTenant.id,
+        content: input.content,
+      },
+      select: tenantNoteSelect,
+    });
+
+    const dto = toTenantNoteDto(saved);
+    const sequence = await allocateSyncSequence(tx, ownerUserId);
+
+    await writeAuditEntry(tx, {
+      ownerUserId,
+      sequence,
+      area: "tenants",
+      action: "tenant_note.created",
+      actorType: "owner",
+      actorId: ownerUserId,
+      entityType: "tenant_note",
+      entityId: dto.id,
+      metadata: { tenantId: dto.tenantId },
+    });
+
+    await appendChangeFeed(tx, {
+      ownerUserId,
+      sequence,
+      entityType: "tenant_note",
+      entityId: dto.id,
+      version: 1,
+      operation: "upsert",
+      payload: dto,
+    });
+
+    return dto;
+  });
+}
+
+export async function deleteTenantNote(
+  ownerUserId: string,
+  rawInput: DeleteTenantNoteInput,
+): Promise<{ deletedNoteId: string; tenantId: string }> {
+  const parsed = DeleteTenantNoteSchema.safeParse(rawInput);
+  if (!parsed.success) {
+    throw new ValidationError(
+      parsed.error.issues[0]?.message ?? "Select a valid note.",
+    );
+  }
+  const input = parsed.data;
+  const db = getDatabase();
+
+  return db.$transaction(async (tx) => {
+    await lockTenantRow(tx, ownerUserId, input.tenantId);
+
+    const existingTenant = await tx.tenant.findFirst({
+      where: { id: input.tenantId, ownerUserId },
+      select: { id: true, archivedAt: true },
+    });
+    if (!existingTenant) {
+      throw new NotFoundError("The requested tenant was not found.");
+    }
+    if (existingTenant.archivedAt !== null) {
+      throw new ConflictError(
+        "Restore the archived tenant before deleting notes.",
+      );
+    }
+
+    const existingNote = await tx.tenantNote.findFirst({
+      where: {
+        id: input.noteId,
+        tenantId: existingTenant.id,
+        ownerUserId,
+      },
+      select: tenantNoteSelect,
+    });
+    if (!existingNote) {
+      throw new NotFoundError("The requested tenant note was not found.");
+    }
+
+    const dto = toTenantNoteDto(existingNote);
+    await tx.tenantNote.delete({
+      where: { id: existingNote.id },
+    });
+
+    const sequence = await allocateSyncSequence(tx, ownerUserId);
+
+    await writeAuditEntry(tx, {
+      ownerUserId,
+      sequence,
+      area: "tenants",
+      action: "tenant_note.deleted",
+      actorType: "owner",
+      actorId: ownerUserId,
+      entityType: "tenant_note",
+      entityId: dto.id,
+      metadata: { tenantId: dto.tenantId },
+    });
+
+    await appendChangeFeed(tx, {
+      ownerUserId,
+      sequence,
+      entityType: "tenant_note",
+      entityId: dto.id,
+      version: 1,
+      operation: "tombstone",
+      payload: dto,
+    });
+
+    return { deletedNoteId: dto.id, tenantId: dto.tenantId };
   });
 }

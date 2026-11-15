@@ -1,11 +1,13 @@
 "use client";
 
+import { ConfirmDialog } from "@/components/ui/confirm-dialog";
+
 import { useState, useTransition } from "react";
 import Image from "next/image";
 import Link from "next/link";
 import { Alert } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
-import { Button, buttonClasses } from "@/components/ui/button";
+import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { MetricCard } from "@/components/ui/metric-card";
 import {
@@ -19,6 +21,10 @@ import {
   SearchFilterBar,
   SearchFilterInput,
 } from "@/components/ui/search-filter";
+import {
+  RowActionMenu,
+  type RowActionItem,
+} from "@/components/ui/row-action-menu";
 import { Select } from "@/components/ui/select";
 import {
   Table,
@@ -28,6 +34,7 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
+import { TablePagination } from "@/components/ui/table-pagination";
 import {
   archiveTenantAction,
   restoreTenantAction,
@@ -38,17 +45,49 @@ import type {
   TenantListItemDto,
   TenantsOverviewDto,
 } from "@/features/tenants/schemas";
+import { useTablePagination } from "@/hooks/use-table-pagination";
+import { useTableSort } from "@/hooks/use-table-sort";
 import { formatManilaDate } from "@/lib/dates";
 import { formatPhpCurrency } from "@/lib/money";
+import type { SortColumnDef } from "@/lib/table-sort";
 import {
   AssignBedDialog,
   CreateTenantDialog,
   EditTenantDialog,
   MoveOutAssignmentDialog,
+  TenantNotesDialog,
 } from "./tenant-dialogs";
 
 type TenantViewFilter =
   "active" | "occupied" | "unassigned" | "archived" | "all";
+
+type TenantSortKey = "tenant" | "room" | "stayDates" | "monthlyRate" | "status";
+
+const TENANT_SORT_COLUMNS: Record<
+  TenantSortKey,
+  SortColumnDef<TenantListItemDto>
+> = {
+  tenant: { getValue: (tenant) => tenant.fullName },
+  room: { getValue: (tenant) => tenant.activeAssignment?.roomNumber ?? null },
+  stayDates: {
+    getValue: (tenant) => tenant.activeAssignment?.startDateManila ?? null,
+    kind: "date",
+    defaultDirection: "desc",
+  },
+  monthlyRate: {
+    getValue: (tenant) => tenant.activeAssignment?.monthlyRate ?? null,
+    kind: "money",
+    defaultDirection: "desc",
+  },
+  status: {
+    getValue: (tenant) =>
+      tenant.archivedAt !== null
+        ? "Archived"
+        : tenant.activeAssignment
+          ? "Active stay"
+          : "Unassigned",
+  },
+};
 
 function RefreshIcon() {
   return (
@@ -78,6 +117,9 @@ export function TenantsWorkspace({
   const [viewFilter, setViewFilter] = useState<TenantViewFilter>("active");
   const [createOpen, setCreateOpen] = useState(false);
   const [editingTenant, setEditingTenant] = useState<TenantDto | null>(null);
+  const [notesTenantId, setNotesTenantId] = useState<string | null>(null);
+  const notesTenant =
+    overview.tenants.find((tenant) => tenant.id === notesTenantId) ?? null;
   const [assigningTenant, setAssigningTenant] = useState<TenantDto | null>(
     null,
   );
@@ -87,6 +129,9 @@ export function TenantsWorkspace({
   } | null>(null);
   const [refreshing, setRefreshing] = useState(false);
   const [rowPendingId, setRowPendingId] = useState<string | null>(null);
+  const [confirmingTenant, setConfirmingTenant] =
+    useState<TenantListItemDto | null>(null);
+  const [confirmError, setConfirmError] = useState<string | null>(null);
   const [feedback, setFeedback] = useState<{
     tone: "success" | "danger";
     message: string;
@@ -119,6 +164,7 @@ export function TenantsWorkspace({
   function handleArchiveRestore(tenant: TenantListItemDto) {
     if (rowPendingId) return;
     setFeedback(null);
+    setConfirmError(null);
     setRowPendingId(tenant.id);
     startTransition(async () => {
       try {
@@ -133,10 +179,11 @@ export function TenantsWorkspace({
                 expectedVersion: tenant.version,
               });
         if (res.status === "saved") {
+          setConfirmingTenant(null);
           setFeedback({ tone: "success", message: res.message });
           await reloadTenants();
         } else if (res.status === "error") {
-          setFeedback({ tone: "danger", message: res.message });
+          setConfirmError(res.message);
         }
       } finally {
         setRowPendingId(null);
@@ -185,15 +232,94 @@ export function TenantsWorkspace({
 
   const hasFilters = normalizedQuery !== "" || viewFilter !== "active";
 
+  const {
+    sortedRows: sortedTenants,
+    sort,
+    sortHeaderProps,
+  } = useTableSort(filteredTenants, TENANT_SORT_COLUMNS, {
+    key: "tenant",
+    direction: "asc",
+  });
+
+  const { paginatedRows: paginatedTenants, paginationProps } =
+    useTablePagination(sortedTenants, {
+      resetKey: `${normalizedQuery}|${viewFilter}|${sort?.key ?? ""}|${sort?.direction ?? ""}`,
+    });
+
+  function getTenantRowActions(
+    tenant: TenantListItemDto,
+    isArchived: boolean,
+    busy: boolean,
+  ): RowActionItem[] {
+    const assignment = tenant.activeAssignment;
+    return [
+      ...(!isArchived && !assignment
+        ? [
+            {
+              id: "assign",
+              label: "Assign room",
+              onSelect: () => setAssigningTenant(tenant),
+            },
+          ]
+        : []),
+      ...(!isArchived && assignment
+        ? [
+            {
+              id: "move-out",
+              label: "Move out",
+              onSelect: () =>
+                setMovingOutTarget({
+                  assignment,
+                  tenantName: tenant.fullName,
+                }),
+            },
+          ]
+        : []),
+      {
+        id: "profile",
+        label: "View profile",
+        href: `/tenants/${tenant.id}`,
+      },
+      {
+        id: "notes",
+        label:
+          tenant.tenantNotes.length > 0
+            ? `Notes (${tenant.tenantNotes.length})`
+            : "Notes",
+        onSelect: () => setNotesTenantId(tenant.id),
+      },
+      ...(!isArchived
+        ? [
+            {
+              id: "edit",
+              label: "Edit",
+              onSelect: () => setEditingTenant(tenant),
+            },
+          ]
+        : []),
+      {
+        id: isArchived ? "restore" : "archive",
+        label: isArchived ? "Restore" : "Archive",
+        tone: isArchived ? ("default" as const) : ("danger" as const),
+        busy,
+        disabled: !isArchived && Boolean(assignment),
+        onSelect: () => {
+          setConfirmError(null);
+          setConfirmingTenant(tenant);
+        },
+      },
+    ];
+  }
+
   return (
     <div className="grid gap-5">
-      <header className="flex flex-wrap items-start justify-between gap-4 border-b border-border pb-4">
+      <header className="flex flex-wrap items-start justify-between gap-4">
         <div className="grid gap-1">
           <h1 className="text-xl font-semibold tracking-tight text-foreground sm:text-2xl">
             Tenants
           </h1>
           <p className="max-w-2xl text-sm leading-6 text-muted-foreground">
-            Manage boarder profiles, bed move-ins, and move-out history across
+            Manage boarder profiles, room move-ins, and move-out history across
             your boarding house.
           </p>
         </div>
@@ -203,7 +329,6 @@ export function TenantsWorkspace({
             size="md"
             variant="secondary"
             loading={refreshing}
-            className="border-border bg-surface text-foreground hover:bg-surface-muted"
             onClick={() => void reloadTenants()}
           >
             {!refreshing && <RefreshIcon />}
@@ -249,10 +374,10 @@ export function TenantsWorkspace({
           }
         />
         <MetricCard
-          label="Assigned a bed"
+          label="Assigned a room"
           value={assignedCount}
           tone="info"
-          description="Tenants with an active bed assignment"
+          description="Tenants with an active room assignment"
           icon={
             <svg
               viewBox="0 0 20 20"
@@ -271,7 +396,7 @@ export function TenantsWorkspace({
         <MetricCard
           label="Unassigned"
           value={unassignedCount}
-          description="Active profiles awaiting bed placement"
+          description="Active profiles awaiting room placement"
           icon={
             <svg
               viewBox="0 0 20 20"
@@ -311,10 +436,7 @@ export function TenantsWorkspace({
       </section>
 
       <SearchFilterBar
-        title="Filter tenants"
-        resultCountText={`${filteredTenants.length} ${
-          filteredTenants.length === 1 ? "tenant" : "tenants"
-        } shown`}
+        aria-label="Find tenants"
         hasActiveFilters={hasFilters}
         onClearAll={() => {
           setSearchQuery("");
@@ -322,32 +444,33 @@ export function TenantsWorkspace({
         }}
       >
         <div className="grid grid-cols-1 gap-3 md:grid-cols-3">
-          <div className="grid min-w-0 gap-2 md:col-span-2">
-            <label
-              htmlFor="tenants-search"
-              className="text-sm font-medium leading-5 text-foreground"
-            >
-              Search tenants
-            </label>
-            <SearchFilterInput
-              id="tenants-search"
-              value={searchQuery}
-              onValueChange={setSearchQuery}
-              placeholder="Name, phone, email, room or bed number"
-            />
-          </div>
+          <Field
+            id="tenants-search"
+            label="Find a tenant"
+            className="md:col-span-2"
+          >
+            {({ id }) => (
+              <SearchFilterInput
+                id={id}
+                value={searchQuery}
+                onValueChange={setSearchQuery}
+                placeholder="Name, phone, email, or room number"
+              />
+            )}
+          </Field>
 
           <Field id="tenants-view-filter" label="Status view">
             {(fieldProps) => (
               <Select
                 {...fieldProps}
+                variant="filter"
                 value={viewFilter}
                 onChange={(e) =>
                   setViewFilter(e.target.value as TenantViewFilter)
                 }
               >
                 <option value="active">Active tenants</option>
-                <option value="occupied">Assigned a bed</option>
+                <option value="occupied">Assigned a room</option>
                 <option value="unassigned">Unassigned only</option>
                 <option value="archived">Archived tenants</option>
                 <option value="all">All records</option>
@@ -378,8 +501,8 @@ export function TenantsWorkspace({
             </EmptyStateTitle>
             <EmptyStateDescription>
               {overview.tenants.length === 0
-                ? "Add a boarder profile to assign a room and bed, track move-in dates, and calculate balances."
-                : "Try adjusting your status filter or searching a different name or room number."}
+                ? "Add a boarder profile to assign a room, track move-in dates, and calculate balances."
+                : "Try changing the status view or finding a different name or room number."}
             </EmptyStateDescription>
           </div>
           <EmptyStateActions>
@@ -393,7 +516,7 @@ export function TenantsWorkspace({
                   setViewFilter("active");
                 }}
               >
-                Clear filters
+                Clear
               </Button>
             )}
           </EmptyStateActions>
@@ -412,7 +535,7 @@ export function TenantsWorkspace({
 
           {/* Mobile card layout (360 px baseline) */}
           <div className="grid divide-y divide-border md:hidden">
-            {filteredTenants.map((tenant) => {
+            {paginatedTenants.map((tenant) => {
               const assignment = tenant.activeAssignment;
               const isArchived = tenant.archivedAt !== null;
               const busy = rowPendingId === tenant.id;
@@ -427,82 +550,41 @@ export function TenantsWorkspace({
                         {tenant.fullName}
                       </Link>
                       {(tenant.phone || tenant.email) && (
-                        <span className="text-xs text-muted-foreground">
-                          {[tenant.phone, tenant.email]
-                            .filter(Boolean)
-                            .join(" · ")}
-                        </span>
+                        <div className="grid gap-0.5 text-xs text-muted-foreground">
+                          {tenant.phone && <span>{tenant.phone}</span>}
+                          {tenant.email && <span>{tenant.email}</span>}
+                        </div>
                       )}
                     </div>
                     {isArchived ? (
                       <Badge tone="neutral">Archived</Badge>
                     ) : assignment ? (
-                      <Badge tone="info">
-                        Rm {assignment.roomNumber} · {assignment.bedNumber}
-                      </Badge>
+                      <Badge tone="info">Room {assignment.roomNumber}</Badge>
                     ) : (
                       <Badge tone="warning">Unassigned</Badge>
                     )}
                   </div>
 
                   {assignment && (
-                    <div className="text-xs text-muted-foreground tabular-nums">
-                      {formatManilaDate(assignment.startDateManila)} –{" "}
-                      {formatManilaDate(assignment.endDateManila)} ·{" "}
-                      {formatPhpCurrency(assignment.monthlyRate)}/mo
+                    <div className="grid gap-0.5 text-xs text-muted-foreground tabular-nums">
+                      <span>
+                        {formatManilaDate(assignment.startDateManila)} –{" "}
+                        {formatManilaDate(assignment.endDateManila)}
+                      </span>
+                      <span>
+                        {formatPhpCurrency(assignment.monthlyRate)}/mo
+                      </span>
                     </div>
                   )}
 
-                  <div className="flex flex-wrap items-center gap-2">
-                    {!isArchived && !assignment && (
-                      <Button
-                        size="sm"
-                        onClick={() => setAssigningTenant(tenant)}
-                      >
-                        Assign bed
-                      </Button>
-                    )}
-                    {!isArchived && assignment && (
-                      <Button
-                        size="sm"
-                        variant="secondary"
-                        onClick={() =>
-                          setMovingOutTarget({
-                            assignment,
-                            tenantName: tenant.fullName,
-                          })
-                        }
-                      >
-                        Move out
-                      </Button>
-                    )}
-                    <Link
-                      href={`/tenants/${tenant.id}`}
-                      className={buttonClasses({
-                        variant: "secondary",
-                        size: "sm",
-                      })}
-                    >
-                      Profile
-                    </Link>
-                    {!isArchived && (
-                      <Button
-                        size="sm"
-                        variant="ghost"
-                        onClick={() => setEditingTenant(tenant)}
-                      >
-                        Edit
-                      </Button>
-                    )}
-                    <Button
-                      size="sm"
-                      variant="ghost"
-                      loading={busy}
-                      disabled={!isArchived && Boolean(assignment)}
-                      onClick={() => handleArchiveRestore(tenant)}
-                    >
-                      {isArchived ? "Restore" : "Archive"}
-                    </Button>
+                  <div className="flex items-center justify-between gap-2 border-t border-border pt-2.5">
+                    <span className="text-xs text-muted-foreground">
+                      Actions
+                    </span>
+                    <RowActionMenu
+                      label={`Actions for ${tenant.fullName}`}
+                      items={getTenantRowActions(tenant, isArchived, busy)}
+                    />
                   </div>
                 </div>
               );
@@ -514,16 +596,20 @@ export function TenantsWorkspace({
             <Table containerClassName="rounded-none border-0">
               <TableHeader>
                 <TableRow>
-                  <TableHead>Tenant</TableHead>
-                  <TableHead>Room &amp; bed</TableHead>
-                  <TableHead>Stay dates (Manila)</TableHead>
-                  <TableHead numeric>Monthly rate</TableHead>
-                  <TableHead>Status</TableHead>
+                  <TableHead {...sortHeaderProps("tenant")}>Tenant</TableHead>
+                  <TableHead {...sortHeaderProps("room")}>Room</TableHead>
+                  <TableHead {...sortHeaderProps("stayDates")}>
+                    Stay dates
+                  </TableHead>
+                  <TableHead numeric {...sortHeaderProps("monthlyRate")}>
+                    Monthly rate
+                  </TableHead>
+                  <TableHead {...sortHeaderProps("status")}>Status</TableHead>
                   <TableHead className="text-right">Actions</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {filteredTenants.map((tenant) => {
+                {paginatedTenants.map((tenant) => {
                   const assignment = tenant.activeAssignment;
                   const isArchived = tenant.archivedAt !== null;
                   const busy = rowPendingId === tenant.id;
@@ -537,25 +623,16 @@ export function TenantsWorkspace({
                           {tenant.fullName}
                         </Link>
                         {(tenant.phone || tenant.email) && (
-                          <div className="mt-0.5 text-xs text-muted-foreground">
-                            {[tenant.phone, tenant.email]
-                              .filter(Boolean)
-                              .join(" · ")}
+                          <div className="mt-0.5 grid gap-0.5 text-xs text-muted-foreground">
+                            {tenant.phone && <span>{tenant.phone}</span>}
+                            {tenant.email && <span>{tenant.email}</span>}
                           </div>
                         )}
                       </TableCell>
                       <TableCell className="tabular-nums">
                         {assignment ? (
-                          <div>
-                            <div className="font-medium">
-                              Room {assignment.roomNumber} · Bed{" "}
-                              {assignment.bedNumber}
-                            </div>
-                            {assignment.bedLabel && (
-                              <div className="text-xs text-muted-foreground">
-                                {assignment.bedLabel}
-                              </div>
-                            )}
+                          <div className="font-medium">
+                            Room {assignment.roomNumber}
                           </div>
                         ) : (
                           <span className="text-muted-foreground">—</span>
@@ -581,48 +658,10 @@ export function TenantsWorkspace({
                         )}
                       </TableCell>
                       <TableCell className="text-right">
-                        <div className="inline-flex flex-wrap items-center justify-end gap-1.5">
-                          {!isArchived && !assignment && (
-                            <Button
-                              size="sm"
-                              onClick={() => setAssigningTenant(tenant)}
-                            >
-                              Assign bed
-                            </Button>
-                          )}
-                          {!isArchived && assignment && (
-                            <Button
-                              size="sm"
-                              variant="secondary"
-                              onClick={() =>
-                                setMovingOutTarget({
-                                  assignment,
-                                  tenantName: tenant.fullName,
-                                })
-                              }
-                            >
-                              Move out
-                            </Button>
-                          )}
-                          {!isArchived && (
-                            <Button
-                              size="sm"
-                              variant="secondary"
-                              onClick={() => setEditingTenant(tenant)}
-                            >
-                              Edit
-                            </Button>
-                          )}
-                          <Button
-                            size="sm"
-                            variant={isArchived ? "secondary" : "ghost"}
-                            loading={busy}
-                            disabled={!isArchived && Boolean(assignment)}
-                            onClick={() => handleArchiveRestore(tenant)}
-                          >
-                            {isArchived ? "Restore" : "Archive"}
-                          </Button>
-                        </div>
+                        <RowActionMenu
+                          label={`Actions for ${tenant.fullName}`}
+                          items={getTenantRowActions(tenant, isArchived, busy)}
+                        />
                       </TableCell>
                     </TableRow>
                   );
@@ -630,6 +669,11 @@ export function TenantsWorkspace({
               </TableBody>
             </Table>
           </div>
+
+          <TablePagination
+            {...paginationProps}
+            label="Tenants table pagination"
+          />
         </Card>
       )}
 
@@ -669,6 +713,46 @@ export function TenantsWorkspace({
           setFeedback({ tone: "success", message });
           await reloadTenants();
         }}
+      />
+
+      <TenantNotesDialog
+        tenant={notesTenant}
+        notes={notesTenant?.tenantNotes ?? []}
+        onClose={() => setNotesTenantId(null)}
+        onNotesChanged={reloadTenants}
+      />
+      <ConfirmDialog
+        open={confirmingTenant !== null}
+        onClose={() => {
+          if (rowPendingId) return;
+          setConfirmError(null);
+          setConfirmingTenant(null);
+        }}
+        onConfirm={() => {
+          if (confirmingTenant) handleArchiveRestore(confirmingTenant);
+        }}
+        title={
+          confirmingTenant
+            ? confirmingTenant.archivedAt === null
+              ? `Archive ${confirmingTenant.fullName}?`
+              : `Restore ${confirmingTenant.fullName}?`
+            : "Update tenant?"
+        }
+        description={
+          confirmingTenant?.archivedAt === null
+            ? "Archiving moves this tenant out of active boarder lists. You can restore the profile anytime."
+            : "Restoring returns this tenant profile to active boarder lists."
+        }
+        errorMessage={confirmError}
+        confirmLabel={
+          confirmingTenant?.archivedAt === null ? "Archive" : "Restore"
+        }
+        confirmVariant={
+          confirmingTenant?.archivedAt === null ? "danger" : "primary"
+        }
+        loading={
+          confirmingTenant !== null && rowPendingId === confirmingTenant.id
+        }
       />
     </div>
   );

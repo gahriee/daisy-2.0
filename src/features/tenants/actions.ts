@@ -5,28 +5,58 @@ import { AppError } from "@/lib/errors";
 import { requireOwnerUserId } from "@/server/auth/owner";
 import {
   ArchiveRestoreTenantSchema,
+  ArchiveTenantContractSchema,
   CreateTenantAssignmentSchema,
+  CreateTenantContractSchema,
+  CreateTenantNoteSchema,
   CreateTenantSchema,
+  DeleteTenantNoteSchema,
   MoveOutTenantAssignmentSchema,
   UpdateTenantSchema,
+  type TenantContractDto,
+  type TenantNoteDto,
 } from "./schemas";
+import { archiveTenantContract, createTenantContract } from "./contracts";
 import {
   archiveTenant,
   assignTenantToBed,
   createTenant,
+  createTenantNote,
+  deleteTenantNote,
   moveOutTenantAssignment,
   restoreTenant,
   updateTenant,
 } from "./service";
 
+type ActionErrorResult = {
+  status: "error";
+  message: string;
+  fieldErrors: Record<string, string>;
+};
+
 export type TenantActionResult =
   | { status: "idle" }
   | { status: "saved"; message: string; tenantId?: string }
+  | ActionErrorResult;
+
+export type TenantNoteActionResult =
+  | { status: "idle" }
   | {
-      status: "error";
+      status: "saved";
       message: string;
-      fieldErrors: Record<string, string>;
-    };
+      note?: TenantNoteDto;
+      deletedNoteId?: string;
+    }
+  | ActionErrorResult;
+
+export type TenantContractActionResult =
+  | { status: "idle" }
+  | {
+      status: "saved";
+      message: string;
+      contract?: TenantContractDto;
+    }
+  | ActionErrorResult;
 
 function readStr(formData: FormData, key: string): string {
   const val = formData.get(key);
@@ -49,7 +79,7 @@ function mapZodErrors(
 function handleActionError(
   error: unknown,
   fallback: string,
-): TenantActionResult {
+): ActionErrorResult {
   if (error instanceof AppError) {
     return { status: "error", message: error.message, fieldErrors: {} };
   }
@@ -60,6 +90,7 @@ function revalidateTenantPaths(tenantId?: string) {
   revalidatePath("/tenants");
   if (tenantId) {
     revalidatePath(`/tenants/${tenantId}`);
+    revalidatePath(`/tenants/${tenantId}/contracts/new`);
   }
   revalidatePath("/rooms");
   revalidatePath("/audit");
@@ -79,7 +110,7 @@ export async function createTenantAction(
       email: readStr(formData, "email"),
       address: readStr(formData, "address"),
       emergencyContact: readStr(formData, "emergencyContact"),
-      notes: readStr(formData, "notes"),
+      ...(formData.has("notes") ? { notes: readStr(formData, "notes") } : {}),
     });
     if (!parsed.success) {
       return {
@@ -114,7 +145,7 @@ export async function updateTenantAction(
       email: readStr(formData, "email"),
       address: readStr(formData, "address"),
       emergencyContact: readStr(formData, "emergencyContact"),
-      notes: readStr(formData, "notes"),
+      ...(formData.has("notes") ? { notes: readStr(formData, "notes") } : {}),
     });
     if (!parsed.success) {
       return {
@@ -203,7 +234,7 @@ export async function assignTenantToBedAction(
       endDateManila: readStr(formData, "endDateManila"),
       monthlyRate: readStr(formData, "monthlyRate"),
       securityDeposit: readStr(formData, "securityDeposit"),
-      notes: readStr(formData, "notes"),
+      ...(formData.has("notes") ? { notes: readStr(formData, "notes") } : {}),
     });
     if (!parsed.success) {
       return {
@@ -217,7 +248,7 @@ export async function assignTenantToBedAction(
     revalidateTenantPaths(assignment.tenantId);
     return {
       status: "saved",
-      message: `Assigned Room ${assignment.roomNumber} · Bed ${assignment.bedNumber}.`,
+      message: `Assigned Room ${assignment.roomNumber} (Bed ${assignment.bedNumber}).`,
       tenantId: assignment.tenantId,
     };
   } catch (error) {
@@ -239,7 +270,7 @@ export async function moveOutTenantAssignmentAction(
       expectedVersion: readStr(formData, "expectedVersion"),
       mode: readStr(formData, "mode"),
       actualMoveOutDateManila: readStr(formData, "actualMoveOutDateManila"),
-      notes: readStr(formData, "notes"),
+      ...(formData.has("notes") ? { notes: readStr(formData, "notes") } : {}),
     });
     if (!parsed.success) {
       return {
@@ -261,5 +292,149 @@ export async function moveOutTenantAssignmentAction(
     };
   } catch (error) {
     return handleActionError(error, "Could not record move-out right now.");
+  }
+}
+
+export async function createTenantNoteAction(
+  _prev: TenantNoteActionResult,
+  formData: FormData,
+): Promise<TenantNoteActionResult> {
+  try {
+    const ownerUserId = await requireOwnerUserId();
+    const parsed = CreateTenantNoteSchema.safeParse({
+      tenantId: readStr(formData, "tenantId"),
+      content: readStr(formData, "content"),
+    });
+    if (!parsed.success) {
+      return {
+        status: "error",
+        message: "Review the highlighted fields before saving.",
+        fieldErrors: mapZodErrors(parsed.error.issues),
+      };
+    }
+
+    const note = await createTenantNote(ownerUserId, parsed.data);
+    revalidateTenantPaths(note.tenantId);
+    return {
+      status: "saved",
+      message: "Note added.",
+      note,
+    };
+  } catch (error) {
+    return handleActionError(error, "Could not add note right now. Try again.");
+  }
+}
+
+export async function deleteTenantNoteAction(rawInput: {
+  tenantId: string;
+  noteId: string;
+}): Promise<TenantNoteActionResult> {
+  try {
+    const ownerUserId = await requireOwnerUserId();
+    const parsed = DeleteTenantNoteSchema.safeParse(rawInput);
+    if (!parsed.success) {
+      return {
+        status: "error",
+        message: parsed.error.issues[0]?.message ?? "Select a valid note.",
+        fieldErrors: mapZodErrors(parsed.error.issues),
+      };
+    }
+
+    const deleted = await deleteTenantNote(ownerUserId, parsed.data);
+    revalidateTenantPaths(deleted.tenantId);
+    return {
+      status: "saved",
+      message: "Note deleted.",
+      deletedNoteId: deleted.deletedNoteId,
+    };
+  } catch (error) {
+    return handleActionError(
+      error,
+      "Could not delete note right now. Try again.",
+    );
+  }
+}
+
+export async function createTenantContractAction(
+  _prev: TenantContractActionResult,
+  formData: FormData,
+): Promise<TenantContractActionResult> {
+  try {
+    const ownerUserId = await requireOwnerUserId();
+    const pagesRaw = readStr(formData, "pagesJson");
+    let pages: unknown = [];
+    if (pagesRaw.trim()) {
+      try {
+        pages = JSON.parse(pagesRaw);
+      } catch {
+        return {
+          status: "error",
+          message: "Uploaded contract pages metadata is invalid.",
+          fieldErrors: { pages: "Re-attach your scanned contract pages." },
+        };
+      }
+    }
+
+    const parsed = CreateTenantContractSchema.safeParse({
+      tenantId: readStr(formData, "tenantId"),
+      assignmentId: readStr(formData, "assignmentId") || null,
+      title: readStr(formData, "title"),
+      signedDateManila: readStr(formData, "signedDateManila") || null,
+      notes: readStr(formData, "notes"),
+      pages,
+    });
+    if (!parsed.success) {
+      return {
+        status: "error",
+        message: "Review the highlighted contract fields before saving.",
+        fieldErrors: mapZodErrors(parsed.error.issues),
+      };
+    }
+
+    const contract = await createTenantContract(ownerUserId, parsed.data);
+    revalidateTenantPaths(contract.tenantId);
+    revalidatePath(`/tenants/${contract.tenantId}/contracts/${contract.id}`);
+    return {
+      status: "saved",
+      message: "Signed contract saved.",
+      contract,
+    };
+  } catch (error) {
+    return handleActionError(
+      error,
+      "Could not save signed contract right now. Try again.",
+    );
+  }
+}
+
+export async function archiveTenantContractAction(rawInput: {
+  tenantId: string;
+  contractId: string;
+  expectedVersion: number;
+}): Promise<TenantContractActionResult> {
+  try {
+    const ownerUserId = await requireOwnerUserId();
+    const parsed = ArchiveTenantContractSchema.safeParse(rawInput);
+    if (!parsed.success) {
+      return {
+        status: "error",
+        message: parsed.error.issues[0]?.message ?? "Select a valid contract.",
+        fieldErrors: mapZodErrors(parsed.error.issues),
+      };
+    }
+
+    const contract = await archiveTenantContract(ownerUserId, parsed.data);
+    revalidateTenantPaths(contract.tenantId);
+    revalidatePath(`/tenants/${contract.tenantId}/contracts/${contract.id}`);
+    return {
+      status: "saved",
+      message: "Signed contract archived.",
+      contract,
+    };
+  } catch (error) {
+    return handleActionError(
+      error,
+      "Could not archive signed contract right now. Try again.",
+    );
   }
 }

@@ -19,8 +19,8 @@ type FieldProps = {
 };
 
 /**
- * Form field wrapper connecting visible label, optional help text, non-color
- * error badge, and accessible control attributes.
+ * Form field wrapper connecting visible label, control slot, optional help text
+ * below the control, non-color error badge, and accessible control attributes.
  */
 export function Field({
   id,
@@ -35,10 +35,10 @@ export function Field({
   const errorId = error ? `${id}-error` : undefined;
 
   return (
-    <div className={cn("grid min-w-0 gap-2", className)}>
+    <div className={cn("grid min-w-0 content-start gap-1.5", className)}>
       <label
         htmlFor={id}
-        className="text-sm font-medium leading-5 text-foreground"
+        className="text-[13px] font-medium leading-4 text-foreground"
       >
         {label}
         {required && (
@@ -50,14 +50,6 @@ export function Field({
           </>
         )}
       </label>
-      {description && (
-        <p
-          id={descriptionId}
-          className="text-sm leading-5 text-muted-foreground"
-        >
-          {description}
-        </p>
-      )}
       {children({
         id,
         required,
@@ -65,14 +57,22 @@ export function Field({
           [descriptionId, errorId].filter(Boolean).join(" ") || undefined,
         "aria-invalid": error ? true : undefined,
       })}
+      {description && (
+        <p
+          id={descriptionId}
+          className="text-xs leading-4 text-muted-foreground"
+        >
+          {description}
+        </p>
+      )}
       {error && (
         <p
           id={errorId}
-          className="flex items-start gap-2 text-sm font-medium leading-5 text-danger"
+          className="flex items-start gap-1.5 text-[13px] font-medium leading-4 text-danger"
         >
           <span
             aria-hidden="true"
-            className="mt-0.5 inline-grid size-4 shrink-0 place-items-center rounded-full bg-danger text-[11px] font-semibold leading-none text-primary-foreground"
+            className="mt-px inline-grid size-3.5 shrink-0 place-items-center rounded-full bg-danger text-[10px] font-semibold leading-none text-primary-foreground"
           >
             !
           </span>

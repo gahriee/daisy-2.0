@@ -79,7 +79,7 @@ All AI agents interacting with this repository MUST strictly adhere to the follo
 
 ## 3. Available Workspace Scripts
 
-Use [package.json](package.json) for script definitions, [README.md](README.md) for common workflows and [verification commands](.agents/rules/7-verification-commands.md) to choose checks. Follow Section 1.6 for database targets. Always format authored code with Prettier (`pnpm format`) and verify it with `pnpm format:check` before handoff.
+Use [package.json](package.json) for script definitions, [README.md](README.md) for common workflows and [verification commands](.agents/rules/7-verification-commands.md) to choose minimal targeted checks. Follow Section 1.6 for database targets. Format changed files with Prettier (`pnpm exec prettier --write <paths>` or `pnpm format`) and verify before handoff.
 
 ## 4. Automated Testing Protocols
 
@@ -95,8 +95,8 @@ Automated testing is restricted to backend APIs, database integrations, services
 
 ### 4.2 Mandatory Execution on Modification
 
-- Execute the relevant test command, or a targeted test for the changed path, for every Route Handler, Server Action, Prisma schema or migration, service, sync handler, offline module, hook or non-UI utility creation or edit.
-- Ensure every assertion passes before concluding. Do not report a skipped or unexecuted check as passing.
+- Execute ONLY the targeted test file(s) covering the changed path and direct callers (for example `pnpm test:unit tests/unit/...` or `pnpm test:integration tests/integration/<domain>/<file>.test.ts`) for every Route Handler, Server Action, Prisma schema or migration, service, sync handler, offline module, hook or non-UI utility creation or edit. Do NOT run the full `pnpm test:integration` suite routinely unless shared core infrastructure (`src/server/auth/`, `src/server/db/`, `src/server/sync/`, `src/features/allocations/`, or core shared schema models) changed or the user explicitly requests a full run.
+- Ensure every assertion passes in the targeted run before concluding, and never re-run already-passing suites after doc-only edits. Do not report a skipped or unexecuted check as passing.
 - Record every run in `docs/test/` as required by Section 1.4.
 
 ---
@@ -107,7 +107,7 @@ Automated testing is restricted to backend APIs, database integrations, services
 
 - Focus on implementation and relevant code and backend checks. The user verifies the rendered UI, interactions, installation and offline behavior on real devices.
 - Do not open or control browsers, emulators or desktop apps, capture screenshots, start visual preview servers or run browser walkthroughs to verify UI unless the user explicitly requests it. Do not start a development server solely for visual review.
-- Review source, supplied screenshots and design references as needed. Continue lint, typecheck, production-build and backend and logic tests. Do not repeat passing checks without a relevant change or failure.
+- Review source, supplied screenshots and design references as needed. Execute only the essential checks matched to the change per rule 7 (targeted ESLint/Prettier and `pnpm typecheck` when TS changes, plus targeted unit or integration files for changed logic). Run `pnpm build` only when routes, layouts, Next config, proxy/middleware, global CSS or bundle boundaries change — skip it for routine component UI, service or doc edits. Do not repeat passing checks without a relevant code change or failure.
 - Every development handoff includes a short, task-specific user verification checklist with the screen or route, setup, steps and expected results. Cover the changed success path, validation and recovery, a 360 px mobile width, keyboard behavior and any offline step such as airplane-mode reload, reconnect and Needs attention outcomes. Usually 3 to 7 items are enough. Keep code-check results separate from checks awaiting the user.
 - Complete the implementation and provide the checklist without waiting for user verification. Never claim an unperformed UI or device check passed.
 - This preference overrides skill or workflow defaults that require visual inspection, screenshots or browser use. Invoking a design skill alone is not a request for agent-performed verification.

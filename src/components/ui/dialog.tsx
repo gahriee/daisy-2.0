@@ -2,12 +2,13 @@
 
 import { useEffect, useId, type ReactNode } from "react";
 import { cn } from "@/lib/cn";
+import { FormDensityProvider } from "./form-density";
 
 type DialogProps = {
   open: boolean;
   onClose: () => void;
   title: string;
-  description?: string;
+  description?: ReactNode;
   dismissDisabled?: boolean;
   maxWidthClassName?: string;
   children: ReactNode;
@@ -70,12 +71,12 @@ export function Dialog({
               {title}
             </h2>
             {description && (
-              <p
+              <div
                 id={descriptionId}
-                className="text-xs leading-5 text-muted-foreground sm:text-sm"
+                className="grid gap-0.5 text-xs leading-5 text-muted-foreground sm:text-sm"
               >
                 {description}
-              </p>
+              </div>
             )}
           </div>
           <button
@@ -99,8 +100,11 @@ export function Dialog({
           </button>
         </div>
 
-        <div className="overflow-y-auto px-4 py-4 sm:px-6 sm:py-5">
-          {children}
+        <div
+          data-form-density="filter"
+          className="group/dialog overflow-y-auto px-4 py-4 sm:px-6 sm:py-5"
+        >
+          <FormDensityProvider density="filter">{children}</FormDensityProvider>
         </div>
       </div>
     </div>

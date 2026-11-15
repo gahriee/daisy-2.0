@@ -1,4 +1,6 @@
 import { z } from "zod";
+import type { InvoiceDto } from "@/features/billing/schemas";
+import type { PaymentDto } from "@/features/payments/schemas";
 import { isValidManilaDate } from "@/lib/dates";
 import { normalizeNonNegativeMoneyDecimal } from "@/lib/money";
 
@@ -82,11 +84,26 @@ export const UpdateTenantSchema = z.object({
   tenantId: z.string().uuid("Select a valid tenant."),
   expectedVersion: z.coerce.number().int().min(1),
   ...tenantProfileFields,
+  notes: optionalShortText(500, "Keep notes under 500 characters.").optional(),
 });
 
 export const ArchiveRestoreTenantSchema = z.object({
   tenantId: z.string().uuid("Select a valid tenant."),
   expectedVersion: z.coerce.number().int().min(1),
+});
+
+export const CreateTenantNoteSchema = z.object({
+  tenantId: z.string().uuid("Select a valid tenant."),
+  content: z
+    .string()
+    .trim()
+    .min(1, "Enter a note before saving.")
+    .max(1000, "Keep each note under 1000 characters."),
+});
+
+export const DeleteTenantNoteSchema = z.object({
+  tenantId: z.string().uuid("Select a valid tenant."),
+  noteId: z.string().uuid("Select a valid note."),
 });
 
 export const CreateTenantAssignmentSchema = z
@@ -127,6 +144,8 @@ export const MoveOutTenantAssignmentSchema = z
 
 export type CreateTenantInput = z.input<typeof CreateTenantSchema>;
 export type UpdateTenantInput = z.input<typeof UpdateTenantSchema>;
+export type CreateTenantNoteInput = z.input<typeof CreateTenantNoteSchema>;
+export type DeleteTenantNoteInput = z.input<typeof DeleteTenantNoteSchema>;
 export type CreateTenantAssignmentInput = z.input<
   typeof CreateTenantAssignmentSchema
 >;
@@ -144,6 +163,14 @@ export type TenantDto = {
   emergencyContact: string | null;
   notes: string | null;
   archivedAt: string | null;
+  createdAt: string;
+  updatedAt: string;
+};
+
+export type TenantNoteDto = {
+  id: string;
+  tenantId: string;
+  content: string;
   createdAt: string;
   updatedAt: string;
 };
@@ -174,6 +201,7 @@ export type TenantAssignmentDto = {
 
 export type TenantListItemDto = TenantDto & {
   activeAssignment: TenantAssignmentDto | null;
+  tenantNotes: TenantNoteDto[];
   /** Read-only derived balance from invoices & payments (no editable balance column). */
   derivedBalance: string;
 };
@@ -189,6 +217,159 @@ export type AssignableBedOptionDto = {
   status: "AVAILABLE" | "OCCUPIED" | "MAINTENANCE" | "ARCHIVED";
 };
 
+export const CONTRACT_ALLOWED_MIME_TYPES = [
+  "image/jpeg",
+  "image/png",
+  "image/webp",
+  "application/pdf",
+] as const;
+
+export type ContractAllowedMimeType =
+  (typeof CONTRACT_ALLOWED_MIME_TYPES)[number];
+
+export const CONTRACT_SCAN_MODES = [
+  "ORIGINAL",
+  "MAGIC_WHITE",
+  "BW_SCAN",
+] as const;
+
+export type ContractScanModeValue = (typeof CONTRACT_SCAN_MODES)[number];
+
+export const CONTRACT_SCAN_MODE_LABELS: Record<ContractScanModeValue, string> =
+  {
+    MAGIC_WHITE: "Magic white",
+    BW_SCAN: "B&W scan",
+    ORIGINAL: "Original",
+  };
+
+export const CONTRACT_MAX_PAGES = 20;
+export const CONTRACT_MAX_FILE_BYTES = 15 * 1024 * 1024;
+
+const optionalUuidSchema = z
+  .union([z.string(), z.null()])
+  .optional()
+  .transform((val) => (typeof val === "string" ? val.trim() : ""))
+  .refine(
+    (val) => val === "" || z.string().uuid().safeParse(val).success,
+    "Select a valid record.",
+  )
+  .transform((val) => (val ? val : null));
+
+const optionalManilaDateSchema = z
+  .union([z.string(), z.null()])
+  .optional()
+  .transform((val) => (typeof val === "string" ? val.trim() : ""))
+  .refine(
+    (val) => val === "" || isValidManilaDate(val),
+    "Select a valid signed calendar date.",
+  )
+  .transform((val) => (val ? val : null));
+
+export const CreateTenantContractIntentSchema = z.object({
+  tenantId: z.string().uuid("Select a valid tenant."),
+  fileName: z
+    .string()
+    .trim()
+    .min(1, "Select a scanned image or PDF file.")
+    .max(180, "Keep contract file name under 180 characters."),
+  mimeType: z.enum(CONTRACT_ALLOWED_MIME_TYPES, {
+    message: "Upload a JPEG, PNG, WebP image, or PDF document.",
+  }),
+  byteSize: z.coerce
+    .number()
+    .int()
+    .positive("Contract file cannot be empty.")
+    .max(CONTRACT_MAX_FILE_BYTES, "Keep each contract page file under 15 MB."),
+  sha256: z
+    .string()
+    .trim()
+    .toLowerCase()
+    .regex(/^[a-f0-9]{64}$/, "Valid SHA-256 digest is required."),
+});
+
+export const ContractPageSubmissionSchema = z.object({
+  intentId: z.string().uuid("Each contract page must be uploaded first."),
+  filterMode: z.enum(CONTRACT_SCAN_MODES).default("MAGIC_WHITE"),
+  label: optionalShortText(60, "Keep page labels under 60 characters."),
+});
+
+export const CreateTenantContractSchema = z.object({
+  tenantId: z.string().uuid("Select a valid tenant."),
+  assignmentId: optionalUuidSchema,
+  title: z
+    .string()
+    .trim()
+    .min(2, "Enter a contract title.")
+    .max(120, "Keep contract title under 120 characters."),
+  signedDateManila: optionalManilaDateSchema,
+  notes: optionalShortText(500, "Keep contract notes under 500 characters."),
+  pages: z
+    .array(ContractPageSubmissionSchema)
+    .min(1, "Attach at least one signed contract page or PDF.")
+    .max(
+      CONTRACT_MAX_PAGES,
+      `Attach at most ${CONTRACT_MAX_PAGES} pages per signed contract.`,
+    )
+    .refine(
+      (pages) =>
+        new Set(pages.map((page) => page.intentId)).size === pages.length,
+      "Each uploaded page intent can only be used once per contract.",
+    ),
+});
+
+export const ArchiveTenantContractSchema = z.object({
+  tenantId: z.string().uuid("Select a valid tenant."),
+  contractId: z.string().uuid("Select a valid signed contract."),
+  expectedVersion: z.coerce.number().int().min(1),
+});
+
+export type CreateTenantContractIntentInput = z.input<
+  typeof CreateTenantContractIntentSchema
+>;
+export type CreateTenantContractInput = z.input<
+  typeof CreateTenantContractSchema
+>;
+export type ArchiveTenantContractInput = z.input<
+  typeof ArchiveTenantContractSchema
+>;
+
+export type TenantContractIntentDto = {
+  intentId: string;
+  objectKey: string;
+  status: "PENDING_UPLOAD" | "ATTACHED" | "EXPIRED";
+  uploadUrl: string;
+  expiresAt: string;
+};
+
+export type TenantContractPageDto = {
+  id: string;
+  contractId: string;
+  pageOrder: number;
+  filterMode: ContractScanModeValue;
+  label: string | null;
+  fileName: string;
+  mimeType: string;
+  byteSize: number;
+  url: string;
+  createdAt: string;
+};
+
+export type TenantContractDto = {
+  id: string;
+  tenantId: string;
+  assignmentId: string | null;
+  assignmentRoomNumber: string | null;
+  version: number;
+  title: string;
+  signedDateManila: string | null;
+  notes: string | null;
+  pageCount: number;
+  archivedAt: string | null;
+  createdAt: string;
+  updatedAt: string;
+  pages: TenantContractPageDto[];
+};
+
 export type TenantsOverviewDto = {
   tenants: TenantListItemDto[];
   assignableBeds: AssignableBedOptionDto[];
@@ -198,6 +379,11 @@ export type TenantDetailDto = {
   tenant: TenantDto;
   activeAssignment: TenantAssignmentDto | null;
   assignments: TenantAssignmentDto[];
+  tenantNotes: TenantNoteDto[];
+  contracts: TenantContractDto[];
   derivedBalance: string;
+  unallocatedCredit: string;
   assignableBeds: AssignableBedOptionDto[];
+  invoices: InvoiceDto[];
+  payments: PaymentDto[];
 };

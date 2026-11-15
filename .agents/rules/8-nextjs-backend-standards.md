@@ -38,7 +38,7 @@ Apply together with rules 1 to 7 and 9.
 
 ## 8.5 Static checks and formatting
 
-- Follow the existing TypeScript and ESLint style, and use `pnpm typecheck` and `pnpm lint` for application changes. Use a production build when rendering or build behavior changes.
+- Follow the existing TypeScript and ESLint style, and run `pnpm typecheck` plus targeted `pnpm exec eslint <paths>` (or `pnpm lint` on shared exports) for application changes. Run `pnpm build` only when routing, layouts, CSS pipeline or build configuration changes (see rule 7).
 - Do not add a formatter, change formatting policy, disable rules or suppress types merely to pass a check.
 - Keep changes limited to the task, preserve unrelated working-tree edits and never hand-edit generated output.
 

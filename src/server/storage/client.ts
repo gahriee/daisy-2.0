@@ -3,6 +3,8 @@ import {
   S3Client,
   HeadBucketCommand,
   GetObjectCommand,
+  PutObjectCommand,
+  HeadObjectCommand,
 } from "@aws-sdk/client-s3";
 import { getSignedUrl } from "@aws-sdk/s3-request-presigner";
 import { z } from "zod";
@@ -50,6 +52,115 @@ export async function signPrivateDownload(key: string): Promise<string> {
       new GetObjectCommand({ Bucket: ASSETS_BUCKET, Key: key }),
       { expiresIn: 60 },
     );
+  } finally {
+    storage.destroy();
+  }
+}
+
+export async function signPrivateUpload(params: {
+  key: string;
+  contentType: string;
+  contentLength: number;
+  expiresInSeconds?: number;
+}): Promise<string> {
+  const storage = getStorage();
+  try {
+    return await getSignedUrl(
+      storage,
+      new PutObjectCommand({
+        Bucket: ASSETS_BUCKET,
+        Key: params.key,
+        ContentType: params.contentType,
+        ContentLength: params.contentLength,
+      }),
+      { expiresIn: params.expiresInSeconds ?? 300 },
+    );
+  } finally {
+    storage.destroy();
+  }
+}
+
+export async function putPrivateObject(params: {
+  key: string;
+  contentType: string;
+  body: Uint8Array;
+}): Promise<{ byteSize: number }> {
+  const storage = getStorage();
+  try {
+    await storage.send(
+      new PutObjectCommand({
+        Bucket: ASSETS_BUCKET,
+        Key: params.key,
+        ContentType: params.contentType,
+        ContentLength: params.body.byteLength,
+        Body: params.body,
+      }),
+    );
+    return { byteSize: params.body.byteLength };
+  } finally {
+    storage.destroy();
+  }
+}
+
+function isS3NotFoundError(error: unknown): boolean {
+  if (!error || typeof error !== "object") return false;
+  const record = error as {
+    name?: unknown;
+    Code?: unknown;
+    $metadata?: { httpStatusCode?: unknown };
+  };
+  return (
+    record.$metadata?.httpStatusCode === 404 ||
+    record.name === "NotFound" ||
+    record.name === "NoSuchKey" ||
+    record.Code === "NotFound" ||
+    record.Code === "NoSuchKey"
+  );
+}
+
+export async function headPrivateObject(
+  key: string,
+): Promise<{ contentLength: number; contentType: string | null } | null> {
+  const storage = getStorage();
+  try {
+    const res = await storage.send(
+      new HeadObjectCommand({ Bucket: ASSETS_BUCKET, Key: key }),
+    );
+    return {
+      contentLength: Number(res.ContentLength ?? 0),
+      contentType: res.ContentType ?? null,
+    };
+  } catch (error) {
+    if (isS3NotFoundError(error)) {
+      return null;
+    }
+    throw error;
+  } finally {
+    storage.destroy();
+  }
+}
+
+export async function getPrivateObject(
+  key: string,
+): Promise<{ bytes: Uint8Array; contentType: string | null } | null> {
+  const storage = getStorage();
+  try {
+    const res = await storage.send(
+      new GetObjectCommand({ Bucket: ASSETS_BUCKET, Key: key }),
+    );
+    if (!res.Body) {
+      return null;
+    }
+    const bytes = await res.Body.transformToByteArray();
+    return {
+      bytes,
+      contentType: res.ContentType ?? null,
+    };
+  } catch (error) {
+    if (isS3NotFoundError(error)) {
+      return null;
+    }
+    throw error;
   } finally {
     storage.destroy();
   }

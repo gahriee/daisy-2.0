@@ -7,7 +7,7 @@ type PasswordVisibilityButtonProps = Omit<ComponentProps<"button">, "type"> & {
 };
 
 /**
- * Accessible 44 px embedded eye toggle anchored inside password inputs.
+ * Embedded eye toggle anchored inside compact password inputs.
  */
 export function PasswordVisibilityButton({
   visible,
@@ -22,14 +22,14 @@ export function PasswordVisibilityButton({
       aria-pressed={visible}
       aria-label={label}
       className={cn(
-        "absolute inset-y-0 right-0 inline-flex min-h-11 min-w-11 cursor-pointer items-center justify-center rounded-r-control text-muted-foreground transition-colors duration-(--duration-control) ease-(--ease-control) hover:text-foreground disabled:cursor-not-allowed disabled:opacity-50",
+        "absolute inset-y-0 right-0 inline-flex min-h-10 min-w-10 cursor-pointer items-center justify-center rounded-r-control text-muted-foreground transition-colors duration-(--duration-control) ease-(--ease-control) hover:text-foreground disabled:cursor-not-allowed disabled:opacity-50 sm:min-h-9 sm:min-w-9",
         className,
       )}
     >
       {visible ? (
         <svg
           aria-hidden="true"
-          className="size-4.5 shrink-0"
+          className="size-4 shrink-0"
           viewBox="0 0 24 24"
           fill="none"
           stroke="currentColor"
@@ -45,7 +45,7 @@ export function PasswordVisibilityButton({
       ) : (
         <svg
           aria-hidden="true"
-          className="size-4.5 shrink-0"
+          className="size-4 shrink-0"
           viewBox="0 0 24 24"
           fill="none"
           stroke="currentColor"

@@ -33,7 +33,7 @@ public sign-up. Public requests require Owner approval before confirmation.
 
 The name is Daisy. The design system pairs Airbnb-inspired brand tokens (Rausch
 crimson actions on warm charcoal and soft stone neutral surfaces) with Taste Skill
-`Host Grotesk` and `JetBrains Mono` typography. Visual tokens and component
+`Geist` and `Geist Mono` typography. Visual tokens and component
 in [the global stylesheet](src/app/globals.css).
 
 ## Product Principles

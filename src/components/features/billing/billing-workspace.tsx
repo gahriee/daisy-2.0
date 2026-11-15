@@ -1,0 +1,781 @@
+"use client";
+
+import { ConfirmDialog } from "@/components/ui/confirm-dialog";
+
+import { useState, useTransition } from "react";
+import Image from "next/image";
+import Link from "next/link";
+import { Alert } from "@/components/ui/alert";
+import { Badge } from "@/components/ui/badge";
+import { Button, buttonClasses } from "@/components/ui/button";
+import { Card } from "@/components/ui/card";
+import {
+  EmptyState,
+  EmptyStateActions,
+  EmptyStateDescription,
+  EmptyStateTitle,
+} from "@/components/ui/empty-state";
+import { Field } from "@/components/ui/field";
+import { MetricCard } from "@/components/ui/metric-card";
+import {
+  SearchFilterBar,
+  SearchFilterInput,
+} from "@/components/ui/search-filter";
+import {
+  RowActionMenu,
+  type RowActionItem,
+} from "@/components/ui/row-action-menu";
+import { Select } from "@/components/ui/select";
+import {
+  Table,
+  TableBody,
+  TableCardHeader,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from "@/components/ui/table";
+import { TablePagination } from "@/components/ui/table-pagination";
+import { issueDraftInvoiceAction } from "@/features/billing/actions";
+import { formatBillingPeriodLabel } from "@/features/billing/calculations";
+import {
+  INVOICE_STATUS_LABELS,
+  type BillingOverviewDto,
+  type InvoiceDto,
+} from "@/features/billing/schemas";
+import { useTablePagination } from "@/hooks/use-table-pagination";
+import { useTableSort } from "@/hooks/use-table-sort";
+import { formatManilaDate } from "@/lib/dates";
+import { formatPhpCurrency } from "@/lib/money";
+import type { SortColumnDef } from "@/lib/table-sort";
+import {
+  AddAdjustmentDialog,
+  GeneratePeriodInvoicesDialog,
+  INVOICE_BADGE_TONE,
+} from "./billing-dialogs";
+
+type BillingViewFilter = "all" | "open" | "overdue" | "draft" | "paid" | "void";
+
+type BillingSortKey =
+  "invoice" | "tenant" | "period" | "dueDate" | "total" | "balance" | "status";
+
+const BILLING_SORT_COLUMNS: Record<
+  BillingSortKey,
+  SortColumnDef<InvoiceDto>
+> = {
+  invoice: { getValue: (invoice) => invoice.invoiceNumber },
+  tenant: {
+    getValue: (invoice) => invoice.snapshotTenantName ?? "Guest",
+  },
+  period: {
+    getValue: (invoice) => invoice.billingPeriod,
+    defaultDirection: "desc",
+  },
+  dueDate: {
+    getValue: (invoice) => invoice.dueDateManila,
+    kind: "date",
+    defaultDirection: "desc",
+  },
+  total: {
+    getValue: (invoice) => invoice.totalAmount,
+    kind: "money",
+    defaultDirection: "desc",
+  },
+  balance: {
+    getValue: (invoice) => invoice.balanceAmount,
+    kind: "money",
+    defaultDirection: "desc",
+  },
+  status: {
+    getValue: (invoice) =>
+      invoice.isOverdue
+        ? `${INVOICE_STATUS_LABELS[invoice.status]} Overdue`
+        : INVOICE_STATUS_LABELS[invoice.status],
+  },
+};
+
+function RefreshIcon() {
+  return (
+    <svg
+      aria-hidden="true"
+      className="size-4 shrink-0"
+      viewBox="0 0 20 20"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.75"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+    >
+      <path d="M16.25 10a6.25 6.25 0 1 1-1.6-4.18" />
+      <path d="M16.5 3.5v3.25h-3.25" />
+    </svg>
+  );
+}
+
+function ReceivablesIcon() {
+  return (
+    <svg
+      aria-hidden="true"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.65"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+    >
+      <path d="M4.5 6.5h15a1.5 1.5 0 0 1 1.5 1.5v8a1.5 1.5 0 0 1-1.5 1.5h-15A1.5 1.5 0 0 1 3 16V8a1.5 1.5 0 0 1 1.5-1.5Z" />
+      <circle cx="12" cy="12" r="2.25" />
+    </svg>
+  );
+}
+
+function OverdueIcon() {
+  return (
+    <svg
+      aria-hidden="true"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.65"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+    >
+      <circle cx="12" cy="12" r="8.5" />
+      <path d="M12 7.5v4.75l3 1.75" />
+    </svg>
+  );
+}
+
+function DraftIcon() {
+  return (
+    <svg
+      aria-hidden="true"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.65"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+    >
+      <path d="M7 3.75h7l4.25 4.25v12.25A1.25 1.25 0 0 1 17 21.5H7a1.25 1.25 0 0 1-1.25-1.25V5A1.25 1.25 0 0 1 7 3.75Z" />
+      <path d="M14 3.75V8h4.25" />
+      <path d="M9 12.25h6" />
+      <path d="M9 15.75h4.5" />
+    </svg>
+  );
+}
+
+function PeriodTotalIcon() {
+  return (
+    <svg
+      aria-hidden="true"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.65"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+    >
+      <rect x="3.5" y="5" width="17" height="15.5" rx="2" />
+      <path d="M8 3.25v3.5M16 3.25v3.5M3.5 9.75h17" />
+    </svg>
+  );
+}
+
+export function BillingWorkspace({
+  initialOverview,
+}: {
+  initialOverview: BillingOverviewDto;
+}) {
+  const [overview, setOverview] = useState<BillingOverviewDto>(initialOverview);
+  const [searchQuery, setSearchQuery] = useState("");
+  const [viewFilter, setViewFilter] = useState<BillingViewFilter>("all");
+  const [periodFilter, setPeriodFilter] = useState<string>("ALL");
+  const [generateOpen, setGenerateOpen] = useState(false);
+  const [adjustingInvoice, setAdjustingInvoice] = useState<InvoiceDto | null>(
+    null,
+  );
+  const [issuingInvoice, setIssuingInvoice] = useState<InvoiceDto | null>(null);
+  const [issueError, setIssueError] = useState<string | null>(null);
+  const [refreshing, setRefreshing] = useState(false);
+  const [rowPendingId, setRowPendingId] = useState<string | null>(null);
+  const [feedback, setFeedback] = useState<{
+    tone: "success" | "danger";
+    message: string;
+  } | null>(null);
+  const [, startTransition] = useTransition();
+
+  async function reloadBilling() {
+    setRefreshing(true);
+    try {
+      const response = await fetch("/api/billing", { cache: "no-store" });
+      if (!response.ok) {
+        setFeedback({
+          tone: "danger",
+          message: "Could not refresh billing ledger right now.",
+        });
+        return;
+      }
+      const fresh = (await response.json()) as BillingOverviewDto;
+      setOverview(fresh);
+    } catch {
+      setFeedback({
+        tone: "danger",
+        message: "Connect to the internet to refresh billing.",
+      });
+    } finally {
+      setRefreshing(false);
+    }
+  }
+
+  function handleConfirmIssue() {
+    if (!issuingInvoice || rowPendingId) return;
+    const invoice = issuingInvoice;
+    setFeedback(null);
+    setIssueError(null);
+    setRowPendingId(invoice.id);
+    startTransition(async () => {
+      try {
+        const res = await issueDraftInvoiceAction({
+          invoiceId: invoice.id,
+          expectedVersion: invoice.version,
+        });
+        if (res.status === "saved") {
+          setIssuingInvoice(null);
+          setFeedback({ tone: "success", message: res.message });
+          await reloadBilling();
+        } else if (res.status === "error") {
+          setIssueError(res.message);
+        }
+      } finally {
+        setRowPendingId(null);
+      }
+    });
+  }
+
+  const periodOptions = Array.from(
+    new Set(
+      overview.invoices
+        .map((inv) => inv.billingPeriod)
+        .filter((period): period is string => period !== null),
+    ),
+  ).sort((a, b) => b.localeCompare(a));
+
+  const normalizedQuery = searchQuery.trim().toLowerCase();
+  const filteredInvoices = overview.invoices.filter((invoice) => {
+    if (
+      viewFilter === "open" &&
+      invoice.status !== "ISSUED" &&
+      invoice.status !== "PARTIALLY_PAID"
+    ) {
+      return false;
+    }
+    if (viewFilter === "overdue" && !invoice.isOverdue) return false;
+    if (viewFilter === "draft" && invoice.status !== "DRAFT") return false;
+    if (viewFilter === "paid" && invoice.status !== "PAID") return false;
+    if (viewFilter === "void" && invoice.status !== "VOID") return false;
+
+    if (periodFilter !== "ALL" && invoice.billingPeriod !== periodFilter) {
+      return false;
+    }
+
+    if (!normalizedQuery) return true;
+    const haystack = [
+      invoice.invoiceNumber ?? "draft",
+      invoice.snapshotTenantName ?? "",
+      invoice.snapshotRoomNumber ?? "",
+      invoice.billingPeriod ?? "",
+    ]
+      .join(" ")
+      .toLowerCase();
+    return haystack.includes(normalizedQuery);
+  });
+
+  const hasActiveFilter =
+    normalizedQuery !== "" || viewFilter !== "all" || periodFilter !== "ALL";
+
+  const {
+    sortedRows: sortedInvoices,
+    sort,
+    sortHeaderProps,
+  } = useTableSort(filteredInvoices, BILLING_SORT_COLUMNS, {
+    key: "dueDate",
+    direction: "desc",
+  });
+
+  const { paginatedRows: paginatedInvoices, paginationProps } =
+    useTablePagination(sortedInvoices, {
+      resetKey: `${normalizedQuery}|${viewFilter}|${periodFilter}|${sort?.key ?? ""}|${sort?.direction ?? ""}`,
+    });
+
+  function getInvoiceRowActions(
+    invoice: InvoiceDto,
+    isRowBusy: boolean,
+  ): RowActionItem[] {
+    return [
+      {
+        id: "inspect",
+        label: "Inspect",
+        href: `/billing/${invoice.id}`,
+      },
+      ...(invoice.status === "DRAFT"
+        ? [
+            {
+              id: "issue",
+              label: "Issue",
+              busy: isRowBusy,
+              disabled: !overview.invoicePrefix,
+              onSelect: () => {
+                setIssueError(null);
+                setIssuingInvoice(invoice);
+              },
+            },
+          ]
+        : []),
+      ...(invoice.status === "ISSUED" || invoice.status === "PARTIALLY_PAID"
+        ? [
+            {
+              id: "pay",
+              label: "Record payment",
+              href: `/payments/new?invoiceId=${invoice.id}`,
+            },
+            {
+              id: "adjust",
+              label: "Adjust",
+              onSelect: () => setAdjustingInvoice(invoice),
+            },
+          ]
+        : []),
+    ];
+  }
+
+  return (
+    <div className="grid gap-5">
+      <header className="flex flex-wrap items-start justify-between gap-4">
+        <div className="grid gap-1">
+          <h1 className="text-xl font-semibold tracking-tight text-foreground sm:text-2xl">
+            Billing &amp; invoices
+          </h1>
+          <p className="text-sm leading-6 text-muted-foreground">
+            Monthly rent runs, itemized statements, adjustments, and due dates.
+          </p>
+        </div>
+
+        <div className="flex flex-wrap items-center gap-2.5">
+          <Button
+            size="md"
+            variant="secondary"
+            loading={refreshing}
+            onClick={reloadBilling}
+          >
+            <RefreshIcon />
+            Refresh
+          </Button>
+          <Link
+            href="/billing/new"
+            className={buttonClasses({ variant: "secondary", size: "md" })}
+          >
+            Create invoice
+          </Link>
+          <Button
+            size="md"
+            disabled={!overview.policiesComplete}
+            onClick={() => setGenerateOpen(true)}
+          >
+            Generate monthly invoices
+          </Button>
+        </div>
+      </header>
+
+      {!overview.policiesComplete && (
+        <Alert tone="warning" role="status">
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <span>
+              Configure {overview.missingPolicyFields.join(", ")} in Settings
+              before running monthly billing or issuing invoices.
+            </span>
+            <Link
+              href="/settings/policies"
+              className={buttonClasses({ variant: "secondary", size: "sm" })}
+            >
+              Configure policies
+            </Link>
+          </div>
+        </Alert>
+      )}
+
+      {feedback && (
+        <Alert
+          tone={feedback.tone}
+          role={feedback.tone === "danger" ? "alert" : "status"}
+        >
+          {feedback.message}
+        </Alert>
+      )}
+
+      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">
+        <MetricCard
+          label="Open receivables"
+          value={formatPhpCurrency(overview.summary.openReceivablesAmount)}
+          description={`${overview.summary.issuedOpenCount} unpaid ${
+            overview.summary.issuedOpenCount === 1 ? "invoice" : "invoices"
+          }`}
+          icon={<ReceivablesIcon />}
+        />
+        <MetricCard
+          label="Overdue invoices"
+          value={overview.summary.overdueCount}
+          description="Past due date"
+          tone={overview.summary.overdueCount > 0 ? "warning" : "neutral"}
+          icon={<OverdueIcon />}
+        />
+        <MetricCard
+          label="Draft invoices"
+          value={overview.summary.draftCount}
+          description="Awaiting official number"
+          icon={<DraftIcon />}
+        />
+        <MetricCard
+          label="Billed this month"
+          value={formatPhpCurrency(overview.summary.billedCurrentPeriodAmount)}
+          description={formatBillingPeriodLabel(overview.currentBillingPeriod)}
+          tone="info"
+          icon={<PeriodTotalIcon />}
+        />
+      </div>
+
+      <SearchFilterBar
+        aria-label="Find invoices"
+        hasActiveFilters={hasActiveFilter}
+        onClearAll={() => {
+          setSearchQuery("");
+          setViewFilter("all");
+          setPeriodFilter("ALL");
+        }}
+      >
+        <div className="grid grid-cols-1 gap-3 md:grid-cols-2 lg:grid-cols-12 lg:items-end">
+          <div className="md:col-span-2 lg:col-span-6">
+            <Field id="billing-search" label="Find an invoice">
+              {(fieldProps) => (
+                <SearchFilterInput
+                  {...fieldProps}
+                  placeholder="Invoice number, tenant, room, or YYYY-MM"
+                  value={searchQuery}
+                  onValueChange={setSearchQuery}
+                />
+              )}
+            </Field>
+          </div>
+
+          <div className="lg:col-span-3">
+            <Field id="billing-period-filter" label="Period">
+              {(fieldProps) => (
+                <Select
+                  {...fieldProps}
+                  variant="filter"
+                  value={periodFilter}
+                  onChange={(event) => setPeriodFilter(event.target.value)}
+                >
+                  <option value="ALL">All periods</option>
+                  {periodOptions.map((period) => (
+                    <option key={period} value={period}>
+                      {formatBillingPeriodLabel(period)}
+                    </option>
+                  ))}
+                </Select>
+              )}
+            </Field>
+          </div>
+
+          <div className="lg:col-span-3">
+            <Field id="billing-status-filter" label="Status">
+              {(fieldProps) => (
+                <Select
+                  {...fieldProps}
+                  variant="filter"
+                  value={viewFilter}
+                  onChange={(event) =>
+                    setViewFilter(event.target.value as BillingViewFilter)
+                  }
+                >
+                  <option value="all">All statuses</option>
+                  <option value="open">Open</option>
+                  <option value="overdue">Overdue</option>
+                  <option value="draft">Drafts</option>
+                  <option value="paid">Paid</option>
+                  <option value="void">Void</option>
+                </Select>
+              )}
+            </Field>
+          </div>
+        </div>
+      </SearchFilterBar>
+
+      {filteredInvoices.length === 0 ? (
+        <EmptyState>
+          <Image
+            src="/illustrations/document-search.svg"
+            alt=""
+            width={160}
+            height={118}
+            className="h-24 w-auto"
+          />
+          <div className="grid gap-1">
+            <EmptyStateTitle>
+              {hasActiveFilter
+                ? "No matching invoices"
+                : "No invoices recorded yet"}
+            </EmptyStateTitle>
+            <EmptyStateDescription>
+              {hasActiveFilter
+                ? "Clear what you entered or reset the status to view all invoices."
+                : "Generate monthly invoices for active boarders or create an itemized invoice."}
+            </EmptyStateDescription>
+          </div>
+          <EmptyStateActions>
+            {hasActiveFilter ? (
+              <Button
+                variant="secondary"
+                size="md"
+                onClick={() => {
+                  setSearchQuery("");
+                  setViewFilter("all");
+                  setPeriodFilter("ALL");
+                }}
+              >
+                Clear
+              </Button>
+            ) : (
+              <Button
+                size="md"
+                disabled={!overview.policiesComplete}
+                onClick={() => setGenerateOpen(true)}
+              >
+                Generate monthly invoices
+              </Button>
+            )}
+          </EmptyStateActions>
+        </EmptyState>
+      ) : (
+        <Card className="overflow-hidden p-0 sm:p-0">
+          <TableCardHeader
+            title="Invoices"
+            count={`${filteredInvoices.length} ${filteredInvoices.length === 1 ? "record" : "records"}`}
+          />
+          {/* Mobile 360 px cards */}
+          <div className="grid divide-y divide-border md:hidden">
+            {paginatedInvoices.map((invoice) => {
+              const isRowBusy = rowPendingId === invoice.id;
+              return (
+                <div key={invoice.id} className="grid gap-2.5 p-4">
+                  <div className="flex items-start justify-between gap-2">
+                    <div className="grid gap-0.5">
+                      <Link
+                        href={`/billing/${invoice.id}`}
+                        className="font-mono text-sm font-semibold text-foreground tabular-nums hover:text-primary"
+                      >
+                        {invoice.invoiceNumber ?? "Draft"}
+                      </Link>
+                      <span className="text-sm font-medium text-foreground">
+                        {invoice.snapshotTenantName ?? "Tenant"}
+                      </span>
+                      <span className="text-xs text-muted-foreground">
+                        {invoice.snapshotRoomNumber
+                          ? `Room ${invoice.snapshotRoomNumber}`
+                          : "Unassigned"}
+                      </span>
+                      <span className="text-xs text-muted-foreground tabular-nums">
+                        Due {formatManilaDate(invoice.dueDateManila)}
+                      </span>
+                    </div>
+                    <div className="flex flex-wrap justify-end gap-1.5">
+                      <Badge tone={INVOICE_BADGE_TONE[invoice.status]}>
+                        {INVOICE_STATUS_LABELS[invoice.status]}
+                      </Badge>
+                      {invoice.isOverdue && (
+                        <Badge tone="danger">Overdue</Badge>
+                      )}
+                    </div>
+                  </div>
+
+                  <div className="flex items-center justify-between text-xs text-muted-foreground tabular-nums">
+                    <span>Total {formatPhpCurrency(invoice.totalAmount)}</span>
+                    <span className="font-semibold text-foreground">
+                      Balance {formatPhpCurrency(invoice.balanceAmount)}
+                    </span>
+                  </div>
+
+                  <div className="flex items-center justify-between gap-2 border-t border-border pt-2.5">
+                    <span className="text-xs text-muted-foreground">
+                      Actions
+                    </span>
+                    <RowActionMenu
+                      label={`Actions for invoice ${invoice.invoiceNumber ?? "Draft"}`}
+                      items={getInvoiceRowActions(invoice, isRowBusy)}
+                    />
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+
+          {/* Desktop ledger table */}
+          <div className="hidden md:block">
+            <Table containerClassName="rounded-none border-0">
+              <TableHeader>
+                <TableRow>
+                  <TableHead {...sortHeaderProps("invoice")}>Invoice</TableHead>
+                  <TableHead {...sortHeaderProps("tenant")}>Tenant</TableHead>
+                  <TableHead {...sortHeaderProps("period")}>Period</TableHead>
+                  <TableHead {...sortHeaderProps("dueDate")}>
+                    Due date
+                  </TableHead>
+                  <TableHead numeric {...sortHeaderProps("total")}>
+                    Total
+                  </TableHead>
+                  <TableHead numeric {...sortHeaderProps("balance")}>
+                    Open balance
+                  </TableHead>
+                  <TableHead {...sortHeaderProps("status")}>Status</TableHead>
+                  <TableHead className="text-right">Actions</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {paginatedInvoices.map((invoice) => {
+                  const isRowBusy = rowPendingId === invoice.id;
+                  return (
+                    <TableRow key={invoice.id}>
+                      <TableCell className="font-mono text-xs font-semibold tabular-nums">
+                        <Link
+                          href={`/billing/${invoice.id}`}
+                          className="text-foreground hover:text-primary"
+                        >
+                          {invoice.invoiceNumber ?? "Draft"}
+                        </Link>
+                      </TableCell>
+                      <TableCell>
+                        <div className="grid gap-0.5">
+                          <Link
+                            href={
+                              invoice.tenantId
+                                ? `/tenants/${invoice.tenantId}`
+                                : "/transients"
+                            }
+                            className="font-medium text-foreground hover:text-primary"
+                          >
+                            {invoice.snapshotTenantName ?? "Guest"}
+                          </Link>
+                          {invoice.snapshotRoomNumber && (
+                            <span className="text-xs text-muted-foreground tabular-nums">
+                              Room {invoice.snapshotRoomNumber}
+                            </span>
+                          )}
+                        </div>
+                      </TableCell>
+                      <TableCell className="tabular-nums">
+                        {invoice.billingPeriod
+                          ? formatBillingPeriodLabel(invoice.billingPeriod)
+                          : "Ad-hoc"}
+                      </TableCell>
+                      <TableCell className="tabular-nums">
+                        {formatManilaDate(invoice.dueDateManila)}
+                      </TableCell>
+                      <TableCell numeric>
+                        {formatPhpCurrency(invoice.totalAmount)}
+                      </TableCell>
+                      <TableCell numeric className="font-semibold">
+                        {formatPhpCurrency(invoice.balanceAmount)}
+                      </TableCell>
+                      <TableCell>
+                        <div className="flex flex-wrap items-center gap-1.5">
+                          <Badge tone={INVOICE_BADGE_TONE[invoice.status]}>
+                            {INVOICE_STATUS_LABELS[invoice.status]}
+                          </Badge>
+                          {invoice.isOverdue && (
+                            <Badge tone="danger">Overdue</Badge>
+                          )}
+                        </div>
+                      </TableCell>
+                      <TableCell className="text-right">
+                        <RowActionMenu
+                          label={`Actions for invoice ${invoice.invoiceNumber ?? "Draft"}`}
+                          items={getInvoiceRowActions(invoice, isRowBusy)}
+                        />
+                      </TableCell>
+                    </TableRow>
+                  );
+                })}
+              </TableBody>
+            </Table>
+          </div>
+
+          <TablePagination
+            {...paginationProps}
+            label="Invoices table pagination"
+          />
+        </Card>
+      )}
+
+      <GeneratePeriodInvoicesDialog
+        open={generateOpen}
+        defaultPeriod={overview.currentBillingPeriod}
+        policiesComplete={overview.policiesComplete}
+        onClose={() => setGenerateOpen(false)}
+        onSaved={async (message) => {
+          setFeedback({ tone: "success", message });
+          await reloadBilling();
+        }}
+      />
+
+      <AddAdjustmentDialog
+        invoice={adjustingInvoice}
+        onClose={() => setAdjustingInvoice(null)}
+        onSaved={async (message) => {
+          setFeedback({ tone: "success", message });
+          await reloadBilling();
+        }}
+      />
+      <ConfirmDialog
+        open={issuingInvoice !== null}
+        onClose={() => {
+          if (rowPendingId) return;
+          setIssueError(null);
+          setIssuingInvoice(null);
+        }}
+        onConfirm={handleConfirmIssue}
+        title="Issue draft invoice?"
+        description="Issuing locks this draft statement, assigns an official invoice number, and opens it for payment collection."
+        details={
+          issuingInvoice ? (
+            <>
+              <div className="flex items-center justify-between gap-2">
+                <span className="text-muted-foreground">Tenant</span>
+                <span className="font-medium text-foreground">
+                  {issuingInvoice.snapshotTenantName ?? "Tenant"}
+                </span>
+              </div>
+              <div className="flex items-center justify-between gap-2">
+                <span className="text-muted-foreground">Room</span>
+                <span className="text-foreground">
+                  {issuingInvoice.snapshotRoomNumber
+                    ? `Room ${issuingInvoice.snapshotRoomNumber}`
+                    : "Unassigned"}
+                </span>
+              </div>
+              <div className="flex items-center justify-between gap-2">
+                <span className="text-muted-foreground">Total</span>
+                <span className="font-semibold text-foreground">
+                  {formatPhpCurrency(issuingInvoice.totalAmount)}
+                </span>
+              </div>
+            </>
+          ) : null
+        }
+        errorMessage={issueError}
+        confirmLabel="Issue invoice"
+        confirmVariant="primary"
+        loading={issuingInvoice !== null && rowPendingId === issuingInvoice.id}
+      />
+    </div>
+  );
+}

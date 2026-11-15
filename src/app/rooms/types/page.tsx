@@ -24,7 +24,7 @@ export default async function RoomTypesPage() {
 
   const [profile, initialOverview] = await Promise.all([
     getOwnerWorkspaceProfile(ownerUserId),
-    listInventoryOverview(ownerUserId),
+    listInventoryOverview(ownerUserId, { building: "BOARDING" }),
   ]);
 
   return (

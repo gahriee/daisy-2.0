@@ -3,11 +3,14 @@
 import type { ComponentProps, ReactNode } from "react";
 import { cn } from "@/lib/cn";
 import { Button } from "./button";
-import { controlBaseClasses, editableControlClasses } from "./control-styles";
+import {
+  compactSingleLineSizingClasses,
+  controlBaseClasses,
+  editableControlClasses,
+} from "./control-styles";
 
 type SearchFilterBarProps = ComponentProps<"section"> & {
   title?: string;
-  resultCountText?: string;
   updating?: boolean;
   hasActiveFilters?: boolean;
   onClearAll?: () => void;
@@ -16,16 +19,15 @@ type SearchFilterBarProps = ComponentProps<"section"> & {
 };
 
 /**
- * Dynamic workspace filtering toolbar without a manual submit button: combines
- * live result metrics, clear-all recovery, and responsive filter controls.
+ * Dynamic workspace find-and-narrow toolbar without a manual submit button:
+ * pairs compact find controls with optional trailing actions and clear recovery.
  */
 export function SearchFilterBar({
   title,
-  resultCountText,
   updating = false,
   hasActiveFilters = false,
   onClearAll,
-  clearAllLabel = "Clear filters",
+  clearAllLabel = "Clear",
   actions,
   className,
   children,
@@ -35,43 +37,46 @@ export function SearchFilterBar({
     <section
       {...props}
       className={cn(
-        "grid min-w-0 gap-4 rounded-panel border border-border bg-surface p-4 sm:p-5",
+        "grid min-w-0 gap-3 rounded-panel border border-border bg-surface p-3.5 sm:p-4",
         className,
       )}
     >
-      {(title || resultCountText || hasActiveFilters || actions) && (
-        <div className="flex flex-wrap items-center justify-between gap-3">
-          <div className="flex flex-wrap items-center gap-2.5">
+      {(title || actions || updating) && (
+        <div className="flex flex-wrap items-center justify-between gap-2.5">
+          <div className="flex flex-wrap items-center gap-2">
             {title && (
               <h2 className="text-sm font-semibold text-foreground">{title}</h2>
             )}
-            {resultCountText && (
+            {updating && (
               <span
                 aria-live="polite"
-                className="text-xs font-medium text-muted-foreground tabular-nums"
+                className="text-xs font-medium text-muted-foreground"
               >
-                {updating ? "Updating…" : resultCountText}
+                Updating…
               </span>
             )}
           </div>
 
-          <div className="flex flex-wrap items-center gap-2">
-            {actions}
-            {hasActiveFilters && onClearAll && (
-              <Button
-                type="button"
-                variant="ghost"
-                size="sm"
-                onClick={onClearAll}
-              >
-                {clearAllLabel}
-              </Button>
-            )}
-          </div>
+          {actions && (
+            <div className="flex flex-wrap items-center gap-2">{actions}</div>
+          )}
         </div>
       )}
 
-      {children}
+      <div className="flex flex-col gap-3 md:flex-row md:items-end">
+        <div className="min-w-0 flex-1">{children}</div>
+        {hasActiveFilters && onClearAll && (
+          <Button
+            type="button"
+            variant="ghost"
+            size="sm"
+            onClick={onClearAll}
+            className="min-h-10 shrink-0 self-start sm:min-h-9 md:self-auto"
+          >
+            {clearAllLabel}
+          </Button>
+        )}
+      </div>
     </section>
   );
 }
@@ -87,13 +92,13 @@ type SearchFilterInputProps = Omit<
 };
 
 /**
- * Border-only-on-focus live search field with leading search glyph and an
- * accessible 44 px clear trigger whenever text is present.
+ * Compact border-only-on-focus live find field with leading search glyph and
+ * an inline clear trigger whenever text is present.
  */
 export function SearchFilterInput({
   value,
   onValueChange,
-  clearLabel = "Clear search",
+  clearLabel = "Clear",
   className,
   wrapperClassName,
   ...props
@@ -113,7 +118,7 @@ export function SearchFilterInput({
         strokeWidth="1.65"
         strokeLinecap="round"
         strokeLinejoin="round"
-        className="pointer-events-none absolute left-3.5 size-4 text-muted-foreground"
+        className="pointer-events-none absolute left-3 size-3.5 text-muted-foreground"
       >
         <circle cx="9" cy="9" r="5.5" />
         <path d="m13.5 13.5 3.25 3.25" />
@@ -127,7 +132,8 @@ export function SearchFilterInput({
         className={cn(
           controlBaseClasses,
           editableControlClasses,
-          "min-h-11 py-2 pr-11 pl-10 not-disabled:not-read-only:focus:py-[7px] not-disabled:not-read-only:focus:pr-[43px] not-disabled:not-read-only:focus:pl-[39px] not-disabled:not-read-only:active:py-[7px] not-disabled:not-read-only:active:pr-[43px] not-disabled:not-read-only:active:pl-[39px] [&::-webkit-search-cancel-button]:hidden",
+          compactSingleLineSizingClasses,
+          "pr-9 pl-9 [&::-webkit-search-cancel-button]:hidden",
           className,
         )}
       />
@@ -137,7 +143,7 @@ export function SearchFilterInput({
           type="button"
           onClick={() => onValueChange("")}
           aria-label={clearLabel}
-          className="absolute right-0 inline-flex min-h-11 min-w-11 cursor-pointer items-center justify-center rounded-r-control text-muted-foreground transition-colors duration-(--duration-control) ease-(--ease-control) hover:text-foreground"
+          className="absolute right-0 inline-flex min-h-10 min-w-10 cursor-pointer items-center justify-center rounded-r-control text-muted-foreground transition-colors duration-(--duration-control) ease-(--ease-control) hover:text-foreground sm:min-h-9 sm:min-w-9"
         >
           <svg
             aria-hidden="true"
@@ -146,65 +152,12 @@ export function SearchFilterInput({
             stroke="currentColor"
             strokeWidth="1.75"
             strokeLinecap="round"
-            className="size-4"
+            className="size-3.5"
           >
             <path d="M6 6l8 8M14 6l-8 8" />
           </svg>
         </button>
       )}
-    </div>
-  );
-}
-
-export type FilterChipOption<T extends string = string> = {
-  value: T;
-  label: string;
-};
-
-type SearchFilterChipsProps<T extends string> = {
-  label: string;
-  options: readonly FilterChipOption<T>[];
-  value: T;
-  onValueChange: (value: T) => void;
-  className?: string;
-};
-
-/**
- * Single-tap toggle pills for dynamic category filtering with >=44 px targets
- * and horizontal scroll fallback on compact viewports.
- */
-export function SearchFilterChips<T extends string>({
-  label,
-  options,
-  value,
-  onValueChange,
-  className,
-}: SearchFilterChipsProps<T>) {
-  return (
-    <div
-      role="group"
-      aria-label={label}
-      className={cn("flex flex-wrap items-center gap-1.5", className)}
-    >
-      {options.map((option) => {
-        const active = option.value === value;
-        return (
-          <button
-            key={option.value}
-            type="button"
-            aria-pressed={active}
-            onClick={() => onValueChange(option.value)}
-            className={cn(
-              "inline-flex min-h-11 cursor-pointer items-center rounded-control border px-3.5 py-2 text-[13px] font-medium whitespace-nowrap transition-[background-color,color,border-color] duration-(--duration-control) ease-(--ease-control) sm:min-h-9 sm:px-3 sm:py-1.5",
-              active
-                ? "border-primary/40 bg-accent text-accent-foreground"
-                : "border-border bg-surface text-muted-foreground hover:bg-surface-muted hover:text-foreground",
-            )}
-          >
-            {option.label}
-          </button>
-        );
-      })}
     </div>
   );
 }

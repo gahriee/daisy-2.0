@@ -24,11 +24,11 @@ export default async function RoomsPage() {
 
   const [profile, initialOverview] = await Promise.all([
     getOwnerWorkspaceProfile(ownerUserId),
-    listInventoryOverview(ownerUserId),
+    listInventoryOverview(ownerUserId, { building: "BOARDING" }),
   ]);
 
   return (
-    <WorkspaceShell title="Rooms & beds" profile={profile}>
+    <WorkspaceShell title="Rooms" profile={profile}>
       <RoomsWorkspace initialOverview={initialOverview} />
     </WorkspaceShell>
   );

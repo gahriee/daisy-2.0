@@ -1,5 +1,7 @@
 "use client";
 
+import { ConfirmDialog } from "@/components/ui/confirm-dialog";
+
 import { useActionState, useState, useTransition } from "react";
 import Image from "next/image";
 import { EditRoomTypeDialog } from "@/components/features/rooms/room-dialogs";
@@ -14,6 +16,7 @@ import {
   EmptyStateTitle,
 } from "@/components/ui/empty-state";
 import { Field } from "@/components/ui/field";
+import { CompactFormScope } from "@/components/ui/form-density";
 import { Input } from "@/components/ui/input";
 import { MetricCard } from "@/components/ui/metric-card";
 import {
@@ -29,9 +32,11 @@ import {
   updateRoomTypeAction,
   type InventoryActionResult,
 } from "@/features/rooms/actions";
-import type {
-  InventoryOverviewDto,
-  RoomTypeDto,
+import {
+  ROOM_BUILDING_LABELS,
+  type InventoryOverviewDto,
+  type RoomBuildingValue,
+  type RoomTypeDto,
 } from "@/features/rooms/schemas";
 import { formatPhpCurrency } from "@/lib/money";
 
@@ -61,9 +66,12 @@ function RefreshIcon() {
  */
 export function RoomTypesWorkspace({
   initialRoomTypes,
+  building = "BOARDING",
 }: {
   initialRoomTypes: RoomTypeDto[];
+  building?: RoomBuildingValue;
 }) {
+  const isTransient = building === "TRANSIENT";
   const [roomTypes, setRoomTypes] = useState<RoomTypeDto[]>(initialRoomTypes);
   const [searchQuery, setSearchQuery] = useState("");
   const [viewFilter, setViewFilter] = useState<RoomTypeViewFilter>("active");
@@ -82,7 +90,9 @@ export function RoomTypesWorkspace({
   async function reloadRoomTypes() {
     setRefreshing(true);
     try {
-      const response = await fetch("/api/rooms", { cache: "no-store" });
+      const response = await fetch(`/api/rooms?building=${building}`, {
+        cache: "no-store",
+      });
       if (!response.ok) {
         setFeedback({
           tone: "danger",
@@ -134,9 +144,14 @@ export function RoomTypesWorkspace({
     { status: "idle" },
   );
 
+  const [confirmingRoomType, setConfirmingRoomType] =
+    useState<RoomTypeDto | null>(null);
+  const [confirmError, setConfirmError] = useState<string | null>(null);
+
   function handleArchiveRestore(roomType: RoomTypeDto) {
     if (rowPendingId) return;
     setFeedback(null);
+    setConfirmError(null);
     setRowPendingId(roomType.id);
     startTransition(async () => {
       try {
@@ -152,10 +167,11 @@ export function RoomTypesWorkspace({
               });
 
         if (result.status === "saved") {
+          setConfirmingRoomType(null);
           setFeedback({ tone: "success", message: result.message });
           await reloadRoomTypes();
         } else if (result.status === "error") {
-          setFeedback({ tone: "danger", message: result.message });
+          setConfirmError(result.message);
         }
       } finally {
         setRowPendingId(null);
@@ -178,7 +194,7 @@ export function RoomTypesWorkspace({
 
     const haystack = [
       rt.name,
-      rt.monthlyRate,
+      rt.monthlyRate ?? "",
       rt.dailyRate ?? "",
       rt.description ?? "",
     ]
@@ -191,15 +207,16 @@ export function RoomTypesWorkspace({
 
   return (
     <div className="grid gap-5">
-      <header className="flex flex-wrap items-start justify-between gap-4 border-b border-border pb-4">
+      <header className="flex flex-wrap items-start justify-between gap-4">
         <div className="grid gap-1">
           <h1 className="text-xl font-semibold tracking-tight text-foreground sm:text-2xl">
-            Room types
+            {isTransient ? "Transient room types" : "Boarding room types"}
           </h1>
           <p className="max-w-2xl text-sm leading-6 text-muted-foreground">
-            Create reusable room categories with preset monthly and daily rates.
-            Selecting a room type automatically fills pricing when adding a
-            room.
+            Create reusable {ROOM_BUILDING_LABELS[building].toLowerCase()} room
+            categories with preset{" "}
+            {isTransient ? "daily rates" : "monthly prices"}. Selecting a room
+            type automatically fills pricing when adding a room.
           </p>
         </div>
 
@@ -208,7 +225,6 @@ export function RoomTypesWorkspace({
             size="md"
             variant="secondary"
             loading={refreshing}
-            className="border-border bg-surface text-foreground hover:bg-surface-muted"
             onClick={() => void reloadRoomTypes()}
           >
             {!refreshing && <RefreshIcon />}
@@ -302,125 +318,135 @@ export function RoomTypesWorkspace({
         />
       </section>
 
-      <div className="grid grid-cols-1 items-start gap-5 lg:grid-cols-[minmax(0,380px)_minmax(0,1fr)]">
-        <Card className="grid gap-4 p-5 sm:p-6">
-          <div className="grid gap-1">
-            <h2 className="text-base font-semibold text-foreground">
-              Create room type
-            </h2>
-            <p className="text-xs leading-5 text-muted-foreground">
-              Set the category name and preset rate in Philippine pesos.
-            </p>
-          </div>
+      <div className="grid grid-cols-1 items-start gap-5 lg:grid-cols-[minmax(0,400px)_minmax(0,1fr)]">
+        <CompactFormScope>
+          <Card className="grid gap-4 p-5 sm:p-6">
+            <div className="grid gap-1">
+              <h2 className="text-base font-semibold text-foreground">
+                Create room type
+              </h2>
+              <p className="text-xs leading-5 text-muted-foreground">
+                Set the category name and preset rate in Philippine pesos.
+              </p>
+            </div>
 
-          <form
-            key={formResetKey}
-            action={submitCreateRoomType}
-            className="grid gap-4"
-            noValidate
-          >
-            {createState.status === "error" && (
-              <Alert tone="danger" role="alert">
-                {createState.message}
-              </Alert>
-            )}
-
-            <Field
-              id="create-room-type-name"
-              label="Room type name"
-              required
-              error={
-                createState.status === "error"
-                  ? createState.fieldErrors.name
-                  : undefined
-              }
+            <form
+              key={formResetKey}
+              action={submitCreateRoomType}
+              className="grid gap-4"
+              noValidate
             >
-              {(fieldProps) => (
-                <Input
-                  {...fieldProps}
-                  name="name"
-                  placeholder="e.g. Single Aircon, Double Fan"
-                />
+              <input type="hidden" name="building" value={building} />
+              {isTransient ? (
+                <input type="hidden" name="monthlyRate" value="" />
+              ) : (
+                <input type="hidden" name="dailyRate" value="" />
               )}
-            </Field>
+              {createState.status === "error" && (
+                <Alert tone="danger" role="alert">
+                  {createState.message}
+                </Alert>
+              )}
 
-            <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
               <Field
-                id="create-room-type-monthly"
-                label="Monthly price (₱)"
+                id="create-room-type-name"
+                label="Room type name"
                 required
                 error={
                   createState.status === "error"
-                    ? createState.fieldErrors.monthlyRate
+                    ? createState.fieldErrors.name
                     : undefined
                 }
               >
                 {(fieldProps) => (
                   <Input
                     {...fieldProps}
-                    name="monthlyRate"
-                    inputMode="decimal"
-                    placeholder="4500.00"
+                    name="name"
+                    placeholder={
+                      isTransient
+                        ? "e.g. Private Transient Suite, Barkada Loft"
+                        : "e.g. Single Aircon, Double Fan"
+                    }
                   />
                 )}
               </Field>
+
+              {isTransient ? (
+                <Field
+                  id="create-room-type-daily"
+                  label="Daily rate (₱)"
+                  required
+                  error={
+                    createState.status === "error"
+                      ? createState.fieldErrors.dailyRate
+                      : undefined
+                  }
+                >
+                  {(fieldProps) => (
+                    <Input
+                      {...fieldProps}
+                      name="dailyRate"
+                      inputMode="decimal"
+                      placeholder="650.00"
+                    />
+                  )}
+                </Field>
+              ) : (
+                <Field
+                  id="create-room-type-monthly"
+                  label="Monthly price (₱)"
+                  required
+                  error={
+                    createState.status === "error"
+                      ? createState.fieldErrors.monthlyRate
+                      : undefined
+                  }
+                >
+                  {(fieldProps) => (
+                    <Input
+                      {...fieldProps}
+                      name="monthlyRate"
+                      inputMode="decimal"
+                      placeholder="4500.00"
+                    />
+                  )}
+                </Field>
+              )}
 
               <Field
-                id="create-room-type-daily"
-                label="Transient daily rate (₱)"
+                id="create-room-type-description"
+                label="Description"
                 error={
                   createState.status === "error"
-                    ? createState.fieldErrors.dailyRate
+                    ? createState.fieldErrors.description
                     : undefined
                 }
               >
                 {(fieldProps) => (
-                  <Input
+                  <Textarea
                     {...fieldProps}
-                    name="dailyRate"
-                    inputMode="decimal"
-                    placeholder="Optional"
+                    name="description"
+                    placeholder="Optional inclusions, amenities, or room setup notes"
                   />
                 )}
               </Field>
-            </div>
 
-            <Field
-              id="create-room-type-description"
-              label="Description"
-              error={
-                createState.status === "error"
-                  ? createState.fieldErrors.description
-                  : undefined
-              }
-            >
-              {(fieldProps) => (
-                <Textarea
-                  {...fieldProps}
-                  name="description"
-                  placeholder="Optional inclusions, amenities, or room setup notes"
-                />
-              )}
-            </Field>
-
-            <div className="flex flex-wrap items-center justify-end gap-2.5 pt-1">
-              <Button
-                type="submit"
-                loading={createPending}
-                className="w-full sm:w-auto"
-              >
-                {createPending ? "Saving…" : "Save room type"}
-              </Button>
-            </div>
-          </form>
-        </Card>
+              <div className="flex flex-wrap items-center justify-end gap-2.5 pt-1">
+                <Button
+                  type="submit"
+                  loading={createPending}
+                  className="w-full sm:w-auto"
+                >
+                  {createPending ? "Saving…" : "Save room type"}
+                </Button>
+              </div>
+            </form>
+          </Card>
+        </CompactFormScope>
 
         <div className="grid min-w-0 gap-4">
           <SearchFilterBar
-            title="Saved room types"
-            resultCountText={`${filteredRoomTypes.length} ${
-              filteredRoomTypes.length === 1 ? "room type" : "room types"
-            } shown`}
+            aria-label="Find room types"
             hasActiveFilters={hasFilters}
             onClearAll={() => {
               setSearchQuery("");
@@ -428,25 +454,26 @@ export function RoomTypesWorkspace({
             }}
           >
             <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
-              <div className="grid min-w-0 gap-2 sm:col-span-2">
-                <label
-                  htmlFor="room-types-search"
-                  className="text-sm font-medium leading-5 text-foreground"
-                >
-                  Search room types
-                </label>
-                <SearchFilterInput
-                  id="room-types-search"
-                  value={searchQuery}
-                  onValueChange={setSearchQuery}
-                  placeholder="e.g. Aircon, Fan, 4500, private CR"
-                />
-              </div>
+              <Field
+                id="room-types-search"
+                label="Find a room type"
+                className="sm:col-span-2"
+              >
+                {({ id }) => (
+                  <SearchFilterInput
+                    id={id}
+                    value={searchQuery}
+                    onValueChange={setSearchQuery}
+                    placeholder="e.g. Aircon, Fan, 4500, private CR"
+                  />
+                )}
+              </Field>
 
               <Field id="room-types-view" label="View">
                 {(fieldProps) => (
                   <Select
                     {...fieldProps}
+                    variant="filter"
                     value={viewFilter}
                     onChange={(e) =>
                       setViewFilter(e.target.value as RoomTypeViewFilter)
@@ -483,7 +510,7 @@ export function RoomTypesWorkspace({
                 <EmptyStateDescription>
                   {roomTypes.length === 0
                     ? "Use the form alongside to define your first room category and preset monthly rate."
-                    : "Try clearing the search query or switching between active and archived room types."}
+                    : "Try clearing what you entered or switching between active and archived room types."}
                 </EmptyStateDescription>
               </div>
               {hasFilters && (
@@ -495,7 +522,7 @@ export function RoomTypesWorkspace({
                       setViewFilter("active");
                     }}
                   >
-                    Clear filters
+                    Clear
                   </Button>
                 </EmptyStateActions>
               )}
@@ -527,16 +554,23 @@ export function RoomTypesWorkspace({
                         </div>
                       </div>
 
-                      <p className="text-lg font-semibold tracking-tight text-foreground tabular-nums">
-                        {formatPhpCurrency(roomType.monthlyRate)}
-                        <span className="text-xs font-normal text-muted-foreground">
-                          {" "}
-                          / mo
-                          {roomType.dailyRate
-                            ? ` · ${formatPhpCurrency(roomType.dailyRate)} / day`
-                            : ""}
-                        </span>
-                      </p>
+                      <div className="grid gap-0.5 tabular-nums">
+                        {isTransient ? (
+                          <p className="text-lg font-semibold tracking-tight text-foreground">
+                            {formatPhpCurrency(roomType.dailyRate ?? "0.00")}{" "}
+                            <span className="text-xs font-normal text-muted-foreground">
+                              / day
+                            </span>
+                          </p>
+                        ) : (
+                          <p className="text-lg font-semibold tracking-tight text-foreground">
+                            {formatPhpCurrency(roomType.monthlyRate ?? "0.00")}{" "}
+                            <span className="text-xs font-normal text-muted-foreground">
+                              / mo
+                            </span>
+                          </p>
+                        )}
+                      </div>
 
                       {roomType.description && (
                         <p className="text-xs leading-5 text-muted-foreground">
@@ -558,10 +592,16 @@ export function RoomTypesWorkspace({
                         )}
                         <Button
                           size="sm"
-                          variant={isArchivedType ? "secondary" : "ghost"}
+                          variant="secondary"
+                          className={
+                            !isArchivedType ? "text-danger" : undefined
+                          }
                           loading={isBusy}
                           disabled={rowPendingId !== null && !isBusy}
-                          onClick={() => handleArchiveRestore(roomType)}
+                          onClick={() => {
+                            setConfirmError(null);
+                            setConfirmingRoomType(roomType);
+                          }}
                         >
                           {isArchivedType ? "Restore" : "Archive"}
                         </Button>
@@ -584,6 +624,39 @@ export function RoomTypesWorkspace({
         state={updateState}
         onClose={() => setEditingRoomType(null)}
         onSubmit={submitUpdateRoomType}
+      />
+      <ConfirmDialog
+        open={confirmingRoomType !== null}
+        onClose={() => {
+          if (rowPendingId) return;
+          setConfirmError(null);
+          setConfirmingRoomType(null);
+        }}
+        onConfirm={() => {
+          if (confirmingRoomType) handleArchiveRestore(confirmingRoomType);
+        }}
+        title={
+          confirmingRoomType
+            ? confirmingRoomType.archivedAt === null
+              ? `Archive room type "${confirmingRoomType.name}"?`
+              : `Restore room type "${confirmingRoomType.name}"?`
+            : "Update room type?"
+        }
+        description={
+          confirmingRoomType?.archivedAt === null
+            ? "Archiving hides this room type when creating new rooms. Existing rooms keep their current pricing."
+            : "Restoring makes this room type available again for new and updated rooms."
+        }
+        errorMessage={confirmError}
+        confirmLabel={
+          confirmingRoomType?.archivedAt === null ? "Archive" : "Restore"
+        }
+        confirmVariant={
+          confirmingRoomType?.archivedAt === null ? "danger" : "primary"
+        }
+        loading={
+          confirmingRoomType !== null && rowPendingId === confirmingRoomType.id
+        }
       />
     </div>
   );

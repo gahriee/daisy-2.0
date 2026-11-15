@@ -6,5 +6,5 @@
     <path transform="rotate(216 16 16)" d="M14.14 11.15 13.08 6.58A3 3 0 1 1 18.92 6.58l-1.06 4.57a5.2 5.2 0 0 0-3.72 0Z" />
     <path transform="rotate(288 16 16)" d="M14.14 11.15 13.08 6.58A3 3 0 1 1 18.92 6.58l-1.06 4.57a5.2 5.2 0 0 0-3.72 0Z" />
   </g>
-  <text x="40" y="23" fill="#ffffff" font-family="Host Grotesk, -apple-system, BlinkMacSystemFont, sans-serif" font-size="22" font-weight="600" letter-spacing="-0.45">Daisy</text>
+  <text x="40" y="23" fill="#ffffff" font-family="Geist, -apple-system, BlinkMacSystemFont, sans-serif" font-size="22" font-weight="600" letter-spacing="-0.45">Daisy</text>
 </svg>

@@ -28,7 +28,7 @@ export function Checkbox({
           {...props}
           disabled={disabled}
           type="checkbox"
-          className="peer size-5 cursor-pointer appearance-none rounded-[6px] border border-control-border bg-surface transition-[background-color,border-color] duration-(--duration-control) ease-(--ease-control) hover:not-disabled:not-checked:border-foreground/60 checked:border-primary checked:bg-primary hover:not-disabled:checked:border-primary-hover hover:not-disabled:checked:bg-primary-hover disabled:cursor-not-allowed disabled:border-border disabled:bg-surface-muted disabled:checked:bg-muted-foreground/45 disabled:checked:border-muted-foreground/45"
+          className="peer size-5 cursor-pointer appearance-none rounded-control border border-control-border bg-surface transition-[background-color,border-color] duration-(--duration-control) ease-(--ease-control) hover:not-disabled:not-checked:border-foreground/60 checked:border-primary checked:bg-primary hover:not-disabled:checked:border-primary-hover hover:not-disabled:checked:bg-primary-hover disabled:cursor-not-allowed disabled:border-border disabled:bg-surface-muted disabled:checked:bg-muted-foreground/45 disabled:checked:border-muted-foreground/45"
         />
         <svg
           aria-hidden="true"

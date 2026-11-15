@@ -68,23 +68,151 @@ enum TenantAssignmentStatus {
   CANCELLED
 }
 
+enum InvoiceStatus {
+  DRAFT
+  ISSUED
+  PARTIALLY_PAID
+  PAID
+  VOID
+}
+
+enum InvoiceItemType {
+  RENT
+  DEPOSIT
+  UTILITY
+  ADJUSTMENT
+  OTHER
+}
+
+enum InvoiceAdjustmentType {
+  CREDIT
+  CHARGE
+}
+
+enum PaymentMethod {
+  CASH
+  GCASH
+  MAYA
+  BANK_TRANSFER
+  CHECK
+  OTHER
+}
+
+enum PaymentStatus {
+  POSTED
+  REVERSED
+  REVERSAL
+}
+
+enum ProofIntentStatus {
+  PENDING_UPLOAD
+  ATTACHED
+  CANCELLED
+}
+
+enum TransientReservationStatus {
+  TENTATIVE
+  CONFIRMED
+  CHECKED_IN
+  CHECKED_OUT
+  CANCELLED
+  NO_SHOW
+}
+
+enum BookingRequestStatus {
+  PENDING
+  APPROVED
+  REJECTED
+  WITHDRAWN
+}
+
+enum MaintenanceCategory {
+  PLUMBING
+  ELECTRICAL
+  APPLIANCE
+  STRUCTURAL
+  PEST_CONTROL
+  CLEANING
+  SECURITY
+  OTHER
+}
+
+enum MaintenancePriority {
+  LOW
+  MEDIUM
+  HIGH
+  URGENT
+}
+
+enum MaintenanceStatus {
+  OPEN
+  IN_PROGRESS
+  WAITING_PARTS
+  RESOLVED
+  CANCELLED
+}
+
+enum NoticeAudience {
+  EVERYONE
+  ROOM
+  TENANT
+}
+
+enum RoomPhotoRole {
+  PREVIEW
+  GALLERY
+}
+
+enum RoomBuilding {
+  BOARDING
+  TRANSIENT
+}
+
+enum ContractScanMode {
+  ORIGINAL
+  MAGIC_WHITE
+  BW_SCAN
+}
+
 model Owner {
-  id                String                 @id
-  createdAt         DateTime               @default(now()) @db.Timestamptz(3)
-  updatedAt         DateTime               @updatedAt @db.Timestamptz(3)
-  settings          BusinessSettings?
-  devices           Device[]
-  syncHead          SyncHead?
-  changeFeeds       ChangeFeed[]
-  syncOutcomes      SyncOperationOutcome[]
-  auditLogs         AuditLog[]
-  notifReads        NotificationRead[]
-  roomTypes         RoomType[]
-  rooms             Room[]
-  beds              Bed[]
-  allocations       Allocation[]
-  tenants           Tenant[]
-  tenantAssignments TenantAssignment[]
+  id                         String                      @id
+  createdAt                  DateTime                    @default(now()) @db.Timestamptz(3)
+  updatedAt                  DateTime                    @updatedAt @db.Timestamptz(3)
+  settings                   BusinessSettings?
+  devices                    Device[]
+  syncHead                   SyncHead?
+  changeFeeds                ChangeFeed[]
+  syncOutcomes               SyncOperationOutcome[]
+  auditLogs                  AuditLog[]
+  notifReads                 NotificationRead[]
+  roomTypes                  RoomType[]
+  rooms                      Room[]
+  roomPhotoIntents           RoomPhotoIntent[]
+  roomPhotos                 RoomPhoto[]
+  beds                       Bed[]
+  allocations                Allocation[]
+  tenants                    Tenant[]
+  tenantNotes                TenantNote[]
+  tenantContracts            TenantContract[]
+  tenantContractIntents      TenantContractIntent[]
+  tenantContractPages        TenantContractPage[]
+  tenantAssignments          TenantAssignment[]
+  documentSequences          DocumentSequence[]
+  invoices                   Invoice[]
+  invoiceItems               InvoiceItem[]
+  invoiceAdjustments         InvoiceAdjustment[]
+  payments                   Payment[]
+  paymentAllocations         PaymentAllocation[]
+  paymentProofs              PaymentProof[]
+  paymentProofIntents        PaymentProofIntent[]
+  transientGuests            TransientGuest[]
+  transientReservations      TransientReservation[]
+  bookingRequests            BookingRequest[]
+  maintenanceRequests        MaintenanceRequest[]
+  maintenanceUpdates         MaintenanceUpdate[]
+  maintenanceAttachIntents   MaintenanceAttachmentIntent[]
+  maintenanceAttachments     MaintenanceAttachment[]
+  notices                    Notice[]
 }
 
 model BusinessSettings {
@@ -105,6 +233,7 @@ model BusinessSettings {
   receiptPrefix          String?
   checkInTimeManila      String?
   checkOutTimeManila     String?
+  transientPolicyNote    String?
   offlineUnlockMaxDays   Int                @default(7)
   proofMaxBytes          Int                @default(5242880)
   proofMaxFilesPerRecord Int                @default(5)
@@ -113,15 +242,16 @@ model BusinessSettings {
 }
 
 model Device {
-  id          String    @id @default(uuid()) @db.Uuid
-  ownerUserId String
-  owner       Owner     @relation(fields: [ownerUserId], references: [id], onDelete: Restrict)
-  label       String
-  tokenHash   String    @unique
-  lastSeenAt  DateTime? @db.Timestamptz(3)
-  revokedAt   DateTime? @db.Timestamptz(3)
-  createdAt   DateTime  @default(now()) @db.Timestamptz(3)
-  updatedAt   DateTime  @updatedAt @db.Timestamptz(3)
+  id           String               @id @default(uuid()) @db.Uuid
+  ownerUserId  String
+  owner        Owner                @relation(fields: [ownerUserId], references: [id], onDelete: Restrict)
+  label        String
+  tokenHash    String               @unique
+  lastSeenAt   DateTime?            @db.Timestamptz(3)
+  revokedAt    DateTime?            @db.Timestamptz(3)
+  createdAt    DateTime             @default(now()) @db.Timestamptz(3)
+  updatedAt    DateTime             @updatedAt @db.Timestamptz(3)
+  proofIntents PaymentProofIntent[]
 
   @@index([ownerUserId, revokedAt])
 }
@@ -211,44 +341,100 @@ model SecurityRateLimit {
 }
 
 model RoomType {
-  id          String    @id @default(uuid()) @db.Uuid
+  id          String       @id @default(uuid()) @db.Uuid
   ownerUserId String
-  owner       Owner     @relation(fields: [ownerUserId], references: [id], onDelete: Restrict)
-  version     Int       @default(1)
+  owner       Owner        @relation(fields: [ownerUserId], references: [id], onDelete: Restrict)
+  version     Int          @default(1)
+  building    RoomBuilding @default(BOARDING)
   name        String
-  monthlyRate Decimal   @db.Decimal(12, 2)
-  dailyRate   Decimal?  @db.Decimal(12, 2)
+  monthlyRate Decimal?     @db.Decimal(12, 2)
+  dailyRate   Decimal?     @db.Decimal(12, 2)
   description String?
-  archivedAt  DateTime? @db.Timestamptz(3)
-  createdAt   DateTime  @default(now()) @db.Timestamptz(3)
-  updatedAt   DateTime  @updatedAt @db.Timestamptz(3)
+  archivedAt  DateTime?    @db.Timestamptz(3)
+  createdAt   DateTime     @default(now()) @db.Timestamptz(3)
+  updatedAt   DateTime     @updatedAt @db.Timestamptz(3)
   rooms       Room[]
 
   @@index([ownerUserId, archivedAt])
+  @@index([ownerUserId, building, archivedAt])
 }
 
 model Room {
-  id                 String             @id @default(uuid()) @db.Uuid
-  ownerUserId        String
-  owner              Owner              @relation(fields: [ownerUserId], references: [id], onDelete: Restrict)
-  version            Int                @default(1)
-  number             String
-  floor              String?
-  roomTypeId         String             @db.Uuid
-  roomType           RoomType           @relation(fields: [roomTypeId], references: [id], onDelete: Restrict)
-  capacity           Int
-  baseMonthlyRate    Decimal            @db.Decimal(12, 2)
-  transientDailyRate Decimal?           @db.Decimal(12, 2)
-  notes              String?
-  archivedAt         DateTime?          @db.Timestamptz(3)
-  createdAt          DateTime           @default(now()) @db.Timestamptz(3)
-  updatedAt          DateTime           @updatedAt @db.Timestamptz(3)
-  beds               Bed[]
-  allocations        Allocation[]
-  tenantAssignments  TenantAssignment[]
+  id                   String                 @id @default(uuid()) @db.Uuid
+  ownerUserId          String
+  owner                Owner                  @relation(fields: [ownerUserId], references: [id], onDelete: Restrict)
+  version              Int                    @default(1)
+  building             RoomBuilding           @default(BOARDING)
+  number               String
+  floor                String?
+  roomTypeId           String                 @db.Uuid
+  roomType             RoomType               @relation(fields: [roomTypeId], references: [id], onDelete: Restrict)
+  capacity             Int
+  baseMonthlyRate      Decimal?               @db.Decimal(12, 2)
+  transientDailyRate   Decimal?               @db.Decimal(12, 2)
+  isTransientPublished Boolean                @default(false)
+  transientTitle       String?
+  transientDescription String?
+  transientScope       AllocationScope        @default(WHOLE_ROOM)
+  notes                String?
+  archivedAt           DateTime?              @db.Timestamptz(3)
+  createdAt            DateTime               @default(now()) @db.Timestamptz(3)
+  updatedAt            DateTime               @updatedAt @db.Timestamptz(3)
+  beds                 Bed[]
+  allocations          Allocation[]
+  tenantAssignments    TenantAssignment[]
+  transientReservations TransientReservation[]
+  bookingRequests       BookingRequest[]
+  maintenanceRequests   MaintenanceRequest[]
+  notices               Notice[]
+  photos                RoomPhoto[]
 
   @@index([ownerUserId, archivedAt])
+  @@index([ownerUserId, building, archivedAt])
   @@index([ownerUserId, roomTypeId])
+  @@index([ownerUserId, isTransientPublished, archivedAt])
+}
+
+model RoomPhotoIntent {
+  id          String            @id @default(uuid()) @db.Uuid
+  ownerUserId String
+  owner       Owner             @relation(fields: [ownerUserId], references: [id], onDelete: Restrict)
+  roomId      String?           @db.Uuid
+  objectKey   String            @unique
+  fileName    String
+  mimeType    String
+  byteSize    Int
+  sha256      String
+  status      ProofIntentStatus @default(PENDING_UPLOAD)
+  expiresAt   DateTime          @db.Timestamptz(3)
+  uploadedAt  DateTime?         @db.Timestamptz(3)
+  createdAt   DateTime          @default(now()) @db.Timestamptz(3)
+  updatedAt   DateTime          @updatedAt @db.Timestamptz(3)
+  photo       RoomPhoto?
+
+  @@index([ownerUserId, status, expiresAt])
+}
+
+model RoomPhoto {
+  id          String          @id @default(uuid()) @db.Uuid
+  ownerUserId String
+  owner       Owner           @relation(fields: [ownerUserId], references: [id], onDelete: Restrict)
+  roomId      String          @db.Uuid
+  room        Room            @relation(fields: [roomId], references: [id], onDelete: Restrict)
+  intentId    String          @unique @db.Uuid
+  intent      RoomPhotoIntent @relation(fields: [intentId], references: [id], onDelete: Restrict)
+  objectKey   String          @unique
+  role        RoomPhotoRole
+  caption     String?
+  sortOrder   Int             @default(0)
+  fileName    String
+  mimeType    String
+  byteSize    Int
+  sha256      String
+  createdAt   DateTime        @default(now()) @db.Timestamptz(3)
+  updatedAt   DateTime        @updatedAt @db.Timestamptz(3)
+
+  @@index([ownerUserId, roomId, role, sortOrder])
 }
 
 model Bed {
@@ -260,42 +446,50 @@ model Bed {
   version           Int                @default(1)
   number            String
   label             String?
-  monthlyRate       Decimal            @db.Decimal(12, 2)
+  monthlyRate       Decimal?           @db.Decimal(12, 2)
   dailyRate         Decimal?           @db.Decimal(12, 2)
   status            BedStatus          @default(AVAILABLE)
   archivedAt        DateTime?          @db.Timestamptz(3)
   createdAt         DateTime           @default(now()) @db.Timestamptz(3)
   updatedAt         DateTime           @updatedAt @db.Timestamptz(3)
-  allocations       Allocation[]
-  tenantAssignments TenantAssignment[]
+  allocations           Allocation[]
+  tenantAssignments     TenantAssignment[]
+  transientReservations TransientReservation[]
+  maintenanceRequests   MaintenanceRequest[]
 
   @@index([ownerUserId, roomId, archivedAt])
   @@index([ownerUserId, status])
 }
 
 model Allocation {
-  id                String            @id @default(uuid()) @db.Uuid
-  ownerUserId       String
-  owner             Owner             @relation(fields: [ownerUserId], references: [id], onDelete: Restrict)
-  roomId            String            @db.Uuid
-  room              Room              @relation(fields: [roomId], references: [id], onDelete: Restrict)
-  bedId             String            @db.Uuid
-  bed               Bed               @relation(fields: [bedId], references: [id], onDelete: Restrict)
-  allocationGroupId String?           @db.Uuid
-  scope             AllocationScope   @default(BED)
-  type              AllocationType
-  status            AllocationStatus  @default(ACTIVE)
-  startDate         DateTime          @db.Timestamptz(3)
-  endDate           DateTime          @db.Timestamptz(3)
-  version           Int               @default(1)
-  notes             String?
-  createdAt         DateTime          @default(now()) @db.Timestamptz(3)
-  updatedAt         DateTime          @updatedAt @db.Timestamptz(3)
-  tenantAssignment  TenantAssignment?
+  id                     String                @id @default(uuid()) @db.Uuid
+  ownerUserId            String
+  owner                  Owner                 @relation(fields: [ownerUserId], references: [id], onDelete: Restrict)
+  roomId                 String                @db.Uuid
+  room                   Room                  @relation(fields: [roomId], references: [id], onDelete: Restrict)
+  bedId                  String                @db.Uuid
+  bed                    Bed                   @relation(fields: [bedId], references: [id], onDelete: Restrict)
+  allocationGroupId      String?               @db.Uuid
+  transientReservationId String?               @db.Uuid
+  transientReservation   TransientReservation? @relation(fields: [transientReservationId], references: [id], onDelete: Restrict)
+  maintenanceRequestId   String?               @db.Uuid
+  maintenanceRequest     MaintenanceRequest?   @relation(fields: [maintenanceRequestId], references: [id], onDelete: Restrict)
+  scope                  AllocationScope       @default(BED)
+  type                   AllocationType
+  status                 AllocationStatus      @default(ACTIVE)
+  startDate              DateTime              @db.Timestamptz(3)
+  endDate                DateTime              @db.Timestamptz(3)
+  version                Int                   @default(1)
+  notes                  String?
+  createdAt              DateTime              @default(now()) @db.Timestamptz(3)
+  updatedAt              DateTime              @updatedAt @db.Timestamptz(3)
+  tenantAssignment       TenantAssignment?
 
   @@index([ownerUserId, bedId, status])
   @@index([ownerUserId, roomId, status])
   @@index([ownerUserId, type, status])
+  @@index([ownerUserId, transientReservationId])
+  @@index([ownerUserId, maintenanceRequestId])
 }
 
 model Tenant {
@@ -313,8 +507,27 @@ model Tenant {
   createdAt        DateTime           @default(now()) @db.Timestamptz(3)
   updatedAt        DateTime           @updatedAt @db.Timestamptz(3)
   assignments      TenantAssignment[]
+  tenantNotes      TenantNote[]
+  contracts        TenantContract[]
+  contractIntents  TenantContractIntent[]
+  invoices         Invoice[]
+  payments         Payment[]
+  notices          Notice[]
 
   @@index([ownerUserId, archivedAt])
+}
+
+model TenantNote {
+  id          String   @id @default(uuid()) @db.Uuid
+  ownerUserId String
+  owner       Owner    @relation(fields: [ownerUserId], references: [id], onDelete: Restrict)
+  tenantId    String   @db.Uuid
+  tenant      Tenant   @relation(fields: [tenantId], references: [id], onDelete: Restrict)
+  content     String
+  createdAt   DateTime @default(now()) @db.Timestamptz(3)
+  updatedAt   DateTime @updatedAt @db.Timestamptz(3)
+
+  @@index([ownerUserId, tenantId, createdAt])
 }
 
 model TenantAssignment {
@@ -339,7 +552,467 @@ model TenantAssignment {
   notes             String?
   createdAt         DateTime               @default(now()) @db.Timestamptz(3)
   updatedAt         DateTime               @updatedAt @db.Timestamptz(3)
+  invoices          Invoice[]
+  contracts         TenantContract[]
 
   @@index([ownerUserId, status, endDate])
   @@index([ownerUserId, bedId, status])
+}
+
+model TenantContractIntent {
+  id          String              @id @default(uuid()) @db.Uuid
+  ownerUserId String
+  owner       Owner               @relation(fields: [ownerUserId], references: [id], onDelete: Restrict)
+  tenantId    String              @db.Uuid
+  tenant      Tenant              @relation(fields: [tenantId], references: [id], onDelete: Restrict)
+  objectKey   String              @unique
+  fileName    String
+  mimeType    String
+  byteSize    Int
+  sha256      String
+  status      ProofIntentStatus   @default(PENDING_UPLOAD)
+  expiresAt   DateTime            @db.Timestamptz(3)
+  uploadedAt  DateTime?           @db.Timestamptz(3)
+  createdAt   DateTime            @default(now()) @db.Timestamptz(3)
+  updatedAt   DateTime            @updatedAt @db.Timestamptz(3)
+  page        TenantContractPage?
+
+  @@index([ownerUserId, status, expiresAt])
+  @@index([ownerUserId, tenantId, createdAt])
+}
+
+model TenantContract {
+  id               String               @id @default(uuid()) @db.Uuid
+  ownerUserId      String
+  owner            Owner                @relation(fields: [ownerUserId], references: [id], onDelete: Restrict)
+  tenantId         String               @db.Uuid
+  tenant           Tenant               @relation(fields: [tenantId], references: [id], onDelete: Restrict)
+  assignmentId     String?              @db.Uuid
+  assignment       TenantAssignment?    @relation(fields: [assignmentId], references: [id], onDelete: Restrict)
+  version          Int                  @default(1)
+  title            String
+  signedDateManila String?
+  notes            String?
+  archivedAt       DateTime?            @db.Timestamptz(3)
+  createdAt        DateTime             @default(now()) @db.Timestamptz(3)
+  updatedAt        DateTime             @updatedAt @db.Timestamptz(3)
+  pages            TenantContractPage[]
+
+  @@index([ownerUserId, tenantId, archivedAt, createdAt])
+}
+
+model TenantContractPage {
+  id          String               @id @default(uuid()) @db.Uuid
+  ownerUserId String
+  owner       Owner                @relation(fields: [ownerUserId], references: [id], onDelete: Restrict)
+  contractId  String               @db.Uuid
+  contract    TenantContract       @relation(fields: [contractId], references: [id], onDelete: Restrict)
+  intentId    String               @unique @db.Uuid
+  intent      TenantContractIntent @relation(fields: [intentId], references: [id], onDelete: Restrict)
+  objectKey   String               @unique
+  pageOrder   Int
+  filterMode  ContractScanMode     @default(MAGIC_WHITE)
+  label       String?
+  fileName    String
+  mimeType    String
+  byteSize    Int
+  sha256      String
+  createdAt   DateTime             @default(now()) @db.Timestamptz(3)
+
+  @@unique([contractId, pageOrder])
+  @@index([ownerUserId, contractId, pageOrder])
+}
+
+model DocumentSequence {
+  ownerUserId String
+  owner       Owner    @relation(fields: [ownerUserId], references: [id], onDelete: Restrict)
+  docType     String
+  lastNumber  BigInt   @default(0)
+  updatedAt   DateTime @updatedAt @db.Timestamptz(3)
+
+  @@id([ownerUserId, docType])
+}
+
+model Invoice {
+  id                      String                @id @default(uuid()) @db.Uuid
+  ownerUserId             String
+  owner                   Owner                 @relation(fields: [ownerUserId], references: [id], onDelete: Restrict)
+  tenantId                String?               @db.Uuid
+  tenant                  Tenant?               @relation(fields: [tenantId], references: [id], onDelete: Restrict)
+  transientGuestId        String?               @db.Uuid
+  transientGuest          TransientGuest?       @relation(fields: [transientGuestId], references: [id], onDelete: Restrict)
+  transientReservationId  String?               @db.Uuid
+  transientReservation    TransientReservation? @relation(fields: [transientReservationId], references: [id], onDelete: Restrict)
+  assignmentId            String?               @db.Uuid
+  assignment              TenantAssignment?     @relation(fields: [assignmentId], references: [id], onDelete: Restrict)
+  version                 Int                 @default(1)
+  invoiceNumber           String?
+  billingPeriod           String?
+  periodStartDate         DateTime            @db.Timestamptz(3)
+  periodEndDate           DateTime            @db.Timestamptz(3)
+  dueDate                 DateTime            @db.Timestamptz(3)
+  status                  InvoiceStatus       @default(DRAFT)
+  subtotalAmount          Decimal             @db.Decimal(12, 2)
+  adjustmentAmount        Decimal             @default(0) @db.Decimal(12, 2)
+  totalAmount             Decimal             @db.Decimal(12, 2)
+  paidAmount              Decimal             @default(0) @db.Decimal(12, 2)
+  snapshotTenantName      String?
+  snapshotRoomNumber      String?
+  snapshotBedNumber       String?
+  snapshotMonthlyRate     Decimal?            @db.Decimal(12, 2)
+  snapshotProrationPolicy ProrationPolicy?
+  snapshotDepositPolicy   DepositPolicy?
+  notes                   String?
+  voidReason              String?
+  issuedAt                DateTime?           @db.Timestamptz(3)
+  voidedAt                DateTime?           @db.Timestamptz(3)
+  createdAt               DateTime            @default(now()) @db.Timestamptz(3)
+  updatedAt               DateTime            @updatedAt @db.Timestamptz(3)
+  items                   InvoiceItem[]
+  adjustments             InvoiceAdjustment[]
+  paymentAllocations      PaymentAllocation[]
+
+  @@index([ownerUserId, status, dueDate])
+  @@index([ownerUserId, tenantId, createdAt])
+  @@index([ownerUserId, transientGuestId, createdAt])
+  @@index([ownerUserId, transientReservationId])
+  @@index([ownerUserId, billingPeriod])
+}
+
+model InvoiceItem {
+  id          String          @id @default(uuid()) @db.Uuid
+  ownerUserId String
+  owner       Owner           @relation(fields: [ownerUserId], references: [id], onDelete: Restrict)
+  invoiceId   String          @db.Uuid
+  invoice     Invoice         @relation(fields: [invoiceId], references: [id], onDelete: Cascade)
+  itemType    InvoiceItemType
+  description String
+  quantity    Decimal         @default(1) @db.Decimal(10, 2)
+  unitAmount  Decimal         @db.Decimal(12, 2)
+  lineTotal   Decimal         @db.Decimal(12, 2)
+  sortOrder   Int             @default(0)
+  createdAt   DateTime        @default(now()) @db.Timestamptz(3)
+
+  @@index([ownerUserId, invoiceId, sortOrder])
+}
+
+model InvoiceAdjustment {
+  id                 String                @id @default(uuid()) @db.Uuid
+  ownerUserId        String
+  owner              Owner                 @relation(fields: [ownerUserId], references: [id], onDelete: Restrict)
+  invoiceId          String                @db.Uuid
+  invoice            Invoice               @relation(fields: [invoiceId], references: [id], onDelete: Cascade)
+  type               InvoiceAdjustmentType
+  amount             Decimal               @db.Decimal(12, 2)
+  reason             String
+  createdByActorType String
+  createdByActorId   String
+  createdAt          DateTime              @default(now()) @db.Timestamptz(3)
+
+  @@index([ownerUserId, invoiceId, createdAt])
+}
+
+model Payment {
+  id                   String               @id @default(uuid()) @db.Uuid
+  ownerUserId          String
+  owner                Owner                @relation(fields: [ownerUserId], references: [id], onDelete: Restrict)
+  tenantId             String?              @db.Uuid
+  tenant               Tenant?              @relation(fields: [tenantId], references: [id], onDelete: Restrict)
+  transientGuestId     String?              @db.Uuid
+  transientGuest       TransientGuest?      @relation(fields: [transientGuestId], references: [id], onDelete: Restrict)
+  version              Int                  @default(1)
+  receiptNumber        String?
+  status               PaymentStatus        @default(POSTED)
+  method               PaymentMethod
+  amount               Decimal              @db.Decimal(12, 2)
+  unallocatedAmount    Decimal              @default(0) @db.Decimal(12, 2)
+  paidAt               DateTime             @db.Timestamptz(3)
+  referenceNo          String?
+  notes                String?
+  reversalReason       String?
+  reversedPaymentId    String?              @unique @db.Uuid
+  reversedPayment      Payment?             @relation("PaymentReversal", fields: [reversedPaymentId], references: [id], onDelete: Restrict)
+  reversalEntry        Payment?             @relation("PaymentReversal")
+  reversedAt           DateTime?            @db.Timestamptz(3)
+  createdByActorType   String
+  createdByActorId     String
+  snapshotTenantName   String?
+  createdAt            DateTime             @default(now()) @db.Timestamptz(3)
+  updatedAt            DateTime             @updatedAt @db.Timestamptz(3)
+  allocations          PaymentAllocation[]
+  proofs               PaymentProof[]
+  attachedProofIntents PaymentProofIntent[]
+
+  @@index([ownerUserId, paidAt, createdAt])
+  @@index([ownerUserId, tenantId, paidAt])
+  @@index([ownerUserId, transientGuestId, paidAt])
+  @@index([ownerUserId, status])
+}
+
+model PaymentAllocation {
+  id          String   @id @default(uuid()) @db.Uuid
+  ownerUserId String
+  owner       Owner    @relation(fields: [ownerUserId], references: [id], onDelete: Restrict)
+  paymentId   String   @db.Uuid
+  payment     Payment  @relation(fields: [paymentId], references: [id], onDelete: Restrict)
+  invoiceId   String   @db.Uuid
+  invoice     Invoice  @relation(fields: [invoiceId], references: [id], onDelete: Restrict)
+  amount      Decimal  @db.Decimal(12, 2)
+  createdAt   DateTime @default(now()) @db.Timestamptz(3)
+
+  @@unique([ownerUserId, paymentId, invoiceId])
+  @@index([ownerUserId, invoiceId])
+}
+
+model PaymentProofIntent {
+  id                String            @id @default(uuid()) @db.Uuid
+  ownerUserId       String
+  owner             Owner             @relation(fields: [ownerUserId], references: [id], onDelete: Restrict)
+  deviceId          String?           @db.Uuid
+  device            Device?           @relation(fields: [deviceId], references: [id], onDelete: SetNull)
+  opId              String?           @db.Uuid
+  clientFileId      String?
+  objectKey         String            @unique
+  fileName          String
+  mimeType          String
+  declaredByteSize  Int
+  verifiedByteSize  Int?
+  sha256            String
+  status            ProofIntentStatus @default(PENDING_UPLOAD)
+  expiresAt         DateTime          @db.Timestamptz(3)
+  attachedPaymentId String?           @db.Uuid
+  attachedPayment   Payment?          @relation(fields: [attachedPaymentId], references: [id], onDelete: Restrict)
+  createdAt         DateTime          @default(now()) @db.Timestamptz(3)
+  updatedAt         DateTime          @updatedAt @db.Timestamptz(3)
+  proof             PaymentProof?
+
+  @@index([ownerUserId, status, expiresAt])
+  @@index([ownerUserId, opId])
+}
+
+model PaymentProof {
+  id          String             @id @default(uuid()) @db.Uuid
+  ownerUserId String
+  owner       Owner              @relation(fields: [ownerUserId], references: [id], onDelete: Restrict)
+  paymentId   String             @db.Uuid
+  payment     Payment            @relation(fields: [paymentId], references: [id], onDelete: Restrict)
+  intentId    String             @unique @db.Uuid
+  intent      PaymentProofIntent @relation(fields: [intentId], references: [id], onDelete: Restrict)
+  objectKey   String             @unique
+  fileName    String
+  mimeType    String
+  byteSize    Int
+  sha256      String
+  createdAt   DateTime           @default(now()) @db.Timestamptz(3)
+
+  @@index([ownerUserId, paymentId])
+}
+
+model TransientGuest {
+  id              String                 @id @default(uuid()) @db.Uuid
+  ownerUserId     String
+  owner           Owner                  @relation(fields: [ownerUserId], references: [id], onDelete: Restrict)
+  version         Int                    @default(1)
+  fullName        String
+  phone           String?
+  email           String?
+  notes           String?
+  archivedAt      DateTime?              @db.Timestamptz(3)
+  createdAt       DateTime               @default(now()) @db.Timestamptz(3)
+  updatedAt       DateTime               @updatedAt @db.Timestamptz(3)
+  reservations    TransientReservation[]
+  bookingRequests BookingRequest[]
+  invoices        Invoice[]
+  payments        Payment[]
+
+  @@index([ownerUserId, archivedAt])
+}
+
+model TransientReservation {
+  id                 String                     @id @default(uuid()) @db.Uuid
+  ownerUserId        String
+  owner              Owner                      @relation(fields: [ownerUserId], references: [id], onDelete: Restrict)
+  version            Int                        @default(1)
+  guestId            String                     @db.Uuid
+  guest              TransientGuest             @relation(fields: [guestId], references: [id], onDelete: Restrict)
+  roomId             String                     @db.Uuid
+  room               Room                       @relation(fields: [roomId], references: [id], onDelete: Restrict)
+  bedId              String?                    @db.Uuid
+  bed                Bed?                       @relation(fields: [bedId], references: [id], onDelete: Restrict)
+  scope              AllocationScope
+  allocationGroupId  String?                    @db.Uuid
+  checkInDateManila  String
+  checkOutDateManila String
+  startDate          DateTime                   @db.Timestamptz(3)
+  endDate            DateTime                   @db.Timestamptz(3)
+  nights             Int
+  partySize          Int                        @default(1)
+  dailyRate          Decimal                    @db.Decimal(12, 2)
+  totalAmount        Decimal                    @db.Decimal(12, 2)
+  status             TransientReservationStatus @default(CONFIRMED)
+  checkedInAt        DateTime?                  @db.Timestamptz(3)
+  checkedOutAt       DateTime?                  @db.Timestamptz(3)
+  cancelledAt        DateTime?                  @db.Timestamptz(3)
+  notes              String?
+  cancellationReason String?
+  createdByActorType String
+  createdByActorId   String
+  createdAt          DateTime                   @default(now()) @db.Timestamptz(3)
+  updatedAt          DateTime                   @updatedAt @db.Timestamptz(3)
+  allocations        Allocation[]
+  bookingRequest     BookingRequest?
+  invoices           Invoice[]
+
+  @@index([ownerUserId, status, startDate])
+  @@index([ownerUserId, guestId, createdAt])
+}
+
+model BookingRequest {
+  id                     String                @id @default(uuid()) @db.Uuid
+  ownerUserId            String
+  owner                  Owner                 @relation(fields: [ownerUserId], references: [id], onDelete: Restrict)
+  referenceCode          String                @unique
+  idempotencyKey         String
+  requestFingerprint     String
+  roomId                 String                @db.Uuid
+  room                   Room                  @relation(fields: [roomId], references: [id], onDelete: Restrict)
+  scope                  AllocationScope
+  guestName              String
+  guestPhone             String?
+  guestEmail             String?
+  notes                  String?
+  checkInDateManila      String
+  checkOutDateManila     String
+  nights                 Int
+  partySize              Int                   @default(1)
+  quotedDailyRate        Decimal               @db.Decimal(12, 2)
+  quotedTotalAmount      Decimal               @db.Decimal(12, 2)
+  privacyConsentAccepted Boolean               @default(true)
+  status                 BookingRequestStatus  @default(PENDING)
+  version                Int                   @default(1)
+  rejectionReason        String?
+  reviewedAt             DateTime?             @db.Timestamptz(3)
+  approvedGuestId        String?               @db.Uuid
+  approvedGuest          TransientGuest?       @relation(fields: [approvedGuestId], references: [id], onDelete: Restrict)
+  approvedReservationId  String?               @unique @db.Uuid
+  approvedReservation    TransientReservation? @relation(fields: [approvedReservationId], references: [id], onDelete: Restrict)
+  createdAt              DateTime              @default(now()) @db.Timestamptz(3)
+  updatedAt              DateTime              @updatedAt @db.Timestamptz(3)
+
+  @@unique([ownerUserId, idempotencyKey])
+  @@index([ownerUserId, status, createdAt])
+}
+
+model MaintenanceRequest {
+  id                  String                  @id @default(uuid()) @db.Uuid
+  ownerUserId         String
+  owner               Owner                   @relation(fields: [ownerUserId], references: [id], onDelete: Restrict)
+  version             Int                     @default(1)
+  roomId              String                  @db.Uuid
+  room                Room                    @relation(fields: [roomId], references: [id], onDelete: Restrict)
+  bedId               String?                 @db.Uuid
+  bed                 Bed?                    @relation(fields: [bedId], references: [id], onDelete: Restrict)
+  title               String
+  description         String
+  category            MaintenanceCategory
+  priority            MaintenancePriority     @default(MEDIUM)
+  status              MaintenanceStatus       @default(OPEN)
+  resolvedAt          DateTime?               @db.Timestamptz(3)
+  cancelledAt         DateTime?               @db.Timestamptz(3)
+  archivedAt          DateTime?               @db.Timestamptz(3)
+  createdByActorType  String
+  createdByActorId    String
+  createdAt           DateTime                @default(now()) @db.Timestamptz(3)
+  updatedAt           DateTime                @updatedAt @db.Timestamptz(3)
+  updates             MaintenanceUpdate[]
+  attachments         MaintenanceAttachment[]
+  holdAllocations     Allocation[]
+
+  @@index([ownerUserId, status, priority, createdAt])
+  @@index([ownerUserId, roomId, archivedAt])
+}
+
+model MaintenanceUpdate {
+  id                   String                  @id @default(uuid()) @db.Uuid
+  ownerUserId          String
+  owner                Owner                   @relation(fields: [ownerUserId], references: [id], onDelete: Restrict)
+  maintenanceRequestId String                  @db.Uuid
+  maintenanceRequest   MaintenanceRequest      @relation(fields: [maintenanceRequestId], references: [id], onDelete: Restrict)
+  statusFrom           MaintenanceStatus?
+  statusTo             MaintenanceStatus?
+  note                 String
+  createdByActorType   String
+  createdByActorId     String
+  createdAt            DateTime                @default(now()) @db.Timestamptz(3)
+  attachments          MaintenanceAttachment[]
+
+  @@index([ownerUserId, maintenanceRequestId, createdAt])
+}
+
+model MaintenanceAttachmentIntent {
+  id                   String                 @id @default(uuid()) @db.Uuid
+  ownerUserId          String
+  owner                Owner                  @relation(fields: [ownerUserId], references: [id], onDelete: Restrict)
+  deviceId             String?                @db.Uuid
+  opId                 String?                @db.Uuid
+  clientFileId         String?
+  maintenanceRequestId String?                @db.Uuid
+  objectKey            String                 @unique
+  fileName             String
+  mimeType             String
+  byteSize             Int
+  sha256               String
+  status               ProofIntentStatus      @default(PENDING_UPLOAD)
+  expiresAt            DateTime               @db.Timestamptz(3)
+  uploadedAt           DateTime?              @db.Timestamptz(3)
+  createdAt            DateTime               @default(now()) @db.Timestamptz(3)
+  updatedAt            DateTime               @updatedAt @db.Timestamptz(3)
+  attachment           MaintenanceAttachment?
+
+  @@index([ownerUserId, status, expiresAt])
+  @@index([ownerUserId, opId])
+}
+
+model MaintenanceAttachment {
+  id                   String                      @id @default(uuid()) @db.Uuid
+  ownerUserId          String
+  owner                Owner                       @relation(fields: [ownerUserId], references: [id], onDelete: Restrict)
+  maintenanceRequestId String                      @db.Uuid
+  maintenanceRequest   MaintenanceRequest          @relation(fields: [maintenanceRequestId], references: [id], onDelete: Restrict)
+  maintenanceUpdateId  String?                     @db.Uuid
+  maintenanceUpdate    MaintenanceUpdate?          @relation(fields: [maintenanceUpdateId], references: [id], onDelete: Restrict)
+  intentId             String                      @unique @db.Uuid
+  intent               MaintenanceAttachmentIntent @relation(fields: [intentId], references: [id], onDelete: Restrict)
+  objectKey            String                      @unique
+  fileName             String
+  mimeType             String
+  byteSize             Int
+  sha256               String
+  createdAt            DateTime                    @default(now()) @db.Timestamptz(3)
+
+  @@index([ownerUserId, maintenanceRequestId, createdAt])
+}
+
+model Notice {
+  id              String         @id @default(uuid()) @db.Uuid
+  ownerUserId     String
+  owner           Owner          @relation(fields: [ownerUserId], references: [id], onDelete: Restrict)
+  version         Int            @default(1)
+  audience        NoticeAudience
+  roomId          String?        @db.Uuid
+  room            Room?          @relation(fields: [roomId], references: [id], onDelete: Restrict)
+  tenantId        String?        @db.Uuid
+  tenant          Tenant?        @relation(fields: [tenantId], references: [id], onDelete: Restrict)
+  title           String
+  body            String
+  startDateManila String
+  endDateManila   String
+  startDate       DateTime       @db.Timestamptz(3)
+  endDate         DateTime       @db.Timestamptz(3)
+  archivedAt      DateTime?      @db.Timestamptz(3)
+  createdAt       DateTime       @default(now()) @db.Timestamptz(3)
+  updatedAt       DateTime       @updatedAt @db.Timestamptz(3)
+
+  @@index([ownerUserId, archivedAt, endDate])
+  @@index([ownerUserId, audience, archivedAt])
 }

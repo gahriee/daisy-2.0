@@ -1,9 +1,12 @@
 "use client";
 
+import { ConfirmDialog } from "@/components/ui/confirm-dialog";
+
 import { useActionState, useState } from "react";
 import { Alert } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { Dialog } from "@/components/ui/dialog";
+import { TableEmptyState } from "@/components/ui/empty-state";
 import { Field } from "@/components/ui/field";
 import { Input } from "@/components/ui/input";
 import { Select } from "@/components/ui/select";
@@ -11,16 +14,20 @@ import { Textarea } from "@/components/ui/textarea";
 import {
   assignTenantToBedAction,
   createTenantAction,
+  createTenantNoteAction,
+  deleteTenantNoteAction,
   moveOutTenantAssignmentAction,
   updateTenantAction,
   type TenantActionResult,
+  type TenantNoteActionResult,
 } from "@/features/tenants/actions";
 import type {
   AssignableBedOptionDto,
   TenantAssignmentDto,
   TenantDto,
+  TenantNoteDto,
 } from "@/features/tenants/schemas";
-import { addManilaDays, toManilaDate } from "@/lib/dates";
+import { addManilaDays, formatManilaDateTime, toManilaDate } from "@/lib/dates";
 import { formatPhpCurrency } from "@/lib/money";
 
 export function CreateTenantDialog({
@@ -169,20 +176,6 @@ export function CreateTenantDialog({
           )}
         </Field>
 
-        <Field
-          id="create-tenant-notes"
-          label="Notes"
-          error={state.status === "error" ? state.fieldErrors.notes : undefined}
-        >
-          {(fieldProps) => (
-            <Textarea
-              {...fieldProps}
-              name="notes"
-              placeholder="Optional stay preferences or billing reminders"
-            />
-          )}
-        </Field>
-
         <div className="flex flex-wrap justify-end gap-2.5 pt-2">
           <Button variant="secondary" disabled={pending} onClick={onClose}>
             Cancel
@@ -311,16 +304,6 @@ export function EditTenantDialog({
             )}
           </Field>
 
-          <Field id="edit-tenant-notes" label="Notes">
-            {(fieldProps) => (
-              <Textarea
-                {...fieldProps}
-                name="notes"
-                defaultValue={tenant.notes ?? ""}
-              />
-            )}
-          </Field>
-
           <div className="flex flex-wrap justify-end gap-2.5 pt-2">
             <Button variant="secondary" disabled={pending} onClick={onClose}>
               Cancel
@@ -346,7 +329,10 @@ function AssignBedForm({
   onClose: () => void;
   onSaved: (message: string) => void | Promise<void>;
 }) {
-  const firstBed = beds[0];
+  const roomUnits = beds.filter(
+    (bed, idx, arr) => arr.findIndex((b) => b.roomId === bed.roomId) === idx,
+  );
+  const firstBed = roomUnits[0];
   const [selectedBedId, setSelectedBedId] = useState<string>(
     firstBed?.bedId ?? "",
   );
@@ -355,10 +341,12 @@ function AssignBedForm({
   );
 
   const effectiveBedId =
-    beds.find((b) => b.bedId === selectedBedId)?.bedId ?? firstBed?.bedId ?? "";
+    roomUnits.find((b) => b.bedId === selectedBedId)?.bedId ??
+    firstBed?.bedId ??
+    "";
   const effectiveMonthlyRate =
     monthlyRateDraft ||
-    beds.find((b) => b.bedId === effectiveBedId)?.monthlyRate ||
+    roomUnits.find((b) => b.bedId === effectiveBedId)?.monthlyRate ||
     "";
 
   const todayManila = toManilaDate(new Date());
@@ -379,11 +367,11 @@ function AssignBedForm({
     { status: "idle" },
   );
 
-  if (beds.length === 0) {
+  if (roomUnits.length === 0) {
     return (
       <div className="grid gap-4">
         <Alert tone="warning" role="status">
-          No active beds are configured yet. Add an active room and bed before
+          No active rooms are configured yet. Add an active room before
           assigning a tenant.
         </Alert>
         <div className="flex justify-end">
@@ -406,7 +394,7 @@ function AssignBedForm({
 
       <Field
         id="assign-bed-id"
-        label="Room & bed"
+        label="Room"
         required
         error={state.status === "error" ? state.fieldErrors.bedId : undefined}
       >
@@ -418,19 +406,19 @@ function AssignBedForm({
             onChange={(e) => {
               const nextId = e.target.value;
               setSelectedBedId(nextId);
-              const found = beds.find((b) => b.bedId === nextId);
+              const found = roomUnits.find((b) => b.bedId === nextId);
               if (found) {
                 setMonthlyRateDraft(found.monthlyRate);
               }
             }}
           >
-            {beds.map((bed) => (
+            {roomUnits.map((bed) => (
               <option key={bed.bedId} value={bed.bedId}>
-                Room {bed.roomNumber} · Bed {bed.bedNumber}
-                {bed.bedLabel ? ` (${bed.bedLabel})` : ""} —{" "}
+                Room {bed.roomNumber}
+                {bed.roomFloor ? ` (${bed.roomFloor})` : ""} —{" "}
                 {formatPhpCurrency(bed.monthlyRate)}/mo
                 {bed.status === "OCCUPIED"
-                  ? " [Currently occupied · future only]"
+                  ? " (Currently occupied, future only)"
                   : ""}
               </option>
             ))}
@@ -441,7 +429,7 @@ function AssignBedForm({
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
         <Field
           id="assign-start-date"
-          label="Move-in date (Manila)"
+          label="Move-in date"
           required
           error={
             state.status === "error"
@@ -460,7 +448,7 @@ function AssignBedForm({
         </Field>
         <Field
           id="assign-end-date"
-          label="Planned end date (Manila)"
+          label="Planned end date"
           required
           error={
             state.status === "error"
@@ -516,22 +504,12 @@ function AssignBedForm({
         </Field>
       </div>
 
-      <Field id="assign-notes" label="Notes">
-        {(fieldProps) => (
-          <Textarea
-            {...fieldProps}
-            name="notes"
-            placeholder="Optional move-in terms or meter readings"
-          />
-        )}
-      </Field>
-
       <div className="flex flex-wrap justify-end gap-2.5 pt-2">
         <Button variant="secondary" disabled={pending} onClick={onClose}>
           Cancel
         </Button>
         <Button type="submit" loading={pending}>
-          {pending ? "Assigning…" : "Assign bed"}
+          {pending ? "Assigning…" : "Assign room"}
         </Button>
       </div>
     </form>
@@ -553,8 +531,8 @@ export function AssignBedDialog({
     <Dialog
       open={Boolean(tenant)}
       onClose={onClose}
-      title={tenant ? `Assign bed for ${tenant.fullName}` : "Assign bed"}
-      description="Creates an overlap-protected allocation and transitions bed status on move-in."
+      title={tenant ? `Assign room for ${tenant.fullName}` : "Assign room"}
+      description="Creates an overlap-protected room allocation and transitions room status on move-in."
     >
       {tenant && (
         <AssignBedForm
@@ -627,7 +605,7 @@ function MoveOutForm({
       {mode === "complete" && (
         <Field
           id="moveout-date"
-          label="Actual move-out date (Manila)"
+          label="Actual move-out date"
           description={`Stay started ${assignment.startDateManila}.`}
           required
           error={
@@ -646,16 +624,6 @@ function MoveOutForm({
           )}
         </Field>
       )}
-
-      <Field id="moveout-notes" label="Notes">
-        {(fieldProps) => (
-          <Textarea
-            {...fieldProps}
-            name="notes"
-            placeholder="Optional handover or deposit settlement notes"
-          />
-        )}
-      </Field>
 
       <div className="flex flex-wrap justify-end gap-2.5 pt-2">
         <Button variant="secondary" disabled={pending} onClick={onClose}>
@@ -694,10 +662,10 @@ export function MoveOutAssignmentDialog({
       onClose={onClose}
       title={
         assignment
-          ? `Move out — Room ${assignment.roomNumber} · Bed ${assignment.bedNumber}`
+          ? `Move out — Room ${assignment.roomNumber}`
           : "Record move-out"
       }
-      description={`Closes ${tenantName}'s assignment, truncates or cancels the allocation, and frees the bed.`}
+      description={`Closes ${tenantName}'s assignment, truncates or cancels the allocation, and frees the room.`}
     >
       {assignment && (
         <MoveOutForm
@@ -705,6 +673,272 @@ export function MoveOutAssignmentDialog({
           assignment={assignment}
           onClose={onClose}
           onSaved={onSaved}
+        />
+      )}
+    </Dialog>
+  );
+}
+
+function TenantNotesForm({
+  tenant,
+  notes,
+  onClose,
+  onNotesChanged,
+  onConfirmOpenChange,
+}: {
+  tenant: TenantDto;
+  notes: TenantNoteDto[];
+  onClose: () => void;
+  onNotesChanged: () => void | Promise<void>;
+  onConfirmOpenChange?: (open: boolean) => void;
+}) {
+  const isArchived = tenant.archivedAt !== null;
+  const [content, setContent] = useState("");
+  const [syncedPropNotes, setSyncedPropNotes] = useState(notes);
+  const [items, setItems] = useState(notes);
+  if (syncedPropNotes !== notes) {
+    setSyncedPropNotes(notes);
+    setItems(notes);
+  }
+
+  const [deletingId, setDeletingId] = useState<string | null>(null);
+  const [confirmingNote, setConfirmingNote] = useState<TenantNoteDto | null>(
+    null,
+  );
+  const [deleteError, setDeleteError] = useState<string | null>(null);
+
+  function setDeleteTarget(note: TenantNoteDto | null) {
+    setConfirmingNote(note);
+    onConfirmOpenChange?.(note !== null);
+  }
+  const [noteFeedback, setNoteFeedback] = useState<{
+    tone: "success" | "danger";
+    message: string;
+  } | null>(null);
+
+  const [state, submitAction, pending] = useActionState(
+    async (
+      prev: TenantNoteActionResult,
+      formData: FormData,
+    ): Promise<TenantNoteActionResult> => {
+      setNoteFeedback(null);
+      const res = await createTenantNoteAction(prev, formData);
+      if (res.status === "saved" && res.note) {
+        const addedNote = res.note;
+        setContent("");
+        setItems((current) => [
+          addedNote,
+          ...current.filter((entry) => entry.id !== addedNote.id),
+        ]);
+        setNoteFeedback({ tone: "success", message: res.message });
+        await onNotesChanged();
+      }
+      return res;
+    },
+    { status: "idle" },
+  );
+
+  async function handleDelete(noteId: string) {
+    if (deletingId || pending || isArchived) return;
+    setNoteFeedback(null);
+    setDeleteError(null);
+    setDeletingId(noteId);
+    try {
+      const res = await deleteTenantNoteAction({
+        tenantId: tenant.id,
+        noteId,
+      });
+      if (res.status === "saved") {
+        setDeleteTarget(null);
+        setItems((current) => current.filter((entry) => entry.id !== noteId));
+        setNoteFeedback({ tone: "success", message: res.message });
+        await onNotesChanged();
+      } else if (res.status === "error") {
+        setDeleteError(res.message);
+      }
+    } finally {
+      setDeletingId(null);
+    }
+  }
+
+  const busy = pending || deletingId !== null;
+
+  return (
+    <div className="grid gap-4">
+      {noteFeedback && (
+        <Alert
+          tone={noteFeedback.tone}
+          role={noteFeedback.tone === "danger" ? "alert" : "status"}
+        >
+          {noteFeedback.message}
+        </Alert>
+      )}
+
+      {state.status === "error" && (
+        <Alert tone="danger" role="alert">
+          {state.message}
+        </Alert>
+      )}
+
+      {isArchived ? (
+        <Alert tone="info" role="status">
+          Restore this archived tenant profile before adding or deleting notes.
+        </Alert>
+      ) : (
+        <form action={submitAction} className="grid gap-2.5">
+          <input type="hidden" name="tenantId" value={tenant.id} />
+          <Field
+            id="tenant-note-content"
+            label="Add note"
+            error={
+              state.status === "error" ? state.fieldErrors.content : undefined
+            }
+          >
+            {(fieldProps) => (
+              <Textarea
+                {...fieldProps}
+                name="content"
+                rows={3}
+                value={content}
+                onChange={(e) => setContent(e.target.value)}
+                placeholder="Write a separate note for this tenant"
+              />
+            )}
+          </Field>
+          <div className="flex justify-end">
+            <Button type="submit" loading={pending} disabled={busy}>
+              {pending ? "Saving…" : "Add note"}
+            </Button>
+          </div>
+        </form>
+      )}
+
+      <div className="grid gap-2">
+        <span className="text-xs font-medium text-muted-foreground">
+          Recorded notes ({items.length})
+        </span>
+        {items.length === 0 ? (
+          <div className="rounded-control border border-border bg-background/50">
+            <TableEmptyState
+              illustrationSize="xs"
+              className="py-6 sm:py-6"
+              title="No notes recorded"
+              description="No notes recorded for this tenant yet."
+            />
+          </div>
+        ) : (
+          <ul className="grid max-h-72 gap-2 overflow-y-auto pr-1">
+            {items.map((note) => (
+              <li
+                key={note.id}
+                className="grid gap-1.5 rounded-control border border-border bg-background/60 p-3"
+              >
+                <div className="flex items-center justify-between gap-2">
+                  <time
+                    dateTime={note.createdAt}
+                    className="text-xs font-medium text-muted-foreground tabular-nums"
+                  >
+                    {formatManilaDateTime(new Date(note.createdAt))}
+                  </time>
+                  {!isArchived && (
+                    <Button
+                      size="sm"
+                      variant="secondary"
+                      className="text-danger"
+                      loading={deletingId === note.id}
+                      disabled={busy}
+                      onClick={() => {
+                        setDeleteError(null);
+                        setDeleteTarget(note);
+                      }}
+                    >
+                      Delete
+                    </Button>
+                  )}
+                </div>
+                <p className="whitespace-pre-wrap text-sm leading-relaxed text-foreground">
+                  {note.content}
+                </p>
+              </li>
+            ))}
+          </ul>
+        )}
+      </div>
+
+      <div className="flex justify-end pt-1">
+        <Button variant="secondary" disabled={busy} onClick={onClose}>
+          Close
+        </Button>
+      </div>
+
+      <ConfirmDialog
+        open={confirmingNote !== null}
+        onClose={() => {
+          if (deletingId !== null) return;
+          setDeleteError(null);
+          setDeleteTarget(null);
+        }}
+        onConfirm={() => {
+          if (confirmingNote) void handleDelete(confirmingNote.id);
+        }}
+        title="Delete tenant note?"
+        description="This timestamped note will be removed from this tenant's record."
+        details={
+          confirmingNote ? (
+            <div className="grid gap-1">
+              <span className="text-xs text-muted-foreground">
+                {formatManilaDateTime(new Date(confirmingNote.createdAt))}
+              </span>
+              <p className="line-clamp-4 whitespace-pre-wrap text-sm text-foreground">
+                {confirmingNote.content}
+              </p>
+            </div>
+          ) : null
+        }
+        errorMessage={deleteError}
+        confirmLabel="Delete note"
+        confirmVariant="danger"
+        loading={confirmingNote !== null && deletingId === confirmingNote.id}
+      />
+    </div>
+  );
+}
+
+export function TenantNotesDialog({
+  tenant,
+  notes,
+  onClose,
+  onNotesChanged,
+}: {
+  tenant: TenantDto | null;
+  notes: TenantNoteDto[];
+  onClose: () => void;
+  onNotesChanged: () => void | Promise<void>;
+}) {
+  const [confirmOpen, setConfirmOpen] = useState(false);
+
+  return (
+    <Dialog
+      open={Boolean(tenant)}
+      onClose={() => {
+        setConfirmOpen(false);
+        onClose();
+      }}
+      dismissDisabled={confirmOpen}
+      title={tenant ? `Notes — ${tenant.fullName}` : "Tenant notes"}
+      description="Add and review separate timestamped notes for this tenant."
+    >
+      {tenant && (
+        <TenantNotesForm
+          key={tenant.id}
+          tenant={tenant}
+          notes={notes}
+          onClose={() => {
+            setConfirmOpen(false);
+            onClose();
+          }}
+          onNotesChanged={onNotesChanged}
+          onConfirmOpenChange={setConfirmOpen}
         />
       )}
     </Dialog>

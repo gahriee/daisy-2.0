@@ -6,6 +6,7 @@ import { useRouter } from "next/navigation";
 import { PasswordVisibilityButton } from "@/components/features/auth/password-visibility-button";
 import { Alert } from "@/components/ui/alert";
 import { Button, buttonClasses } from "@/components/ui/button";
+import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import { Field } from "@/components/ui/field";
 import { Input } from "@/components/ui/input";
 import { Separator } from "@/components/ui/separator";
@@ -78,6 +79,7 @@ export function SignInPanel({ initialSession }: SignInPanelProps) {
   const [retryAfter, setRetryAfter] = useState<number | null>(null);
   const [emailError, setEmailError] = useState("");
   const [passwordError, setPasswordError] = useState("");
+  const [signOutConfirmOpen, setSignOutConfirmOpen] = useState(false);
 
   const feedbackRef = useRef<HTMLDivElement>(null);
   const emailRef = useRef<HTMLInputElement>(null);
@@ -363,11 +365,27 @@ export function SignInPanel({ initialSession }: SignInPanelProps) {
             variant="secondary"
             loading={busyAction === "sign-out"}
             disabled={busy}
-            onClick={handleSignOut}
+            onClick={() => {
+              setError("");
+              setSignOutConfirmOpen(true);
+            }}
             className="w-full"
           >
             {busyAction === "sign-out" ? "Signing out…" : "Sign out"}
           </Button>
+          <ConfirmDialog
+            open={signOutConfirmOpen}
+            onClose={() => {
+              if (busyAction !== "sign-out") setSignOutConfirmOpen(false);
+            }}
+            onConfirm={() => void handleSignOut()}
+            title="Sign out of Daisy?"
+            description="Your active session on this browser will end and you will be returned to the sign-in form."
+            errorMessage={error || null}
+            confirmLabel="Sign out"
+            confirmVariant="danger"
+            loading={busyAction === "sign-out"}
+          />
         </div>
       ) : (
         <>
