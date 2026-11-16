@@ -1,0 +1,430 @@
+"use client";
+
+import { useEffect, useState } from "react";
+import Link from "next/link";
+import { usePathname } from "next/navigation";
+import { BillingWorkspace } from "@/components/features/billing/billing-workspace";
+import { DashboardWorkspace } from "@/components/features/dashboard/dashboard-workspace";
+import { MaintenanceCreateForm } from "@/components/features/maintenance/maintenance-create-form";
+import { MaintenanceDetailView } from "@/components/features/maintenance/maintenance-detail-view";
+import { MaintenanceWorkspace } from "@/components/features/maintenance/maintenance-workspace";
+import { NoticesWorkspace } from "@/components/features/notices/notices-workspace";
+import { PaymentCreateForm } from "@/components/features/payments/payment-create-form";
+import { PaymentsWorkspace } from "@/components/features/payments/payments-workspace";
+import { RoomsWorkspace } from "@/components/features/rooms/rooms-workspace";
+import { TenantsWorkspace } from "@/components/features/tenants/tenants-workspace";
+import { TransientsWorkspace } from "@/components/features/transients/transients-workspace";
+import { WorkspaceShell } from "@/components/layout/workspace-shell";
+import { Alert } from "@/components/ui/alert";
+import { buttonClasses } from "@/components/ui/button";
+import { Card } from "@/components/ui/card";
+import type { BillingOverviewDto } from "@/features/billing/schemas";
+import type { DashboardSnapshotDto } from "@/features/dashboard/schemas";
+import type {
+  MaintenanceDetailDto,
+  MaintenanceOverviewDto,
+} from "@/features/maintenance/schemas";
+import type { NoticeOverviewDto } from "@/features/notices/schemas";
+import type { PaymentsOverviewDto } from "@/features/payments/schemas";
+import type {
+  InventoryOverviewDto,
+  RoomBuildingValue,
+} from "@/features/rooms/schemas";
+import type { TenantsOverviewDto } from "@/features/tenants/schemas";
+import type { TransientsOverviewDto } from "@/features/transients/schemas";
+import { getBrowserOfflineDb, getVaultCustody } from "@/offline/client";
+import {
+  loadMaintenanceDetailFromVault,
+  loadMaintenanceOverviewFromVault,
+  loadPaymentsOverviewFromVault,
+  loadTenantsOverviewFromVault,
+  type OfflineEntitySyncBadge,
+} from "@/offline/snapshot-selectors";
+import {
+  loadBillingOverviewFromVault,
+  loadDashboardSnapshotFromVault,
+  loadNoticesOverviewFromVault,
+  loadRoomsOverviewFromVault,
+  loadTransientsOverviewFromVault,
+} from "@/offline/snapshot-selectors-extra";
+import { DAISY_OFFLINE_VAULT_EVENT } from "@/offline/workspace-bridge";
+import { OfflineVaultUnlockCard } from "./offline-vault-unlock";
+import { OfflineVaultWorkspace } from "./offline-vault-workspace";
+
+function resolveOfflineShellTitle(pathname: string): string {
+  if (pathname === "/") return "Dashboard";
+  if (pathname.startsWith("/tenants")) return "Tenants";
+  if (pathname.startsWith("/transients/rooms")) return "Transient rooms";
+  if (pathname.startsWith("/transients")) return "Transients";
+  if (pathname.startsWith("/payments/new")) return "Record payment";
+  if (pathname.startsWith("/payments")) return "Payments";
+  if (pathname.startsWith("/maintenance/new")) return "Log maintenance";
+  if (pathname.startsWith("/maintenance")) return "Maintenance";
+  if (pathname.startsWith("/rooms")) return "Rooms";
+  if (pathname.startsWith("/billing")) return "Billing";
+  if (pathname.startsWith("/notices")) return "Notices";
+  return "Offline vault";
+}
+
+type OfflineRouteData =
+  | {
+      kind: "dashboard";
+      snapshot: DashboardSnapshotDto;
+      lastSyncedAt: string | null;
+    }
+  | {
+      kind: "tenants";
+      overview: TenantsOverviewDto;
+      syncBadges: Record<string, OfflineEntitySyncBadge>;
+      lastSyncedAt: string | null;
+    }
+  | {
+      kind: "transients";
+      overview: TransientsOverviewDto;
+      syncBadges: Record<string, OfflineEntitySyncBadge>;
+      lastSyncedAt: string | null;
+    }
+  | {
+      kind: "payments";
+      overview: PaymentsOverviewDto;
+      syncBadges: Record<string, OfflineEntitySyncBadge>;
+      lastSyncedAt: string | null;
+    }
+  | {
+      kind: "maintenance";
+      overview: MaintenanceOverviewDto;
+      syncBadges: Record<string, OfflineEntitySyncBadge>;
+      lastSyncedAt: string | null;
+    }
+  | {
+      kind: "maintenance_detail";
+      requestId: string;
+      detail: MaintenanceDetailDto | null;
+      syncBadge: OfflineEntitySyncBadge | undefined;
+      lastSyncedAt: string | null;
+    }
+  | {
+      kind: "rooms";
+      building: RoomBuildingValue;
+      overview: InventoryOverviewDto;
+      lastSyncedAt: string | null;
+    }
+  | {
+      kind: "billing";
+      overview: BillingOverviewDto;
+      lastSyncedAt: string | null;
+    }
+  | {
+      kind: "notices";
+      overview: NoticeOverviewDto;
+      lastSyncedAt: string | null;
+    }
+  | { kind: "unsupported" };
+
+function isSupportedOfflineDomainRoute(pathname: string): boolean {
+  if (pathname === "/") return true;
+  if (pathname === "/tenants") return true;
+  if (pathname === "/transients") return true;
+  if (pathname === "/transients/rooms") return true;
+  if (pathname === "/payments" || pathname === "/payments/new") return true;
+  if (pathname.startsWith("/maintenance")) return true;
+  if (pathname === "/rooms") return true;
+  if (pathname === "/billing") return true;
+  if (pathname === "/notices") return true;
+  return false;
+}
+
+/**
+ * PII-free Service Worker navigation fallback dispatcher.
+ * Decrypts local snapshots only after passphrase unlock and renders shared
+ * client domain workspaces right at their requested route.
+ */
+export function OfflineRouteFallback() {
+  const pathname = usePathname() || "/offline";
+  const [vaultUnlocked, setVaultUnlocked] = useState(false);
+  const [routeData, setRouteData] = useState<OfflineRouteData | null>(null);
+  const [loadError, setLoadError] = useState<string | null>(null);
+
+  async function refreshFallbackView() {
+    try {
+      const custody = getVaultCustody();
+      const unlocked = custody.isUnlocked();
+      setVaultUnlocked(unlocked);
+      setLoadError(null);
+
+      if (!unlocked) {
+        setRouteData(null);
+        return;
+      }
+
+      const db = getBrowserOfflineDb();
+      const key = custody.getKey();
+
+      if (pathname === "/") {
+        const res = await loadDashboardSnapshotFromVault(db, key);
+        setRouteData({ kind: "dashboard", ...res });
+        return;
+      }
+      if (pathname === "/tenants") {
+        const res = await loadTenantsOverviewFromVault(db, key);
+        setRouteData({ kind: "tenants", ...res });
+        return;
+      }
+      if (pathname === "/transients") {
+        const res = await loadTransientsOverviewFromVault(db, key);
+        setRouteData({ kind: "transients", ...res });
+        return;
+      }
+      if (pathname === "/transients/rooms" || pathname === "/rooms") {
+        const building: RoomBuildingValue = pathname.startsWith("/transients")
+          ? "TRANSIENT"
+          : "BOARDING";
+        const res = await loadRoomsOverviewFromVault(db, key, building);
+        setRouteData({ kind: "rooms", building, ...res });
+        return;
+      }
+      if (pathname === "/billing") {
+        const res = await loadBillingOverviewFromVault(db, key);
+        setRouteData({ kind: "billing", ...res });
+        return;
+      }
+      if (pathname === "/notices") {
+        const res = await loadNoticesOverviewFromVault(db, key);
+        setRouteData({ kind: "notices", ...res });
+        return;
+      }
+      if (pathname === "/payments" || pathname === "/payments/new") {
+        const res = await loadPaymentsOverviewFromVault(db, key);
+        setRouteData({ kind: "payments", ...res });
+        return;
+      }
+      if (pathname === "/maintenance" || pathname === "/maintenance/new") {
+        const res = await loadMaintenanceOverviewFromVault(db, key);
+        setRouteData({ kind: "maintenance", ...res });
+        return;
+      }
+      if (pathname.startsWith("/maintenance/")) {
+        const requestId =
+          pathname.slice("/maintenance/".length).split("/")[0] ?? "";
+        const res = await loadMaintenanceDetailFromVault(db, key, requestId);
+        setRouteData({
+          kind: "maintenance_detail",
+          requestId,
+          detail: res.detail,
+          syncBadge: res.syncBadge,
+          lastSyncedAt: res.lastSyncedAt,
+        });
+        return;
+      }
+      setRouteData({ kind: "unsupported" });
+    } catch (error) {
+      setLoadError(
+        error instanceof Error
+          ? error.message
+          : "Could not load offline vault snapshot.",
+      );
+    }
+  }
+
+  useEffect(() => {
+    const initial = window.setTimeout(() => {
+      void refreshFallbackView();
+    }, 0);
+    const onVaultChange = () => {
+      void refreshFallbackView();
+    };
+    window.addEventListener(DAISY_OFFLINE_VAULT_EVENT, onVaultChange);
+    return () => {
+      window.clearTimeout(initial);
+      window.removeEventListener(DAISY_OFFLINE_VAULT_EVENT, onVaultChange);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [pathname]);
+
+  if (pathname === "/offline") {
+    return <OfflineVaultWorkspace />;
+  }
+
+  const title = resolveOfflineShellTitle(pathname);
+
+  if (isSupportedOfflineDomainRoute(pathname)) {
+    return (
+      <WorkspaceShell title={title}>
+        {loadError && (
+          <Alert tone="danger" role="alert" className="mb-4">
+            {loadError}
+          </Alert>
+        )}
+        {!vaultUnlocked ? (
+          <div className="grid gap-4">
+            <Alert tone="warning" role="status">
+              You are viewing the offline shell for {title}. Unlock your local
+              vault passphrase to view saved snapshots on this device.
+            </Alert>
+            <OfflineVaultUnlockCard
+              title={`Unlock saved ${title.toLowerCase()} snapshot`}
+              onUnlocked={refreshFallbackView}
+            />
+          </div>
+        ) : !routeData ? (
+          <Card className="text-sm text-muted-foreground">
+            Loading saved {title.toLowerCase()} snapshot from local vault…
+          </Card>
+        ) : routeData.kind === "dashboard" ? (
+          <DashboardWorkspace
+            initialSnapshot={routeData.snapshot}
+            offlineMode
+            initialLastSyncedAt={routeData.lastSyncedAt}
+          />
+        ) : routeData.kind === "tenants" ? (
+          <TenantsWorkspace
+            initialOverview={routeData.overview}
+            offlineMode
+            initialLastSyncedAt={routeData.lastSyncedAt}
+            initialSyncBadges={routeData.syncBadges}
+          />
+        ) : routeData.kind === "transients" ? (
+          <TransientsWorkspace
+            initialOverview={routeData.overview}
+            offlineMode
+            initialLastSyncedAt={routeData.lastSyncedAt}
+            initialSyncBadges={routeData.syncBadges}
+          />
+        ) : routeData.kind === "rooms" ? (
+          <RoomsWorkspace
+            initialOverview={routeData.overview}
+            building={routeData.building}
+            offlineMode
+            initialLastSyncedAt={routeData.lastSyncedAt}
+          />
+        ) : routeData.kind === "billing" ? (
+          <BillingWorkspace
+            initialOverview={routeData.overview}
+            offlineMode
+            initialLastSyncedAt={routeData.lastSyncedAt}
+          />
+        ) : routeData.kind === "notices" ? (
+          <NoticesWorkspace
+            initialOverview={routeData.overview}
+            offlineMode
+            initialLastSyncedAt={routeData.lastSyncedAt}
+          />
+        ) : routeData.kind === "payments" && pathname === "/payments/new" ? (
+          <PaymentCreateForm
+            tenants={routeData.overview.tenants}
+            transientGuests={routeData.overview.transientGuests}
+            openInvoices={routeData.overview.openInvoices}
+            initialTenantId={null}
+            initialInvoiceId={null}
+            policiesComplete={routeData.overview.policiesComplete}
+            missingPolicyLabels={routeData.overview.missingPolicyLabels}
+            overpaymentPolicy={routeData.overview.overpaymentPolicy}
+            proofMaxBytes={routeData.overview.proofMaxBytes}
+            proofMaxFilesPerRecord={routeData.overview.proofMaxFilesPerRecord}
+            offlineMode
+          />
+        ) : routeData.kind === "payments" ? (
+          <PaymentsWorkspace
+            initialOverview={routeData.overview}
+            offlineMode
+            initialLastSyncedAt={routeData.lastSyncedAt}
+            initialSyncBadges={routeData.syncBadges}
+          />
+        ) : routeData.kind === "maintenance" &&
+          pathname === "/maintenance/new" ? (
+          <MaintenanceCreateForm
+            rooms={routeData.overview.rooms}
+            proofMaxMb={routeData.overview.proofMaxMb}
+            proofMaxFilesPerRecord={routeData.overview.proofMaxFilesPerRecord}
+            offlineMode
+          />
+        ) : routeData.kind === "maintenance" ? (
+          <MaintenanceWorkspace
+            initialOverview={routeData.overview}
+            offlineMode
+            initialLastSyncedAt={routeData.lastSyncedAt}
+            initialSyncBadges={routeData.syncBadges}
+          />
+        ) : routeData.kind === "maintenance_detail" && routeData.detail ? (
+          <MaintenanceDetailView
+            request={routeData.detail.request}
+            proofMaxMb={routeData.detail.proofMaxMb}
+            proofMaxFilesPerRecord={routeData.detail.proofMaxFilesPerRecord}
+            offlineMode
+            {...(routeData.syncBadge ? { syncBadge: routeData.syncBadge } : {})}
+            onRefreshVault={refreshFallbackView}
+          />
+        ) : (
+          <Card className="grid gap-3">
+            <p className="text-sm text-muted-foreground">
+              This item is not available in the local snapshot on this device
+              yet. Run Sync now once online.
+            </p>
+            <div>
+              <Link
+                href="/maintenance"
+                className={buttonClasses({ variant: "secondary", size: "md" })}
+              >
+                Back to maintenance
+              </Link>
+            </div>
+          </Card>
+        )}
+      </WorkspaceShell>
+    );
+  }
+
+  return (
+    <WorkspaceShell title={title}>
+      <div className="grid gap-5">
+        <Alert tone="warning" role="status">
+          This route ({pathname}) requires an internet connection or has no
+          detail snapshot view offline. Use your offline workspace links below
+          or review the queue in Offline vault.
+        </Alert>
+        {!vaultUnlocked && (
+          <OfflineVaultUnlockCard onUnlocked={refreshFallbackView} />
+        )}
+        <div className="flex flex-wrap gap-2">
+          <Link
+            href="/"
+            className={buttonClasses({ variant: "secondary", size: "md" })}
+          >
+            Dashboard
+          </Link>
+          <Link
+            href="/tenants"
+            className={buttonClasses({ variant: "secondary", size: "md" })}
+          >
+            Tenants
+          </Link>
+          <Link
+            href="/transients"
+            className={buttonClasses({ variant: "secondary", size: "md" })}
+          >
+            Transients
+          </Link>
+          <Link
+            href="/payments"
+            className={buttonClasses({ variant: "secondary", size: "md" })}
+          >
+            Payments
+          </Link>
+          <Link
+            href="/maintenance"
+            className={buttonClasses({ variant: "secondary", size: "md" })}
+          >
+            Maintenance
+          </Link>
+          <Link
+            href="/offline"
+            className={buttonClasses({ variant: "primary", size: "md" })}
+          >
+            Offline vault
+          </Link>
+        </div>
+        {vaultUnlocked && <OfflineVaultWorkspace />}
+      </div>
+    </WorkspaceShell>
+  );
+}

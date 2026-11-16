@@ -5,6 +5,10 @@ import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import { useState, useTransition } from "react";
 import Image from "next/image";
 import Link from "next/link";
+import {
+  OfflineSnapshotBanner,
+  useOfflineSnapshotState,
+} from "@/components/features/offline/offline-vault-unlock";
 import { Alert } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
 import { Button, buttonClasses } from "@/components/ui/button";
@@ -48,6 +52,7 @@ import { useTablePagination } from "@/hooks/use-table-pagination";
 import { useTableSort } from "@/hooks/use-table-sort";
 import { formatPhpCurrency } from "@/lib/money";
 import type { SortColumnDef } from "@/lib/table-sort";
+import { loadRoomsOverviewFromVault } from "@/offline/snapshot-selectors-extra";
 
 const STATUS_BADGE_TONE: Record<
   BedStatusValue,
@@ -129,15 +134,43 @@ const ROOM_SORT_COLUMNS: Record<RoomSortKey, SortColumnDef<RoomWithBedsDto>> = {
 export function RoomsWorkspace({
   initialOverview,
   building = "BOARDING",
+  offlineMode = false,
+  initialLastSyncedAt = null,
 }: {
   initialOverview: InventoryOverviewDto;
   building?: RoomBuildingValue;
+  offlineMode?: boolean;
+  initialLastSyncedAt?: string | null;
 }) {
   const isTransient = building === "TRANSIENT";
   const basePath = isTransient ? "/transients/rooms" : "/rooms";
   const typesPath = `${basePath}/types`;
-  const [overview, setOverview] =
-    useState<InventoryOverviewDto>(initialOverview);
+  const {
+    data: overview,
+    online,
+    isOfflineView,
+    lastSyncedAt,
+    pendingCount,
+    needsAttentionCount,
+    reload,
+  } = useOfflineSnapshotState<InventoryOverviewDto>({
+    initialData: initialOverview,
+    offlineMode,
+    initialLastSyncedAt,
+    loadFromVault: async (db, key) => {
+      const res = await loadRoomsOverviewFromVault(db, key, building);
+      return { data: res.overview, lastSyncedAt: res.lastSyncedAt };
+    },
+    fetchOnline: async () => {
+      const response = await fetch(`/api/rooms?building=${building}`, {
+        cache: "no-store",
+      });
+      if (!response.ok) {
+        throw new Error("Could not refresh rooms right now.");
+      }
+      return (await response.json()) as InventoryOverviewDto;
+    },
+  });
   const [searchQuery, setSearchQuery] = useState("");
   const [statusFilter, setStatusFilter] = useState<StatusFilter>("ALL");
   const [roomViewFilter, setRoomViewFilter] =
@@ -157,22 +190,14 @@ export function RoomsWorkspace({
   async function reloadInventory() {
     setRefreshing(true);
     try {
-      const response = await fetch(`/api/rooms?building=${building}`, {
-        cache: "no-store",
-      });
-      if (!response.ok) {
-        setFeedback({
-          tone: "danger",
-          message: "Could not refresh rooms right now.",
-        });
-        return;
-      }
-      const fresh = (await response.json()) as InventoryOverviewDto;
-      setOverview(fresh);
-    } catch {
+      await reload();
+    } catch (error) {
       setFeedback({
         tone: "danger",
-        message: "Connect to the internet to refresh rooms.",
+        message:
+          error instanceof Error
+            ? error.message
+            : "Connect to the internet to refresh rooms.",
       });
     } finally {
       setRefreshing(false);
@@ -297,10 +322,17 @@ export function RoomsWorkspace({
         : []),
       {
         id: isRoomArchived ? "restore" : "archive",
-        label: isRoomArchived ? "Restore" : "Archive",
+        label: isRoomArchived
+          ? isOfflineView
+            ? "Restore (online only)"
+            : "Restore"
+          : isOfflineView
+            ? "Archive (online only)"
+            : "Archive",
         tone: isRoomArchived ? ("default" as const) : ("danger" as const),
         busy: roomBusy,
-        disabled: !isRoomArchived && room.activeAllocationCount > 0,
+        disabled:
+          isOfflineView || (!isRoomArchived && room.activeAllocationCount > 0),
         onSelect: () => {
           setConfirmError(null);
           setConfirmingRoom(room);
@@ -341,20 +373,34 @@ export function RoomsWorkspace({
             {!refreshing && <RefreshIcon />}
             <span>{refreshing ? "Refreshing…" : "Refresh"}</span>
           </Button>
-          <Link
-            href={typesPath}
-            className={buttonClasses({ variant: "secondary", size: "md" })}
-          >
-            Manage room types
-          </Link>
-          <Link
-            href={`${basePath}/new`}
-            className={buttonClasses({ variant: "primary", size: "md" })}
-          >
-            Add room
-          </Link>
+          {!isOfflineView && (
+            <>
+              <Link
+                href={typesPath}
+                className={buttonClasses({ variant: "secondary", size: "md" })}
+              >
+                Manage room types
+              </Link>
+              <Link
+                href={`${basePath}/new`}
+                className={buttonClasses({ variant: "primary", size: "md" })}
+              >
+                Add room
+              </Link>
+            </>
+          )}
         </div>
       </header>
+
+      <OfflineSnapshotBanner
+        online={online}
+        offlineMode={offlineMode}
+        lastSyncedAt={lastSyncedAt}
+        pendingCount={pendingCount}
+        needsAttentionCount={needsAttentionCount}
+        syncing={refreshing}
+        onSyncNow={() => void reloadInventory()}
+      />
 
       {feedback && (
         <Alert

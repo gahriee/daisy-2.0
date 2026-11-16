@@ -237,6 +237,19 @@ forced-color mode restores native checkbox appearance and system highlights.
 - **MetricCard:** KPI summary card built on `Card` (`min-h-[152px]`) pairing a
   label and unboxed top-right icon with a vertically centered `tabular-nums`
   value and concise factual description below.
+- **ApexChart & ChartCard (`src/components/ui/chart.tsx`):** lazy client-only
+  ApexCharts wrapper inside `ChartCard` (`Card` with `TableCardHeader`) using
+  Rausch, info slate, forest success, warm amber, burnt danger, and charcoal
+  tokens (never violet/lavender), reduced-motion gating, `Skeleton` load states,
+  `tabular-nums` tooltips/axes, and `TableEmptyState` fallbacks when zero data
+  is present.
+- **Dashboard vs. Reports views (`/` vs. `/reports`):** `/` stays minimal on
+  current operational status (4 KPI `MetricCard`s, 2 comparison charts, today's
+  bookings/stays, top overdue/due invoices, and compact live area counts), while
+  `/reports` pairs KPI `MetricCard`s, dynamic `SearchFilterBar` date/building
+  controls (no manual Apply button), analytical ApexCharts, and comparison /
+  overall computation summary tables with `TableFooter` totals instead of raw
+  record lists (detailed line-item rows export via CSV).
 - **Dialog vs. dedicated pages:** accessible modal surface (`role="dialog"`,
   `aria-modal="true"`) with `Escape` and backdrop dismissal (suppressible via
   `dismissDisabled` during pending saves), initial focus and return-focus

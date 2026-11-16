@@ -113,3 +113,33 @@ body {
     }
   }
 }
+
+/* ApexCharts tooltip and numeric axis alignment with Daisy tokens */
+.apexcharts-canvas {
+  font-family: var(--font-geist), system-ui, sans-serif;
+}
+
+.apexcharts-tooltip.apexcharts-theme-light {
+  border: 1px solid var(--border);
+  border-radius: var(--panel-radius);
+  background: var(--surface);
+  color: var(--foreground);
+  box-shadow: 0 8px 24px -12px rgb(34 34 34 / 0.16);
+  font-variant-numeric: tabular-nums;
+}
+
+.apexcharts-tooltip.apexcharts-theme-light .apexcharts-tooltip-title {
+  border-bottom: 1px solid var(--border);
+  background: var(--background);
+  color: var(--foreground);
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.apexcharts-tooltip-text-y-value,
+.apexcharts-tooltip-text-z-value,
+.apexcharts-datalabel-value,
+.apexcharts-yaxis-label,
+.apexcharts-xaxis-label {
+  font-variant-numeric: tabular-nums;
+}

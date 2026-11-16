@@ -1,12 +1,12 @@
 # Unified allocation engine & btree_gist exclusion
 
 - Status: PASS for PostgreSQL & engine integration checks.
-- Last run: 2026-11-14 00:47:58 (UTC+8)
-- Runtime: Windows, Node 24.20.0, pnpm 12.18.0, Vitest 5.1.0, Prisma 7.10.1, Neon PostgreSQL (Singapore).
-- Command: `pnpm test:integration tests/integration/maintenance/maintenance-and-holds.test.ts tests/integration/notices/notices-lifecycle.test.ts tests/integration/allocations/allocation-engine.test.ts`
-- Result: 2 passed here (16.22 s); targeted 6/6 across 3 files, 99.40 s.
+- Last run: 2026-11-16 23:31:26 (UTC+8)
+- Runtime: Windows, Node 26.13.1, pnpm 12.18.0, Vitest 5.1.0, Prisma 7.10.1, Neon PostgreSQL (Singapore).
+- Command: `pnpm test:integration`
+- Result: 2 passed here (19.32 s); suite 64 passed, 0 failed, 0 skipped across 17 files, 509.94 s.
 - Target: explicitly opted-in expiring schema-only branch `test-integration` (`ep-super-paper-b3f9xatn`) via ignored `.env.test.local` (`TEST_DATABASE_URL`). Never production.
-- Migration: `20261114020000_maintenance_and_notices` applied to `test-integration` and `dev`; `production` untouched.
+- Migration: `20261114150000_building_separation_and_tenant_contracts` applied to `test-integration` and `dev`; `production` remains at `20261113060000_recovery_security`.
 - Target file: [tests/integration/allocations/allocation-engine.test.ts](tests/integration/allocations/allocation-engine.test.ts) -> [src/features/allocations/service.ts](src/features/allocations/service.ts)
 
 ## Verified criteria
@@ -28,4 +28,5 @@ Teardown deleted all UUID-prefixed `AuditLog`, `ChangeFeed`, `SyncHead`, `Alloca
 | 2026-11-13 22:52:06 | pnpm test:integration | 2 passed (suite: 31/31 across 7 files) | 12.77 s (80.17 s suite) |
 | 2026-11-14 00:21:56 | pnpm test:integration tests/integration/transients/transients-and-public-booking.test.ts tests/integration/payments/payments-proofs-and-sync.test.ts tests/integration/billing/invoicing-and-lifecycle.test.ts tests/integration/allocations/allocation-engine.test.ts | 2 passed (targeted 14/14 across 4 files) | 12.35 s (206.38 s targeted) |
 | 2026-11-14 00:47:58 | pnpm test:integration tests/integration/maintenance/maintenance-and-holds.test.ts tests/integration/notices/notices-lifecycle.test.ts tests/integration/allocations/allocation-engine.test.ts | 2 passed (targeted 6/6 across 3 files) | 16.22 s (99.40 s targeted) |
+| 2026-11-16 23:31:26 | `pnpm test:integration` | 2 passed (suite: 64/64 across 17 files) | 19.32 s (509.94 s suite) |
 

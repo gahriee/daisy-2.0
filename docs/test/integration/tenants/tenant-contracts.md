@@ -1,10 +1,10 @@
 # Signed tenant contract storage, scanner pages & Owner isolation
 
 - Status: PASS for backend, mocked Object Storage adapter, and PostgreSQL integration checks; Owner UI/device verification PENDING.
-- Last run: 2026-11-15 20:24:10 (UTC+8)
-- Runtime: Windows, Node 24.20.0, pnpm 12.18.0, Vitest 5.1.0, Prisma 7.10.1, Neon PostgreSQL (Singapore), mocked Object Storage adapter.
+- Last run: 2026-11-16 23:31:26 (UTC+8)
+- Runtime: Windows, Node 26.13.1, pnpm 12.18.0, Vitest 5.1.0, Prisma 7.10.1, Neon PostgreSQL (Singapore), mocked Object Storage adapter.
 - Command: `pnpm test:integration`
-- Result: 1 passed here (11.71 s file / 10.07 s test); suite 56 passed, 0 failed, 0 skipped across 13 files, 434.42 s.
+- Result: 1 passed here (11.51 s file / 9.87 s test); suite 64 passed, 0 failed, 0 skipped across 17 files, 509.94 s.
 - Target: explicitly opted-in expiring schema-only branch `test-integration` (`ep-super-paper-b3f9xatn`) via ignored `.env.test.local` (`TEST_DATABASE_URL`). Never production.
 - Migration: `20261114150000_building_separation_and_tenant_contracts` applied to `test-integration` and `dev`; `production` remains at `20261113060000_recovery_security`.
 - Target file: [tests/integration/tenants/tenant-contracts.test.ts](../../../../tests/integration/tenants/tenant-contracts.test.ts) -> [src/features/tenants/contracts.ts](../../../../src/features/tenants/contracts.ts), [src/app/api/tenants/contracts/intent/route.ts](../../../../src/app/api/tenants/contracts/intent/route.ts), [src/app/api/tenants/contracts/intents/[intentId]/route.ts](../../../../src/app/api/tenants/contracts/intents/[intentId]/route.ts), [src/app/api/tenants/contracts/pages/[pageId]/route.ts](../../../../src/app/api/tenants/contracts/pages/[pageId]/route.ts)
@@ -26,4 +26,5 @@ Teardown deleted all UUID-prefixed `SecurityRateLimit` (`tenant-contract-upload:
 | --- | --- | --- | --- |
 | 2026-11-15 20:16:10 | pnpm test:integration tests/integration/tenants/tenant-contracts.test.ts | 1 passed | 11.71 s (12.00 s command; 9.81 s test) |
 | 2026-11-15 20:24:10 | pnpm test:integration | 1 passed (suite: 56/56 across 13 files) | 11.71 s (434.42 s suite; 10.07 s test) |
+| 2026-11-16 23:31:26 | `pnpm test:integration` | 1 passed (suite: 64/64 across 17 files) | 11.51 s (509.94 s suite; 9.87 s test) |
 

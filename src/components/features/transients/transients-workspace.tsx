@@ -2,8 +2,14 @@
 
 import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 
-import { useState, useTransition } from "react";
+import { useEffect, useState, useTransition } from "react";
 import Link from "next/link";
+import { useBrowserOnline } from "@/components/features/offline/offline-status-bar";
+import {
+  OfflineSnapshotBanner,
+  OfflineSyncBadge,
+  OfflineVaultUnlockDialog,
+} from "@/components/features/offline/offline-vault-unlock";
 import { Alert } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
 import { Button, buttonClasses } from "@/components/ui/button";
@@ -52,6 +58,26 @@ import { useTableSort } from "@/hooks/use-table-sort";
 import { formatManilaDate } from "@/lib/dates";
 import { formatPhpCurrency } from "@/lib/money";
 import type { SortColumnDef } from "@/lib/table-sort";
+import {
+  getBrowserOfflineDb,
+  getVaultCustody,
+  listActiveOutboxRecords,
+  listDecryptedProjections,
+} from "@/offline/client";
+import type { OfflineEntitySyncBadge } from "@/offline/snapshot-selectors";
+import {
+  loadTransientsOverviewFromVault,
+  mergeTransientsOverviewWithVaultOverlay,
+} from "@/offline/snapshot-selectors-extra";
+import {
+  DAISY_OFFLINE_VAULT_EVENT,
+  getOfflineVaultClientState,
+  OfflineVaultLockedError,
+  resolveNeedsAttentionDiscard,
+  resolveNeedsAttentionKeepMine,
+  submitOfflineCapableMutation,
+  triggerForegroundSyncIfUnlocked,
+} from "@/offline/workspace-bridge";
 
 type BookingRequestSortKey = "ref" | "visitor" | "dates" | "quote" | "status";
 type TransientStaySortKey = "guest" | "dates" | "total" | "billing" | "status";
@@ -65,19 +91,43 @@ function buildStayRowActions({
   stay,
   busy,
   busyId,
+  isOfflineView,
+  syncBadge,
   onRequestAction,
   onCancel,
+  onResolveAttention,
 }: {
   stay: TransientReservationDto;
   busy: boolean;
   busyId: string | null;
+  isOfflineView: boolean;
+  syncBadge: OfflineEntitySyncBadge | undefined;
   onRequestAction: (
     stay: TransientReservationDto,
     kind: TransientConfirmActionKind,
   ) => void;
   onCancel: (stay: TransientReservationDto) => void;
+  onResolveAttention: (
+    badge: OfflineEntitySyncBadge,
+    action: "keep_mine" | "discard",
+  ) => void;
 }): RowActionItem[] {
   const stayActions: RowActionItem[] = [];
+  if (syncBadge && syncBadge.status !== "pending") {
+    stayActions.push(
+      {
+        id: "keep-mine",
+        label: "Keep local draft",
+        onSelect: () => onResolveAttention(syncBadge, "keep_mine"),
+      },
+      {
+        id: "discard-local",
+        label: "Discard draft",
+        tone: "danger" as const,
+        onSelect: () => onResolveAttention(syncBadge, "discard"),
+      },
+    );
+  }
   if (stay.status === "CONFIRMED" || stay.status === "TENTATIVE") {
     stayActions.push(
       {
@@ -89,17 +139,17 @@ function buildStayRowActions({
       },
       {
         id: "no-show",
-        label: "No-show",
+        label: isOfflineView ? "No-show (online only)" : "No-show",
         tone: "danger" as const,
         busy,
-        disabled: busyId !== null && !busy,
+        disabled: isOfflineView || (busyId !== null && !busy),
         onSelect: () => onRequestAction(stay, "no-show"),
       },
       {
         id: "cancel",
-        label: "Cancel",
+        label: isOfflineView ? "Cancel (online only)" : "Cancel",
         tone: "danger" as const,
-        disabled: busyId !== null,
+        disabled: isOfflineView || busyId !== null,
         onSelect: () => onCancel(stay),
       },
     );
@@ -120,9 +170,9 @@ function buildStayRowActions({
   ) {
     stayActions.push({
       id: "bill-stay",
-      label: "Bill stay",
+      label: isOfflineView ? "Bill stay (online only)" : "Bill stay",
       busy,
-      disabled: busyId !== null && !busy,
+      disabled: isOfflineView || (busyId !== null && !busy),
       onSelect: () => onRequestAction(stay, "bill-stay"),
     });
   }
@@ -239,10 +289,27 @@ type SectionFilter = "all" | "requests" | "stays" | "guests" | "rooms";
 
 export function TransientsWorkspace({
   initialOverview,
+  offlineMode = false,
+  initialLastSyncedAt = null,
+  initialSyncBadges = {},
 }: {
   initialOverview: TransientsOverviewDto;
+  offlineMode?: boolean;
+  initialLastSyncedAt?: string | null;
+  initialSyncBadges?: Record<string, OfflineEntitySyncBadge>;
 }) {
+  const online = useBrowserOnline();
+  const isOfflineView = offlineMode || !online;
+  const [serverOverview, setServerOverview] = useState(initialOverview);
   const [overview, setOverview] = useState(initialOverview);
+  const [syncBadges, setSyncBadges] =
+    useState<Record<string, OfflineEntitySyncBadge>>(initialSyncBadges);
+  const [lastSyncedAt, setLastSyncedAt] = useState<string | null>(
+    initialLastSyncedAt,
+  );
+  const [pendingCount, setPendingCount] = useState(0);
+  const [needsAttentionCount, setNeedsAttentionCount] = useState(0);
+  const [unlockPromptOpen, setUnlockPromptOpen] = useState(false);
   const [search, setSearch] = useState("");
   const [section, setSection] = useState<SectionFilter>("all");
   const [statusFilter, setStatusFilter] = useState("ALL");
@@ -264,11 +331,75 @@ export function TransientsWorkspace({
   } | null>(null);
   const [confirmError, setConfirmError] = useState<string | null>(null);
 
+  async function applyVaultState(base: TransientsOverviewDto = serverOverview) {
+    try {
+      const vault = await getOfflineVaultClientState();
+      setPendingCount(vault.status.pendingCount);
+      setNeedsAttentionCount(vault.status.needsAttentionCount);
+      setLastSyncedAt(vault.status.lastSyncedAt);
+
+      const custody = getVaultCustody();
+      if (!custody.isUnlocked()) {
+        setOverview(base);
+        setSyncBadges({});
+        return;
+      }
+
+      const db = getBrowserOfflineDb();
+      const key = custody.getKey();
+      if (offlineMode || !navigator.onLine) {
+        const fromVault = await loadTransientsOverviewFromVault(db, key);
+        setOverview(fromVault.overview);
+        setSyncBadges(fromVault.syncBadges);
+        setLastSyncedAt(fromVault.lastSyncedAt);
+        return;
+      }
+
+      const [projections, outbox] = await Promise.all([
+        listDecryptedProjections(db, key, [
+          "transient_guest",
+          "transient_reservation",
+        ]),
+        listActiveOutboxRecords(db),
+      ]);
+      const merged = mergeTransientsOverviewWithVaultOverlay({
+        baseOverview: base,
+        projections,
+        outbox,
+      });
+      setOverview(merged.overview);
+      setSyncBadges(merged.syncBadges);
+    } catch {
+      // Ignore vault inspection failures cleanly.
+    }
+  }
+
+  useEffect(() => {
+    const initial = window.setTimeout(() => {
+      void applyVaultState(serverOverview);
+    }, 0);
+    const onVaultChange = () => {
+      void applyVaultState(serverOverview);
+    };
+    window.addEventListener(DAISY_OFFLINE_VAULT_EVENT, onVaultChange);
+    return () => {
+      window.clearTimeout(initial);
+      window.removeEventListener(DAISY_OFFLINE_VAULT_EVENT, onVaultChange);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [offlineMode, online, serverOverview]);
+
   async function reloadOverview() {
+    if (offlineMode || !navigator.onLine) {
+      await applyVaultState(serverOverview);
+      return;
+    }
+    await triggerForegroundSyncIfUnlocked();
     const res = await fetch("/api/transients", { cache: "no-store" });
     if (res.ok) {
       const next = (await res.json()) as TransientsOverviewDto;
-      setOverview(next);
+      setServerOverview(next);
+      await applyVaultState(next);
     }
   }
 
@@ -279,6 +410,45 @@ export function TransientsWorkspace({
     });
   }
 
+  function handleResolveAttention(
+    badge: OfflineEntitySyncBadge,
+    action: "keep_mine" | "discard",
+  ) {
+    setFeedback(null);
+    startRefresh(async () => {
+      try {
+        if (action === "keep_mine") {
+          await resolveNeedsAttentionKeepMine(badge.opId);
+          setFeedback({
+            tone: "success",
+            message: navigator.onLine
+              ? "Re-queued draft against current server state."
+              : "Re-queued draft for next sync.",
+          });
+        } else {
+          await resolveNeedsAttentionDiscard(badge.opId);
+          setFeedback({
+            tone: "success",
+            message: "Discarded local transient draft.",
+          });
+        }
+        await reloadOverview();
+      } catch (error) {
+        if (error instanceof OfflineVaultLockedError) {
+          setUnlockPromptOpen(true);
+        } else {
+          setFeedback({
+            tone: "danger",
+            message:
+              error instanceof Error
+                ? error.message
+                : "Could not resolve local draft.",
+          });
+        }
+      }
+    });
+  }
+
   async function executeConfirmedStayAction() {
     if (!confirmStayAction || busyId) return;
     const { stay, kind } = confirmStayAction;
@@ -286,6 +456,62 @@ export function TransientsWorkspace({
     setFeedback(null);
     setConfirmError(null);
     try {
+      const vault = await getOfflineVaultClientState();
+      const supportsOfflineBridge = kind === "check-in" || kind === "check-out";
+      const useOfflineBridge =
+        supportsOfflineBridge &&
+        (offlineMode ||
+          !vault.online ||
+          (vault.vaultUnlocked && Boolean(vault.deviceId)));
+
+      if (useOfflineBridge) {
+        const nowIso = new Date().toISOString();
+        const isCheckIn = kind === "check-in";
+        try {
+          const res = await submitOfflineCapableMutation({
+            type: isCheckIn
+              ? "transient_reservation.checkin"
+              : "transient_reservation.checkout",
+            entityId: stay.id,
+            baseVersion: stay.version,
+            payload: {},
+            projectionPayload: {
+              ...stay,
+              status: isCheckIn ? "CHECKED_IN" : "CHECKED_OUT",
+              ...(isCheckIn
+                ? { checkedInAt: nowIso }
+                : { checkedOutAt: nowIso }),
+              updatedAt: nowIso,
+            },
+            syncedMessage: isCheckIn
+              ? "Checked in and synced."
+              : "Checked out and synced.",
+            queuedMessage: isCheckIn
+              ? "Check-in saved on this device (pending sync)."
+              : "Check-out saved on this device (pending sync).",
+          });
+          setConfirmStayAction(null);
+          if (res.delivery === "needs_attention") {
+            setFeedback({ tone: "danger", message: res.reason });
+            await reloadOverview();
+          } else {
+            handleSaved(res.message);
+          }
+        } catch (error) {
+          if (error instanceof OfflineVaultLockedError) {
+            setConfirmStayAction(null);
+            setUnlockPromptOpen(true);
+          } else {
+            setConfirmError(
+              error instanceof Error
+                ? error.message
+                : "Could not save stay action locally.",
+            );
+          }
+        }
+        return;
+      }
+
       const res =
         kind === "check-in"
           ? await checkInTransientAction({
@@ -442,9 +668,12 @@ export function TransientsWorkspace({
           <Button
             type="button"
             variant="secondary"
+            disabled={isOfflineView}
             onClick={() => setPolicyOpen(true)}
           >
-            Public policy note
+            {isOfflineView
+              ? "Public policy (online only)"
+              : "Public policy note"}
           </Button>
           <Button
             type="button"
@@ -462,6 +691,20 @@ export function TransientsWorkspace({
           </Button>
         </div>
       </div>
+
+      <OfflineSnapshotBanner
+        online={online}
+        offlineMode={offlineMode}
+        lastSyncedAt={lastSyncedAt}
+        pendingCount={pendingCount}
+        needsAttentionCount={needsAttentionCount}
+        syncing={isRefreshing}
+        onSyncNow={() =>
+          startRefresh(async () => {
+            await reloadOverview();
+          })
+        }
+      />
 
       {scheduleMissing && (
         <Alert tone="warning" title="Stay schedule required">
@@ -828,9 +1071,12 @@ export function TransientsWorkspace({
                             {formatManilaDate(stay.checkOutDateManila)}
                           </span>
                         </div>
-                        <Badge tone={STAY_TONE[stay.status]}>
-                          {TRANSIENT_RESERVATION_STATUS_LABELS[stay.status]}
-                        </Badge>
+                        <div className="flex flex-wrap items-center justify-end gap-1.5">
+                          <OfflineSyncBadge badge={syncBadges[stay.id]} />
+                          <Badge tone={STAY_TONE[stay.status]}>
+                            {TRANSIENT_RESERVATION_STATUS_LABELS[stay.status]}
+                          </Badge>
+                        </div>
                       </div>
                       <div className="flex items-center justify-between gap-2 border-t border-border pt-2.5 text-sm">
                         <span className="font-semibold tabular-nums">
@@ -842,11 +1088,14 @@ export function TransientsWorkspace({
                             stay,
                             busy,
                             busyId,
+                            isOfflineView,
+                            syncBadge: syncBadges[stay.id],
                             onRequestAction: (targetStay, kind) => {
                               setConfirmError(null);
                               setConfirmStayAction({ stay: targetStay, kind });
                             },
                             onCancel: setCancellingStay,
+                            onResolveAttention: handleResolveAttention,
                           })}
                         />
                       </div>
@@ -928,9 +1177,16 @@ export function TransientsWorkspace({
                             )}
                           </TableCell>
                           <TableCell>
-                            <Badge tone={STAY_TONE[stay.status]}>
-                              {TRANSIENT_RESERVATION_STATUS_LABELS[stay.status]}
-                            </Badge>
+                            <div className="flex flex-wrap items-center gap-1.5">
+                              <Badge tone={STAY_TONE[stay.status]}>
+                                {
+                                  TRANSIENT_RESERVATION_STATUS_LABELS[
+                                    stay.status
+                                  ]
+                                }
+                              </Badge>
+                              <OfflineSyncBadge badge={syncBadges[stay.id]} />
+                            </div>
                           </TableCell>
                           <TableCell className="text-right">
                             <RowActionMenu
@@ -939,6 +1195,8 @@ export function TransientsWorkspace({
                                 stay,
                                 busy,
                                 busyId,
+                                isOfflineView,
+                                syncBadge: syncBadges[stay.id],
                                 onRequestAction: (targetStay, kind) => {
                                   setConfirmError(null);
                                   setConfirmStayAction({
@@ -947,6 +1205,7 @@ export function TransientsWorkspace({
                                   });
                                 },
                                 onCancel: setCancellingStay,
+                                onResolveAttention: handleResolveAttention,
                               })}
                             />
                           </TableCell>
@@ -1190,9 +1449,12 @@ export function TransientsWorkspace({
                 <div className="grid divide-y divide-border md:hidden">
                   {guestsPage.paginatedRows.map((guest) => (
                     <div key={guest.id} className="grid gap-1.5 p-4">
-                      <span className="font-medium text-foreground">
-                        {guest.fullName}
-                      </span>
+                      <div className="flex flex-wrap items-center justify-between gap-2">
+                        <span className="font-medium text-foreground">
+                          {guest.fullName}
+                        </span>
+                        <OfflineSyncBadge badge={syncBadges[guest.id]} />
+                      </div>
                       <div className="grid gap-0.5 text-xs text-muted-foreground">
                         <span className="tabular-nums">
                           {guest.phone ?? "—"}
@@ -1228,7 +1490,10 @@ export function TransientsWorkspace({
                       {guestsPage.paginatedRows.map((guest) => (
                         <TableRow key={guest.id}>
                           <TableCell className="font-medium text-foreground">
-                            {guest.fullName}
+                            <div className="flex flex-wrap items-center gap-1.5">
+                              <span>{guest.fullName}</span>
+                              <OfflineSyncBadge badge={syncBadges[guest.id]} />
+                            </div>
                           </TableCell>
                           <TableCell className="tabular-nums">
                             {guest.phone ?? "—"}
@@ -1255,7 +1520,9 @@ export function TransientsWorkspace({
       {addGuestOpen && (
         <CreateTransientGuestDialog
           open={addGuestOpen}
+          offlineMode={offlineMode}
           onClose={() => setAddGuestOpen(false)}
+          onRequireVaultUnlock={() => setUnlockPromptOpen(true)}
           onSaved={handleSaved}
         />
       )}
@@ -1263,9 +1530,11 @@ export function TransientsWorkspace({
       {addStayOpen && (
         <CreateTransientReservationDialog
           open={addStayOpen}
+          offlineMode={offlineMode}
           guests={overview.guests}
           rooms={overview.rooms}
           onClose={() => setAddStayOpen(false)}
+          onRequireVaultUnlock={() => setUnlockPromptOpen(true)}
           onSaved={handleSaved}
         />
       )}
@@ -1355,6 +1624,12 @@ export function TransientsWorkspace({
         loading={
           confirmStayAction !== null && busyId === confirmStayAction.stay.id
         }
+      />
+
+      <OfflineVaultUnlockDialog
+        open={unlockPromptOpen}
+        onClose={() => setUnlockPromptOpen(false)}
+        onUnlocked={() => reloadOverview()}
       />
     </div>
   );

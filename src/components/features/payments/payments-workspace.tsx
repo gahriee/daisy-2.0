@@ -2,9 +2,15 @@
 
 import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 
-import { useState, useTransition } from "react";
+import { useEffect, useState, useTransition } from "react";
 import Image from "next/image";
 import Link from "next/link";
+import { useBrowserOnline } from "@/components/features/offline/offline-status-bar";
+import {
+  OfflineSnapshotBanner,
+  OfflineSyncBadge,
+  OfflineVaultUnlockDialog,
+} from "@/components/features/offline/offline-vault-unlock";
 import { Alert } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
 import { Button, buttonClasses } from "@/components/ui/button";
@@ -52,6 +58,26 @@ import { useTableSort } from "@/hooks/use-table-sort";
 import { formatManilaDate } from "@/lib/dates";
 import { formatPhpCurrency, parseMoneyDecimal } from "@/lib/money";
 import type { SortColumnDef } from "@/lib/table-sort";
+import {
+  getBrowserOfflineDb,
+  getVaultCustody,
+  listActiveOutboxRecords,
+  listDecryptedProjections,
+} from "@/offline/client";
+import {
+  loadPaymentsOverviewFromVault,
+  mergePaymentsOverviewWithVaultOverlay,
+  type OfflineEntitySyncBadge,
+} from "@/offline/snapshot-selectors";
+import {
+  cacheOfflinePoliciesMeta,
+  DAISY_OFFLINE_VAULT_EVENT,
+  getOfflineVaultClientState,
+  OfflineVaultLockedError,
+  resolveNeedsAttentionDiscard,
+  resolveNeedsAttentionKeepMine,
+  triggerForegroundSyncIfUnlocked,
+} from "@/offline/workspace-bridge";
 import { PAYMENT_BADGE_TONE, ReversePaymentDialog } from "./payment-dialogs";
 
 type PaymentSortKey =
@@ -168,10 +194,27 @@ function ProofIcon() {
 
 export function PaymentsWorkspace({
   initialOverview,
+  offlineMode = false,
+  initialLastSyncedAt = null,
+  initialSyncBadges = {},
 }: {
   initialOverview: PaymentsOverviewDto;
+  offlineMode?: boolean;
+  initialLastSyncedAt?: string | null;
+  initialSyncBadges?: Record<string, OfflineEntitySyncBadge>;
 }) {
+  const online = useBrowserOnline();
+  const isOfflineView = offlineMode || !online;
+  const [serverOverview, setServerOverview] = useState(initialOverview);
   const [overview, setOverview] = useState(initialOverview);
+  const [syncBadges, setSyncBadges] =
+    useState<Record<string, OfflineEntitySyncBadge>>(initialSyncBadges);
+  const [lastSyncedAt, setLastSyncedAt] = useState<string | null>(
+    initialLastSyncedAt,
+  );
+  const [pendingCount, setPendingCount] = useState(0);
+  const [needsAttentionCount, setNeedsAttentionCount] = useState(0);
+  const [unlockPromptOpen, setUnlockPromptOpen] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
   const [methodFilter, setMethodFilter] = useState<PaymentMethodValue | "ALL">(
     "ALL",
@@ -190,27 +233,141 @@ export function PaymentsWorkspace({
     null,
   );
   const [feedback, setFeedback] = useState<{
-    tone: "success" | "danger";
+    tone: "success" | "warning" | "danger";
     message: string;
   } | null>(null);
+
+  async function applyVaultState(base: PaymentsOverviewDto = serverOverview) {
+    try {
+      if (!offlineMode && navigator.onLine) {
+        void cacheOfflinePoliciesMeta({
+          policiesComplete: base.policiesComplete,
+          receiptPrefix: base.receiptPrefix,
+          overpaymentPolicy: base.overpaymentPolicy,
+          proofMaxBytes: base.proofMaxBytes,
+          proofMaxFilesPerRecord: base.proofMaxFilesPerRecord,
+          missingPolicyLabels: base.missingPolicyLabels,
+        });
+      }
+
+      const vault = await getOfflineVaultClientState();
+      setPendingCount(vault.status.pendingCount);
+      setNeedsAttentionCount(vault.status.needsAttentionCount);
+      setLastSyncedAt(vault.status.lastSyncedAt);
+
+      const custody = getVaultCustody();
+      if (!custody.isUnlocked()) {
+        setOverview(base);
+        setSyncBadges({});
+        return;
+      }
+
+      const db = getBrowserOfflineDb();
+      const key = custody.getKey();
+      if (offlineMode || !navigator.onLine) {
+        const fromVault = await loadPaymentsOverviewFromVault(db, key);
+        setOverview(fromVault.overview);
+        setSyncBadges(fromVault.syncBadges);
+        setLastSyncedAt(fromVault.lastSyncedAt);
+        return;
+      }
+
+      const [projections, outbox] = await Promise.all([
+        listDecryptedProjections(db, key, ["payment"]),
+        listActiveOutboxRecords(db),
+      ]);
+      const merged = mergePaymentsOverviewWithVaultOverlay({
+        baseOverview: base,
+        projections,
+        outbox,
+      });
+      setOverview(merged.overview);
+      setSyncBadges(merged.syncBadges);
+    } catch {
+      // Ignore vault inspection failures cleanly.
+    }
+  }
+
+  useEffect(() => {
+    const initial = window.setTimeout(() => {
+      void applyVaultState(serverOverview);
+    }, 0);
+    const onVaultChange = () => {
+      void applyVaultState(serverOverview);
+    };
+    window.addEventListener(DAISY_OFFLINE_VAULT_EVENT, onVaultChange);
+    return () => {
+      window.clearTimeout(initial);
+      window.removeEventListener(DAISY_OFFLINE_VAULT_EVENT, onVaultChange);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [offlineMode, online, serverOverview]);
 
   async function reloadPayments() {
     startRefreshTransition(async () => {
       try {
+        if (offlineMode || !navigator.onLine) {
+          await applyVaultState(serverOverview);
+          return;
+        }
+        await triggerForegroundSyncIfUnlocked();
         const res = await fetch("/api/payments", { cache: "no-store" });
         if (!res.ok) {
           throw new Error("Could not refresh payment ledger.");
         }
         const next = (await res.json()) as PaymentsOverviewDto;
-        setOverview(next);
+        setServerOverview(next);
+        await applyVaultState(next);
       } catch (error) {
-        setFeedback({
-          tone: "danger",
-          message:
-            error instanceof Error
-              ? error.message
-              : "Could not refresh payment ledger.",
-        });
+        await applyVaultState(serverOverview);
+        if (navigator.onLine) {
+          setFeedback({
+            tone: "danger",
+            message:
+              error instanceof Error
+                ? error.message
+                : "Could not refresh payment ledger.",
+          });
+        }
+      }
+    });
+  }
+
+  function handleResolveAttention(
+    badge: OfflineEntitySyncBadge,
+    action: "keep_mine" | "discard",
+  ) {
+    setFeedback(null);
+    startRefreshTransition(async () => {
+      try {
+        if (action === "keep_mine") {
+          await resolveNeedsAttentionKeepMine(badge.opId);
+          setFeedback({
+            tone: "success",
+            message: navigator.onLine
+              ? "Re-queued draft against current server state."
+              : "Re-queued payment draft for next sync.",
+          });
+        } else {
+          await resolveNeedsAttentionDiscard(badge.opId);
+          setFeedback({
+            tone: "success",
+            message: "Discarded local payment draft.",
+          });
+        }
+        await reloadPayments();
+      } catch (error) {
+        if (error instanceof OfflineVaultLockedError) {
+          setUnlockPromptOpen(true);
+        } else {
+          setFeedback({
+            tone: "danger",
+            message:
+              error instanceof Error
+                ? error.message
+                : "Could not resolve local draft.",
+          });
+        }
       }
     });
   }
@@ -282,18 +439,40 @@ export function PaymentsWorkspace({
     normalizedQuery !== "" || methodFilter !== "ALL" || statusFilter !== "ALL";
 
   function getPaymentRowActions(payment: PaymentDto): RowActionItem[] {
+    const badge = syncBadges[payment.id];
+    const hasNeedsAttention = badge && badge.status !== "pending";
     return [
-      {
-        id: "inspect",
-        label: "Inspect",
-        href: `/payments/${payment.id}`,
-      },
-      ...(payment.status === "POSTED"
+      ...(hasNeedsAttention
+        ? [
+            {
+              id: "keep-mine",
+              label: "Keep local draft",
+              onSelect: () => handleResolveAttention(badge, "keep_mine"),
+            },
+            {
+              id: "discard-local",
+              label: "Discard draft",
+              tone: "danger" as const,
+              onSelect: () => handleResolveAttention(badge, "discard"),
+            },
+          ]
+        : []),
+      ...(!badge || badge.status !== "pending"
+        ? [
+            {
+              id: "inspect",
+              label: "Inspect",
+              href: `/payments/${payment.id}`,
+            },
+          ]
+        : []),
+      ...(payment.status === "POSTED" && !badge
         ? [
             {
               id: "reverse",
-              label: "Reverse",
+              label: isOfflineView ? "Reverse (online only)" : "Reverse",
               tone: "danger" as const,
+              disabled: isOfflineView,
               onSelect: () => setReversingPayment(payment),
             },
           ]
@@ -333,6 +512,16 @@ export function PaymentsWorkspace({
         </div>
       </header>
 
+      <OfflineSnapshotBanner
+        online={online}
+        offlineMode={offlineMode}
+        lastSyncedAt={lastSyncedAt}
+        pendingCount={pendingCount}
+        needsAttentionCount={needsAttentionCount}
+        syncing={refreshing}
+        onSyncNow={() => void reloadPayments()}
+      />
+
       {!overview.policiesComplete && (
         <Alert tone="warning" role="status">
           <div className="flex flex-wrap items-center justify-between gap-3">
@@ -362,9 +551,12 @@ export function PaymentsWorkspace({
               size="sm"
               variant="secondary"
               loading={applyingTenantId === tenant.id}
+              disabled={isOfflineView}
               onClick={() => setConfirmCreditTenant(tenant)}
             >
-              Apply credit to open invoices
+              {isOfflineView
+                ? "Apply credit (online only)"
+                : "Apply credit to open invoices"}
             </Button>
           </div>
         </Alert>
@@ -572,7 +764,10 @@ export function PaymentsWorkspace({
                       href={`/payments/${payment.id}`}
                       className="font-mono text-sm font-semibold text-foreground tabular-nums hover:text-primary"
                     >
-                      {payment.receiptNumber ?? "Reversal entry"}
+                      {payment.receiptNumber ??
+                        (payment.status === "REVERSAL"
+                          ? "Reversal entry"
+                          : "Pending receipt")}
                     </Link>
                     <span className="text-sm font-medium text-foreground">
                       {payment.tenantName}
@@ -584,9 +779,12 @@ export function PaymentsWorkspace({
                       {formatManilaDate(payment.paidDateManila)}
                     </span>
                   </div>
-                  <Badge tone={PAYMENT_BADGE_TONE[payment.status]}>
-                    {PAYMENT_STATUS_LABELS[payment.status]}
-                  </Badge>
+                  <div className="flex flex-wrap items-center justify-end gap-1.5">
+                    <OfflineSyncBadge badge={syncBadges[payment.id]} />
+                    <Badge tone={PAYMENT_BADGE_TONE[payment.status]}>
+                      {PAYMENT_STATUS_LABELS[payment.status]}
+                    </Badge>
+                  </div>
                 </div>
 
                 <div className="flex items-start justify-between text-xs text-muted-foreground tabular-nums">
@@ -646,7 +844,10 @@ export function PaymentsWorkspace({
                         href={`/payments/${payment.id}`}
                         className="text-foreground hover:text-primary"
                       >
-                        {payment.receiptNumber ?? "Reversal"}
+                        {payment.receiptNumber ??
+                          (payment.status === "REVERSAL"
+                            ? "Reversal"
+                            : "Pending receipt")}
                       </Link>
                     </TableCell>
                     <TableCell>
@@ -693,9 +894,12 @@ export function PaymentsWorkspace({
                       )}
                     </TableCell>
                     <TableCell>
-                      <Badge tone={PAYMENT_BADGE_TONE[payment.status]}>
-                        {PAYMENT_STATUS_LABELS[payment.status]}
-                      </Badge>
+                      <div className="flex flex-wrap items-center gap-1.5">
+                        <Badge tone={PAYMENT_BADGE_TONE[payment.status]}>
+                          {PAYMENT_STATUS_LABELS[payment.status]}
+                        </Badge>
+                        <OfflineSyncBadge badge={syncBadges[payment.id]} />
+                      </div>
                     </TableCell>
                     <TableCell className="text-right">
                       <RowActionMenu
@@ -723,6 +927,12 @@ export function PaymentsWorkspace({
           setFeedback({ tone: "success", message });
           await reloadPayments();
         }}
+      />
+
+      <OfflineVaultUnlockDialog
+        open={unlockPromptOpen}
+        onClose={() => setUnlockPromptOpen(false)}
+        onUnlocked={() => reloadPayments()}
       />
     </div>
   );

@@ -5,6 +5,10 @@ import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import { useState, useTransition } from "react";
 import Image from "next/image";
 import Link from "next/link";
+import {
+  OfflineSnapshotBanner,
+  useOfflineSnapshotState,
+} from "@/components/features/offline/offline-vault-unlock";
 import { Alert } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
 import { Button, buttonClasses } from "@/components/ui/button";
@@ -48,6 +52,7 @@ import { useTableSort } from "@/hooks/use-table-sort";
 import { formatManilaDate } from "@/lib/dates";
 import { formatPhpCurrency } from "@/lib/money";
 import type { SortColumnDef } from "@/lib/table-sort";
+import { loadBillingOverviewFromVault } from "@/offline/snapshot-selectors-extra";
 import {
   AddAdjustmentDialog,
   GeneratePeriodInvoicesDialog,
@@ -184,10 +189,37 @@ function PeriodTotalIcon() {
 
 export function BillingWorkspace({
   initialOverview,
+  offlineMode = false,
+  initialLastSyncedAt = null,
 }: {
   initialOverview: BillingOverviewDto;
+  offlineMode?: boolean;
+  initialLastSyncedAt?: string | null;
 }) {
-  const [overview, setOverview] = useState<BillingOverviewDto>(initialOverview);
+  const {
+    data: overview,
+    online,
+    isOfflineView,
+    lastSyncedAt,
+    pendingCount,
+    needsAttentionCount,
+    reload,
+  } = useOfflineSnapshotState<BillingOverviewDto>({
+    initialData: initialOverview,
+    offlineMode,
+    initialLastSyncedAt,
+    loadFromVault: async (db, key) => {
+      const res = await loadBillingOverviewFromVault(db, key);
+      return { data: res.overview, lastSyncedAt: res.lastSyncedAt };
+    },
+    fetchOnline: async () => {
+      const response = await fetch("/api/billing", { cache: "no-store" });
+      if (!response.ok) {
+        throw new Error("Could not refresh billing ledger right now.");
+      }
+      return (await response.json()) as BillingOverviewDto;
+    },
+  });
   const [searchQuery, setSearchQuery] = useState("");
   const [viewFilter, setViewFilter] = useState<BillingViewFilter>("all");
   const [periodFilter, setPeriodFilter] = useState<string>("ALL");
@@ -208,20 +240,14 @@ export function BillingWorkspace({
   async function reloadBilling() {
     setRefreshing(true);
     try {
-      const response = await fetch("/api/billing", { cache: "no-store" });
-      if (!response.ok) {
-        setFeedback({
-          tone: "danger",
-          message: "Could not refresh billing ledger right now.",
-        });
-        return;
-      }
-      const fresh = (await response.json()) as BillingOverviewDto;
-      setOverview(fresh);
-    } catch {
+      await reload();
+    } catch (error) {
       setFeedback({
         tone: "danger",
-        message: "Connect to the internet to refresh billing.",
+        message:
+          error instanceof Error
+            ? error.message
+            : "Connect to the internet to refresh billing.",
       });
     } finally {
       setRefreshing(false);
@@ -322,9 +348,9 @@ export function BillingWorkspace({
         ? [
             {
               id: "issue",
-              label: "Issue",
+              label: isOfflineView ? "Issue (online only)" : "Issue",
               busy: isRowBusy,
-              disabled: !overview.invoicePrefix,
+              disabled: isOfflineView || !overview.invoicePrefix,
               onSelect: () => {
                 setIssueError(null);
                 setIssuingInvoice(invoice);
@@ -341,7 +367,8 @@ export function BillingWorkspace({
             },
             {
               id: "adjust",
-              label: "Adjust",
+              label: isOfflineView ? "Adjust (online only)" : "Adjust",
+              disabled: isOfflineView,
               onSelect: () => setAdjustingInvoice(invoice),
             },
           ]
@@ -371,21 +398,35 @@ export function BillingWorkspace({
             <RefreshIcon />
             Refresh
           </Button>
-          <Link
-            href="/billing/new"
-            className={buttonClasses({ variant: "secondary", size: "md" })}
-          >
-            Create invoice
-          </Link>
+          {!isOfflineView && (
+            <Link
+              href="/billing/new"
+              className={buttonClasses({ variant: "secondary", size: "md" })}
+            >
+              Create invoice
+            </Link>
+          )}
           <Button
             size="md"
-            disabled={!overview.policiesComplete}
+            disabled={isOfflineView || !overview.policiesComplete}
             onClick={() => setGenerateOpen(true)}
           >
-            Generate monthly invoices
+            {isOfflineView
+              ? "Generate invoices (online only)"
+              : "Generate monthly invoices"}
           </Button>
         </div>
       </header>
+
+      <OfflineSnapshotBanner
+        online={online}
+        offlineMode={offlineMode}
+        lastSyncedAt={lastSyncedAt}
+        pendingCount={pendingCount}
+        needsAttentionCount={needsAttentionCount}
+        syncing={refreshing}
+        onSyncNow={reloadBilling}
+      />
 
       {!overview.policiesComplete && (
         <Alert tone="warning" role="status">

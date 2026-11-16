@@ -2,9 +2,15 @@
 
 import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 
-import { useState, useTransition } from "react";
+import { useEffect, useState, useTransition } from "react";
 import Image from "next/image";
 import Link from "next/link";
+import { useBrowserOnline } from "@/components/features/offline/offline-status-bar";
+import {
+  OfflineSnapshotBanner,
+  OfflineSyncBadge,
+  OfflineVaultUnlockDialog,
+} from "@/components/features/offline/offline-vault-unlock";
 import { Alert } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -50,6 +56,26 @@ import { useTableSort } from "@/hooks/use-table-sort";
 import { formatManilaDate } from "@/lib/dates";
 import { formatPhpCurrency } from "@/lib/money";
 import type { SortColumnDef } from "@/lib/table-sort";
+import {
+  getBrowserOfflineDb,
+  getVaultCustody,
+  listActiveOutboxRecords,
+  listDecryptedProjections,
+} from "@/offline/client";
+import {
+  loadTenantsOverviewFromVault,
+  mergeTenantsOverviewWithVaultOverlay,
+  type OfflineEntitySyncBadge,
+} from "@/offline/snapshot-selectors";
+import {
+  DAISY_OFFLINE_VAULT_EVENT,
+  getOfflineVaultClientState,
+  OfflineVaultLockedError,
+  resolveNeedsAttentionDiscard,
+  resolveNeedsAttentionKeepMine,
+  submitOfflineCapableMutation,
+  triggerForegroundSyncIfUnlocked,
+} from "@/offline/workspace-bridge";
 import {
   AssignBedDialog,
   CreateTenantDialog,
@@ -109,10 +135,28 @@ function RefreshIcon() {
 
 export function TenantsWorkspace({
   initialOverview,
+  offlineMode = false,
+  initialLastSyncedAt = null,
+  initialSyncBadges = {},
 }: {
   initialOverview: TenantsOverviewDto;
+  offlineMode?: boolean;
+  initialLastSyncedAt?: string | null;
+  initialSyncBadges?: Record<string, OfflineEntitySyncBadge>;
 }) {
+  const online = useBrowserOnline();
+  const isOfflineView = offlineMode || !online;
+  const [serverOverview, setServerOverview] =
+    useState<TenantsOverviewDto>(initialOverview);
   const [overview, setOverview] = useState<TenantsOverviewDto>(initialOverview);
+  const [syncBadges, setSyncBadges] =
+    useState<Record<string, OfflineEntitySyncBadge>>(initialSyncBadges);
+  const [lastSyncedAt, setLastSyncedAt] = useState<string | null>(
+    initialLastSyncedAt,
+  );
+  const [pendingCount, setPendingCount] = useState(0);
+  const [needsAttentionCount, setNeedsAttentionCount] = useState(0);
+  const [unlockPromptOpen, setUnlockPromptOpen] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
   const [viewFilter, setViewFilter] = useState<TenantViewFilter>("active");
   const [createOpen, setCreateOpen] = useState(false);
@@ -133,14 +177,75 @@ export function TenantsWorkspace({
     useState<TenantListItemDto | null>(null);
   const [confirmError, setConfirmError] = useState<string | null>(null);
   const [feedback, setFeedback] = useState<{
-    tone: "success" | "danger";
+    tone: "success" | "warning" | "danger";
     message: string;
   } | null>(null);
   const [, startTransition] = useTransition();
 
+  async function applyVaultState(base: TenantsOverviewDto = serverOverview) {
+    try {
+      const vault = await getOfflineVaultClientState();
+      setPendingCount(vault.status.pendingCount);
+      setNeedsAttentionCount(vault.status.needsAttentionCount);
+      setLastSyncedAt(vault.status.lastSyncedAt);
+
+      const custody = getVaultCustody();
+      if (!custody.isUnlocked()) {
+        setOverview(base);
+        setSyncBadges({});
+        return;
+      }
+
+      const db = getBrowserOfflineDb();
+      const key = custody.getKey();
+      if (offlineMode || !navigator.onLine) {
+        const fromVault = await loadTenantsOverviewFromVault(db, key);
+        setOverview(fromVault.overview);
+        setSyncBadges(fromVault.syncBadges);
+        setLastSyncedAt(fromVault.lastSyncedAt);
+        return;
+      }
+
+      const [projections, outbox] = await Promise.all([
+        listDecryptedProjections(db, key, ["tenant"]),
+        listActiveOutboxRecords(db),
+      ]);
+      const merged = mergeTenantsOverviewWithVaultOverlay({
+        baseOverview: base,
+        projections,
+        outbox,
+      });
+      setOverview(merged.overview);
+      setSyncBadges(merged.syncBadges);
+    } catch {
+      // Ignore vault inspection failures in restricted browser environments.
+    }
+  }
+
+  useEffect(() => {
+    const initial = window.setTimeout(() => {
+      void applyVaultState(serverOverview);
+    }, 0);
+    const onVaultChange = () => {
+      void applyVaultState(serverOverview);
+    };
+    window.addEventListener(DAISY_OFFLINE_VAULT_EVENT, onVaultChange);
+    return () => {
+      window.clearTimeout(initial);
+      window.removeEventListener(DAISY_OFFLINE_VAULT_EVENT, onVaultChange);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [offlineMode, online, serverOverview]);
+
   async function reloadTenants() {
     setRefreshing(true);
     try {
+      if (offlineMode || !navigator.onLine) {
+        await applyVaultState(serverOverview);
+        return;
+      }
+
+      await triggerForegroundSyncIfUnlocked();
       const response = await fetch("/api/tenants", { cache: "no-store" });
       if (!response.ok) {
         setFeedback({
@@ -150,12 +255,16 @@ export function TenantsWorkspace({
         return;
       }
       const fresh = (await response.json()) as TenantsOverviewDto;
-      setOverview(fresh);
+      setServerOverview(fresh);
+      await applyVaultState(fresh);
     } catch {
-      setFeedback({
-        tone: "danger",
-        message: "Connect to the internet to refresh tenants.",
-      });
+      await applyVaultState(serverOverview);
+      if (navigator.onLine) {
+        setFeedback({
+          tone: "danger",
+          message: "Could not reach the server; showing local data.",
+        });
+      }
     } finally {
       setRefreshing(false);
     }
@@ -168,6 +277,58 @@ export function TenantsWorkspace({
     setRowPendingId(tenant.id);
     startTransition(async () => {
       try {
+        const vault = await getOfflineVaultClientState();
+        const useOfflineBridge =
+          offlineMode ||
+          !vault.online ||
+          (vault.vaultUnlocked && Boolean(vault.deviceId));
+
+        if (useOfflineBridge) {
+          const isArchiving = tenant.archivedAt === null;
+          const nowIso = new Date().toISOString();
+          try {
+            const res = await submitOfflineCapableMutation({
+              type: isArchiving ? "tenant.archive" : "tenant.restore",
+              entityId: tenant.id,
+              baseVersion: tenant.version,
+              payload: {},
+              projectionPayload: {
+                ...tenant,
+                archivedAt: isArchiving ? nowIso : null,
+                updatedAt: nowIso,
+              },
+              syncedMessage: isArchiving
+                ? "Tenant archived and synced."
+                : "Tenant restored and synced.",
+              queuedMessage: isArchiving
+                ? "Archive saved on this device (pending sync)."
+                : "Restore saved on this device (pending sync).",
+            });
+            setConfirmingTenant(null);
+            if (res.delivery === "needs_attention") {
+              setFeedback({
+                tone: "warning",
+                message: `Saved in Needs attention: ${res.reason}`,
+              });
+            } else {
+              setFeedback({ tone: "success", message: res.message });
+            }
+            await reloadTenants();
+          } catch (error) {
+            if (error instanceof OfflineVaultLockedError) {
+              setConfirmingTenant(null);
+              setUnlockPromptOpen(true);
+            } else {
+              setConfirmError(
+                error instanceof Error
+                  ? error.message
+                  : "Could not update tenant offline.",
+              );
+            }
+          }
+          return;
+        }
+
         const res =
           tenant.archivedAt === null
             ? await archiveTenantAction({
@@ -187,6 +348,45 @@ export function TenantsWorkspace({
         }
       } finally {
         setRowPendingId(null);
+      }
+    });
+  }
+
+  function handleResolveAttention(
+    badge: OfflineEntitySyncBadge,
+    action: "keep_mine" | "discard",
+  ) {
+    setFeedback(null);
+    startTransition(async () => {
+      try {
+        if (action === "keep_mine") {
+          await resolveNeedsAttentionKeepMine(badge.opId);
+          setFeedback({
+            tone: "success",
+            message: navigator.onLine
+              ? "Re-queued draft against current server state."
+              : "Re-queued draft for next sync.",
+          });
+        } else {
+          await resolveNeedsAttentionDiscard(badge.opId);
+          setFeedback({
+            tone: "success",
+            message: "Discarded local conflict draft.",
+          });
+        }
+        await reloadTenants();
+      } catch (error) {
+        if (error instanceof OfflineVaultLockedError) {
+          setUnlockPromptOpen(true);
+        } else {
+          setFeedback({
+            tone: "danger",
+            message:
+              error instanceof Error
+                ? error.message
+                : "Could not resolve local draft.",
+          });
+        }
       }
     });
   }
@@ -252,12 +452,33 @@ export function TenantsWorkspace({
     busy: boolean,
   ): RowActionItem[] {
     const assignment = tenant.activeAssignment;
+    const syncBadge = syncBadges[tenant.id];
+    const hasNeedsAttention = syncBadge && syncBadge.status !== "pending";
+
     return [
+      ...(hasNeedsAttention
+        ? [
+            {
+              id: "keep-mine",
+              label: "Keep local draft",
+              onSelect: () => handleResolveAttention(syncBadge, "keep_mine"),
+            },
+            {
+              id: "discard-local",
+              label: "Discard draft",
+              tone: "danger" as const,
+              onSelect: () => handleResolveAttention(syncBadge, "discard"),
+            },
+          ]
+        : []),
       ...(!isArchived && !assignment
         ? [
             {
               id: "assign",
-              label: "Assign room",
+              label: isOfflineView
+                ? "Assign room (online only)"
+                : "Assign room",
+              disabled: isOfflineView,
               onSelect: () => setAssigningTenant(tenant),
             },
           ]
@@ -266,7 +487,8 @@ export function TenantsWorkspace({
         ? [
             {
               id: "move-out",
-              label: "Move out",
+              label: isOfflineView ? "Move out (online only)" : "Move out",
+              disabled: isOfflineView,
               onSelect: () =>
                 setMovingOutTarget({
                   assignment,
@@ -286,6 +508,7 @@ export function TenantsWorkspace({
           tenant.tenantNotes.length > 0
             ? `Notes (${tenant.tenantNotes.length})`
             : "Notes",
+        disabled: isOfflineView,
         onSelect: () => setNotesTenantId(tenant.id),
       },
       ...(!isArchived
@@ -339,6 +562,16 @@ export function TenantsWorkspace({
           </Button>
         </div>
       </header>
+
+      <OfflineSnapshotBanner
+        online={online}
+        offlineMode={offlineMode}
+        lastSyncedAt={lastSyncedAt}
+        pendingCount={pendingCount}
+        needsAttentionCount={needsAttentionCount}
+        syncing={refreshing}
+        onSyncNow={() => void reloadTenants()}
+      />
 
       {feedback && (
         <Alert
@@ -556,13 +789,16 @@ export function TenantsWorkspace({
                         </div>
                       )}
                     </div>
-                    {isArchived ? (
-                      <Badge tone="neutral">Archived</Badge>
-                    ) : assignment ? (
-                      <Badge tone="info">Room {assignment.roomNumber}</Badge>
-                    ) : (
-                      <Badge tone="warning">Unassigned</Badge>
-                    )}
+                    <div className="flex flex-wrap items-center justify-end gap-1.5">
+                      <OfflineSyncBadge badge={syncBadges[tenant.id]} />
+                      {isArchived ? (
+                        <Badge tone="neutral">Archived</Badge>
+                      ) : assignment ? (
+                        <Badge tone="info">Room {assignment.roomNumber}</Badge>
+                      ) : (
+                        <Badge tone="warning">Unassigned</Badge>
+                      )}
+                    </div>
                   </div>
 
                   {assignment && (
@@ -649,13 +885,16 @@ export function TenantsWorkspace({
                           : "—"}
                       </TableCell>
                       <TableCell>
-                        {isArchived ? (
-                          <Badge tone="neutral">Archived</Badge>
-                        ) : assignment ? (
-                          <Badge tone="info">Active stay</Badge>
-                        ) : (
-                          <Badge tone="warning">Unassigned</Badge>
-                        )}
+                        <div className="flex flex-wrap items-center gap-1.5">
+                          {isArchived ? (
+                            <Badge tone="neutral">Archived</Badge>
+                          ) : assignment ? (
+                            <Badge tone="info">Active stay</Badge>
+                          ) : (
+                            <Badge tone="warning">Unassigned</Badge>
+                          )}
+                          <OfflineSyncBadge badge={syncBadges[tenant.id]} />
+                        </div>
                       </TableCell>
                       <TableCell className="text-right">
                         <RowActionMenu
@@ -679,7 +918,9 @@ export function TenantsWorkspace({
 
       <CreateTenantDialog
         open={createOpen}
+        offlineMode={offlineMode}
         onClose={() => setCreateOpen(false)}
+        onRequireVaultUnlock={() => setUnlockPromptOpen(true)}
         onSaved={async (message) => {
           setFeedback({ tone: "success", message });
           await reloadTenants();
@@ -688,7 +929,9 @@ export function TenantsWorkspace({
 
       <EditTenantDialog
         tenant={editingTenant}
+        offlineMode={offlineMode}
         onClose={() => setEditingTenant(null)}
+        onRequireVaultUnlock={() => setUnlockPromptOpen(true)}
         onSaved={async (message) => {
           setFeedback({ tone: "success", message });
           await reloadTenants();
@@ -753,6 +996,12 @@ export function TenantsWorkspace({
         loading={
           confirmingTenant !== null && rowPendingId === confirmingTenant.id
         }
+      />
+
+      <OfflineVaultUnlockDialog
+        open={unlockPromptOpen}
+        onClose={() => setUnlockPromptOpen(false)}
+        onUnlocked={() => reloadTenants()}
       />
     </div>
   );

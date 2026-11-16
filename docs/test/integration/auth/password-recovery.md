@@ -1,10 +1,10 @@
 # Owner password recovery
 
 - Status: PASS for isolated backend tests and production activation; live email/device checks PENDING.
-- Last run: 2026-11-13 22:04:52 (UTC+8)
-- Runtime: Windows, Node 24.20.0, pnpm 12.18.0, Vitest 5.1.0, Prisma 7.10.1, Neon PostgreSQL (Singapore).
-- Command: pnpm test:integration
-- Final metrics: 17 passed, 0 failed, 0 skipped (17.19 s here; 30/30 suite across 7 files, 81.07 s).
+- Last run: 2026-11-16 23:31:26 (UTC+8)
+- Runtime: Windows, Node 26.13.1, pnpm 12.18.0, Vitest 5.1.0, Prisma 7.10.1, Neon PostgreSQL (Singapore).
+- Command: `pnpm test:integration`
+- Final metrics: 17 passed, 0 failed, 0 skipped (16.25 s here; 64/64 suite across 17 files, 509.94 s).
 - Target: explicitly opted-in expiring schema-only branch `test-integration` (`br-broad-river-b30q4qrw`), never production. Ignored .env.test.local supplies TEST_DATABASE_URL; config refuses runtime host/database (including pooled aliases).
 - Migration: 20261113060000_recovery_security applied only to the test branch; no provider auth table modified. Generated schema validated and client generated successfully.
 
@@ -40,6 +40,7 @@ The isolated branch has a three-hour expiry and its credentials remain in ignore
 | 2026-11-13 15:02 | pnpm test:integration | 17 passed final | 21.48s |
 | 2026-11-13 18:19 | pnpm test:integration | 17 passed (`test-integration` schema-only branch) | 18.42s |
 | 2026-11-13 22:04:52 | pnpm test:integration | 17 passed (suite: 30/30 across 7 files) | 17.19 s (81.07 s suite) |
+| 2026-11-16 23:31:26 | `pnpm test:integration` | 17 passed (suite: 64/64 across 17 files) | 16.25 s (509.94 s suite) |
 
 ## Code/build checks and retained failures
 

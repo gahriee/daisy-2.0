@@ -14,12 +14,14 @@ vi.mock("@aws-sdk/client-s3", () => ({
   GetObjectCommand: class {},
   PutObjectCommand: class {},
   HeadObjectCommand: class {},
+  DeleteObjectCommand: class {},
 }));
 vi.mock("@aws-sdk/s3-request-presigner", () => ({
   getSignedUrl: mocks.signed,
 }));
 import {
   checkStorage,
+  deletePrivateObject,
   getStorage,
   headPrivateObject,
   putPrivateObject,
@@ -80,5 +82,10 @@ it("signs private uploads, writes bounded objects, and returns null on missing h
 
   mocks.send.mockRejectedValueOnce({ $metadata: { httpStatusCode: 404 } });
   expect(await headPrivateObject("owner/missing")).toBeNull();
-  expect(mocks.destroy).toHaveBeenCalledTimes(3);
+
+  mocks.send.mockResolvedValueOnce({});
+  expect(await deletePrivateObject("owner/orphan")).toBe(true);
+  mocks.send.mockRejectedValueOnce({ $metadata: { httpStatusCode: 404 } });
+  expect(await deletePrivateObject("owner/missing")).toBe(false);
+  expect(mocks.destroy).toHaveBeenCalledTimes(5);
 });

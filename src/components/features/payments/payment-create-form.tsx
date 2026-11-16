@@ -1,8 +1,9 @@
 "use client";
 
-import { useActionState, useState, type ChangeEvent } from "react";
+import { useActionState, useEffect, useState, type ChangeEvent } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
+import { OfflineVaultUnlockDialog } from "@/components/features/offline/offline-vault-unlock";
 import { Alert } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
 import { Button, buttonClasses } from "@/components/ui/button";
@@ -25,6 +26,7 @@ import {
   PAYMENT_METHODS,
   PROOF_ALLOWED_ACCEPT_ATTR,
   PROOF_ALLOWED_MIME_TYPES,
+  RecordPaymentSyncPayloadSchema,
   type PaymentMethodValue,
   type PaymentOpenInvoiceOptionDto,
   type PaymentTenantOptionDto,
@@ -41,6 +43,12 @@ import {
   formatPhpCurrency,
   parseMoneyDecimal,
 } from "@/lib/money";
+import {
+  cacheOfflinePoliciesMeta,
+  getOfflineVaultClientState,
+  OfflineVaultLockedError,
+  submitOfflineCapableMutation,
+} from "@/offline/workspace-bridge";
 
 type UploadedProofItem = {
   localId: string;
@@ -49,6 +57,7 @@ type UploadedProofItem = {
   byteSize: number;
   status: "uploading" | "ready" | "error";
   intentId: string | null;
+  queuedBytes?: Uint8Array;
   errorMessage: string | null;
 };
 
@@ -83,6 +92,19 @@ function formatByteSize(bytes: number): string {
   return `${(bytes / (1024 * 1024)).toFixed(2)} MB`;
 }
 
+function mapPaymentIssuesToFields(
+  issues: Array<{ path: PropertyKey[]; message: string }>,
+): Record<string, string> {
+  const fieldErrors: Record<string, string> = {};
+  for (const issue of issues) {
+    const key = String(issue.path[0] ?? "form");
+    if (!fieldErrors[key]) {
+      fieldErrors[key] = issue.message;
+    }
+  }
+  return fieldErrors;
+}
+
 export function PaymentCreateForm({
   tenants,
   transientGuests,
@@ -94,6 +116,7 @@ export function PaymentCreateForm({
   overpaymentPolicy,
   proofMaxBytes,
   proofMaxFilesPerRecord,
+  offlineMode = false,
 }: {
   tenants: PaymentTenantOptionDto[];
   transientGuests: PaymentTransientOptionDto[];
@@ -105,8 +128,31 @@ export function PaymentCreateForm({
   overpaymentPolicy: OverpaymentPolicyValue | null;
   proofMaxBytes: number;
   proofMaxFilesPerRecord: number;
+  offlineMode?: boolean;
 }) {
   const router = useRouter();
+  const [unlockPromptOpen, setUnlockPromptOpen] = useState(false);
+
+  useEffect(() => {
+    if (offlineMode || !navigator.onLine) return;
+    const timer = window.setTimeout(() => {
+      void cacheOfflinePoliciesMeta({
+        policiesComplete,
+        overpaymentPolicy,
+        proofMaxBytes,
+        proofMaxFilesPerRecord,
+        missingPolicyLabels,
+      });
+    }, 0);
+    return () => window.clearTimeout(timer);
+  }, [
+    missingPolicyLabels,
+    offlineMode,
+    overpaymentPolicy,
+    policiesComplete,
+    proofMaxBytes,
+    proofMaxFilesPerRecord,
+  ]);
   const initialInvoice = initialInvoiceId
     ? (openInvoices.find((inv) => inv.id === initialInvoiceId) ?? null)
     : null;
@@ -158,6 +204,162 @@ export function PaymentCreateForm({
       prev: PaymentActionResult,
       formData: FormData,
     ): Promise<PaymentActionResult> => {
+      const vault = await getOfflineVaultClientState();
+      const useOfflineBridge =
+        offlineMode ||
+        !vault.online ||
+        (vault.vaultUnlocked && Boolean(vault.deviceId));
+
+      if (useOfflineBridge) {
+        const queuedProofItems = proofs.filter(
+          (item) => item.status === "ready" && Boolean(item.queuedBytes),
+        );
+        const alreadyUploadedIntentIds = proofs
+          .filter(
+            (item) =>
+              item.status === "ready" && item.intentId && !item.queuedBytes,
+          )
+          .map((item) => item.intentId as string);
+
+        let allocationsParsed: unknown = [];
+        try {
+          allocationsParsed = JSON.parse(
+            String(formData.get("allocationsJson") ?? "[]"),
+          );
+        } catch {
+          allocationsParsed = [];
+        }
+
+        const parsed = RecordPaymentSyncPayloadSchema.safeParse({
+          tenantId: selectedTenantId || null,
+          transientGuestId: selectedTransientGuestId || null,
+          amount: String(formData.get("amount") ?? amountInput),
+          method,
+          paidDateManila,
+          referenceNo: String(formData.get("referenceNo") ?? ""),
+          notes: String(formData.get("notes") ?? ""),
+          allocations: allocationsParsed,
+          proofIntentIds: alreadyUploadedIntentIds,
+        });
+        if (!parsed.success) {
+          return {
+            status: "error",
+            message:
+              parsed.error.issues[0]?.message ??
+              "Review payment details before saving.",
+            fieldErrors: mapPaymentIssuesToFields(parsed.error.issues),
+          };
+        }
+
+        try {
+          const entityId = crypto.randomUUID();
+          const nowIso = new Date().toISOString();
+          const allocatedCentavos = parsed.data.allocations.reduce(
+            (acc, item) => acc + parseMoneyDecimal(item.amount),
+            BigInt(0),
+          );
+          const totalCentavos = parseMoneyDecimal(parsed.data.amount);
+          const unallocatedCentavos =
+            totalCentavos > allocatedCentavos
+              ? totalCentavos - allocatedCentavos
+              : BigInt(0);
+
+          const res = await submitOfflineCapableMutation({
+            type: "payment.record",
+            entityId,
+            baseVersion: 0,
+            payload: parsed.data,
+            projectionPayload: {
+              id: entityId,
+              payerKind: selectedTransientGuestId ? "TRANSIENT" : "TENANT",
+              tenantId: parsed.data.tenantId,
+              transientGuestId: parsed.data.transientGuestId,
+              tenantName: selectedPayer?.fullName ?? "Payer",
+              receiptNumber: null,
+              status: "POSTED",
+              method: parsed.data.method,
+              amount: parsed.data.amount,
+              allocatedAmount: formatMoneyDecimal(allocatedCentavos),
+              unallocatedAmount: formatMoneyDecimal(unallocatedCentavos),
+              paidAt: nowIso,
+              paidDateManila:
+                parsed.data.paidDateManila ?? toManilaDate(new Date()),
+              referenceNo: parsed.data.referenceNo,
+              notes: parsed.data.notes,
+              createdAt: nowIso,
+              updatedAt: nowIso,
+              allocations: parsed.data.allocations.map((alloc) => {
+                const match = tenantInvoices.find(
+                  (inv) => inv.id === alloc.invoiceId,
+                );
+                return {
+                  id: crypto.randomUUID(),
+                  invoiceId: alloc.invoiceId,
+                  invoiceNumber: match?.invoiceNumber ?? null,
+                  billingPeriod: match?.billingPeriod ?? null,
+                  amount: alloc.amount,
+                };
+              }),
+              proofs: queuedProofItems.map((item) => ({
+                id: item.localId,
+                intentId: item.intentId ?? item.localId,
+                fileName: item.fileName,
+                mimeType: item.mimeType,
+                byteSize: item.byteSize,
+                sha256: "",
+                createdAt: nowIso,
+                downloadPath: "",
+              })),
+            },
+            ...(queuedProofItems.length > 0
+              ? {
+                  attachments: {
+                    kind: "payment_proof" as const,
+                    files: queuedProofItems.map((item) => ({
+                      attachmentId: item.localId,
+                      clientFileId: item.localId,
+                      fileName: item.fileName,
+                      mimeType: item.mimeType,
+                      bytes: item.queuedBytes!,
+                    })),
+                    maxBytes: proofMaxBytes,
+                    maxFiles: proofMaxFilesPerRecord,
+                  },
+                }
+              : {}),
+            syncedMessage: "Payment recorded and synced.",
+            queuedMessage: "Payment saved on this device (pending sync).",
+          });
+
+          if (res.delivery === "synced") {
+            router.push(`/payments/${entityId}?created=1`);
+          } else {
+            router.push("/payments");
+          }
+          if (navigator.onLine && !offlineMode) {
+            router.refresh();
+          }
+          return {
+            status: "saved",
+            message:
+              res.delivery === "needs_attention" ? res.reason : res.message,
+            paymentId: entityId,
+          };
+        } catch (error) {
+          if (error instanceof OfflineVaultLockedError) {
+            setUnlockPromptOpen(true);
+          }
+          return {
+            status: "error",
+            message:
+              error instanceof Error
+                ? error.message
+                : "Could not save payment locally.",
+            fieldErrors: {},
+          };
+        }
+      }
+
       const result = await recordPaymentAction(prev, formData);
       if (result.status === "saved") {
         router.push(
@@ -301,6 +503,29 @@ export function PaymentCreateForm({
         continue;
       }
 
+      const vaultState = await getOfflineVaultClientState();
+      if (
+        offlineMode ||
+        !vaultState.online ||
+        (vaultState.vaultUnlocked && Boolean(vaultState.deviceId))
+      ) {
+        const bytes = new Uint8Array(await file.arrayBuffer());
+        setProofs((prev) => [
+          ...prev,
+          {
+            localId: crypto.randomUUID(),
+            fileName: file.name,
+            mimeType,
+            byteSize: file.size,
+            status: "ready",
+            intentId: null,
+            queuedBytes: bytes,
+            errorMessage: null,
+          },
+        ]);
+        continue;
+      }
+
       setProofs((prev) => [
         ...prev,
         {
@@ -404,6 +629,10 @@ export function PaymentCreateForm({
     }
   }
 
+  const readyProofCount = proofs.filter(
+    (p) =>
+      p.status === "ready" && (Boolean(p.intentId) || Boolean(p.queuedBytes)),
+  ).length;
   const readyProofIntentIds = proofs
     .filter((p) => p.status === "ready" && p.intentId)
     .map((p) => p.intentId as string);
@@ -912,7 +1141,9 @@ export function PaymentCreateForm({
                           }
                         >
                           {item.status === "ready"
-                            ? "Verified"
+                            ? item.queuedBytes
+                              ? "Queued for sync"
+                              : "Verified"
                             : item.status === "uploading"
                               ? "Uploading"
                               : "Failed"}
@@ -962,9 +1193,9 @@ export function PaymentCreateForm({
                 </dd>
               </div>
               <div className="flex items-start justify-between gap-3">
-                <dt className="text-muted-foreground">Verified proofs</dt>
+                <dt className="text-muted-foreground">Proofs</dt>
                 <dd className="font-medium text-foreground tabular-nums">
-                  {readyProofIntentIds.length}
+                  {readyProofCount}
                 </dd>
               </div>
             </dl>
@@ -993,6 +1224,11 @@ export function PaymentCreateForm({
           </Card>
         </form>
       </CompactFormScope>
+
+      <OfflineVaultUnlockDialog
+        open={unlockPromptOpen}
+        onClose={() => setUnlockPromptOpen(false)}
+      />
     </div>
   );
 }

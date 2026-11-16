@@ -1,8 +1,14 @@
 "use client";
 
-import { useState, useTransition } from "react";
+import { useEffect, useState, useTransition } from "react";
 import Image from "next/image";
 import Link from "next/link";
+import { useBrowserOnline } from "@/components/features/offline/offline-status-bar";
+import {
+  OfflineSnapshotBanner,
+  OfflineSyncBadge,
+  OfflineVaultUnlockDialog,
+} from "@/components/features/offline/offline-vault-unlock";
 import { Alert } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
 import { Button, buttonClasses } from "@/components/ui/button";
@@ -44,6 +50,26 @@ import { useTablePagination } from "@/hooks/use-table-pagination";
 import { useTableSort } from "@/hooks/use-table-sort";
 import { formatManilaDate, toManilaDate } from "@/lib/dates";
 import type { SortColumnDef } from "@/lib/table-sort";
+import {
+  getBrowserOfflineDb,
+  getVaultCustody,
+  listActiveOutboxRecords,
+  listDecryptedProjections,
+} from "@/offline/client";
+import {
+  loadMaintenanceOverviewFromVault,
+  mergeMaintenanceOverviewWithVaultOverlay,
+  type OfflineEntitySyncBadge,
+} from "@/offline/snapshot-selectors";
+import {
+  cacheOfflinePoliciesMeta,
+  DAISY_OFFLINE_VAULT_EVENT,
+  getOfflineVaultClientState,
+  OfflineVaultLockedError,
+  resolveNeedsAttentionDiscard,
+  resolveNeedsAttentionKeepMine,
+  triggerForegroundSyncIfUnlocked,
+} from "@/offline/workspace-bridge";
 import {
   MAINTENANCE_PRIORITY_TONE,
   MAINTENANCE_STATUS_TONE,
@@ -176,10 +202,26 @@ function PartsIcon() {
 
 export function MaintenanceWorkspace({
   initialOverview,
+  offlineMode = false,
+  initialLastSyncedAt = null,
+  initialSyncBadges = {},
 }: {
   initialOverview: MaintenanceOverviewDto;
+  offlineMode?: boolean;
+  initialLastSyncedAt?: string | null;
+  initialSyncBadges?: Record<string, OfflineEntitySyncBadge>;
 }) {
+  const online = useBrowserOnline();
+  const [serverOverview, setServerOverview] = useState(initialOverview);
   const [overview, setOverview] = useState(initialOverview);
+  const [syncBadges, setSyncBadges] =
+    useState<Record<string, OfflineEntitySyncBadge>>(initialSyncBadges);
+  const [lastSyncedAt, setLastSyncedAt] = useState<string | null>(
+    initialLastSyncedAt,
+  );
+  const [pendingCount, setPendingCount] = useState(0);
+  const [needsAttentionCount, setNeedsAttentionCount] = useState(0);
+  const [unlockPromptOpen, setUnlockPromptOpen] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
   const [statusFilter, setStatusFilter] = useState("ACTIVE_QUEUE");
   const [priorityFilter, setPriorityFilter] = useState("ALL");
@@ -189,23 +231,135 @@ export function MaintenanceWorkspace({
   } | null>(null);
   const [refreshing, startRefresh] = useTransition();
 
+  async function applyVaultState(
+    base: MaintenanceOverviewDto = serverOverview,
+  ) {
+    try {
+      if (!offlineMode && navigator.onLine) {
+        void cacheOfflinePoliciesMeta({
+          proofMaxMb: base.proofMaxMb,
+          proofMaxFilesPerRecord: base.proofMaxFilesPerRecord,
+        });
+      }
+
+      const vault = await getOfflineVaultClientState();
+      setPendingCount(vault.status.pendingCount);
+      setNeedsAttentionCount(vault.status.needsAttentionCount);
+      setLastSyncedAt(vault.status.lastSyncedAt);
+
+      const custody = getVaultCustody();
+      if (!custody.isUnlocked()) {
+        setOverview(base);
+        setSyncBadges({});
+        return;
+      }
+
+      const db = getBrowserOfflineDb();
+      const key = custody.getKey();
+      if (offlineMode || !navigator.onLine) {
+        const fromVault = await loadMaintenanceOverviewFromVault(db, key);
+        setOverview(fromVault.overview);
+        setSyncBadges(fromVault.syncBadges);
+        setLastSyncedAt(fromVault.lastSyncedAt);
+        return;
+      }
+
+      const [projections, outbox] = await Promise.all([
+        listDecryptedProjections(db, key, ["maintenance_request"]),
+        listActiveOutboxRecords(db),
+      ]);
+      const merged = mergeMaintenanceOverviewWithVaultOverlay({
+        baseOverview: base,
+        projections,
+        outbox,
+      });
+      setOverview(merged.overview);
+      setSyncBadges(merged.syncBadges);
+    } catch {
+      // Ignore vault inspection failures cleanly.
+    }
+  }
+
+  useEffect(() => {
+    const initial = window.setTimeout(() => {
+      void applyVaultState(serverOverview);
+    }, 0);
+    const onVaultChange = () => {
+      void applyVaultState(serverOverview);
+    };
+    window.addEventListener(DAISY_OFFLINE_VAULT_EVENT, onVaultChange);
+    return () => {
+      window.clearTimeout(initial);
+      window.removeEventListener(DAISY_OFFLINE_VAULT_EVENT, onVaultChange);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [offlineMode, online, serverOverview]);
+
   async function reloadMaintenance() {
     startRefresh(async () => {
       try {
+        if (offlineMode || !navigator.onLine) {
+          await applyVaultState(serverOverview);
+          return;
+        }
+        await triggerForegroundSyncIfUnlocked();
         const res = await fetch("/api/maintenance", { cache: "no-store" });
         if (!res.ok) {
           throw new Error("Could not refresh maintenance requests.");
         }
         const next = (await res.json()) as MaintenanceOverviewDto;
-        setOverview(next);
+        setServerOverview(next);
+        await applyVaultState(next);
       } catch (error) {
-        setFeedback({
-          tone: "danger",
-          message:
-            error instanceof Error
-              ? error.message
-              : "Could not refresh maintenance requests.",
-        });
+        await applyVaultState(serverOverview);
+        if (navigator.onLine) {
+          setFeedback({
+            tone: "danger",
+            message:
+              error instanceof Error
+                ? error.message
+                : "Could not refresh maintenance requests.",
+          });
+        }
+      }
+    });
+  }
+
+  function handleResolveAttention(
+    badge: OfflineEntitySyncBadge,
+    action: "keep_mine" | "discard",
+  ) {
+    setFeedback(null);
+    startRefresh(async () => {
+      try {
+        if (action === "keep_mine") {
+          await resolveNeedsAttentionKeepMine(badge.opId);
+          setFeedback({
+            tone: "success",
+            message: navigator.onLine
+              ? "Re-queued maintenance draft against current server state."
+              : "Re-queued maintenance draft for next sync.",
+          });
+        } else {
+          await resolveNeedsAttentionDiscard(badge.opId);
+          setFeedback({
+            tone: "success",
+            message: "Discarded local maintenance draft.",
+          });
+        }
+        await reloadMaintenance();
+      } catch (error) {
+        if (error instanceof OfflineVaultLockedError) {
+          setUnlockPromptOpen(true);
+        } else {
+          setFeedback({
+            tone: "danger",
+            message:
+              error instanceof Error
+                ? error.message
+                : "Could not resolve maintenance draft.",
+          });
+        }
       }
     });
   }
@@ -300,6 +454,16 @@ export function MaintenanceWorkspace({
           )}
         </div>
       </header>
+
+      <OfflineSnapshotBanner
+        online={online}
+        offlineMode={offlineMode}
+        lastSyncedAt={lastSyncedAt}
+        pendingCount={pendingCount}
+        needsAttentionCount={needsAttentionCount}
+        syncing={refreshing}
+        onSyncNow={() => void reloadMaintenance()}
+      />
 
       {feedback && (
         <Alert
@@ -474,9 +638,12 @@ export function MaintenanceWorkspace({
                       {MAINTENANCE_CATEGORY_LABELS[req.category]}
                     </p>
                   </div>
-                  <Badge tone={MAINTENANCE_STATUS_TONE[req.status]}>
-                    {MAINTENANCE_STATUS_LABELS[req.status]}
-                  </Badge>
+                  <div className="flex flex-wrap items-center justify-end gap-1.5">
+                    <OfflineSyncBadge badge={syncBadges[req.id]} />
+                    <Badge tone={MAINTENANCE_STATUS_TONE[req.status]}>
+                      {MAINTENANCE_STATUS_LABELS[req.status]}
+                    </Badge>
+                  </div>
                 </div>
 
                 <div className="flex flex-wrap items-center gap-2 text-xs">
@@ -499,15 +666,46 @@ export function MaintenanceWorkspace({
                   <span className="text-muted-foreground tabular-nums">
                     {formatManilaDate(toManilaDate(new Date(req.createdAt)))}
                   </span>
-                  <Link
-                    href={`/maintenance/${req.id}`}
-                    className={buttonClasses({
-                      variant: "secondary",
-                      size: "sm",
-                    })}
-                  >
-                    Manage
-                  </Link>
+                  <div className="flex flex-wrap gap-1.5">
+                    {syncBadges[req.id] &&
+                      syncBadges[req.id]!.status !== "pending" && (
+                        <>
+                          <Button
+                            size="sm"
+                            variant="secondary"
+                            onClick={() =>
+                              handleResolveAttention(
+                                syncBadges[req.id]!,
+                                "keep_mine",
+                              )
+                            }
+                          >
+                            Keep draft
+                          </Button>
+                          <Button
+                            size="sm"
+                            variant="danger"
+                            onClick={() =>
+                              handleResolveAttention(
+                                syncBadges[req.id]!,
+                                "discard",
+                              )
+                            }
+                          >
+                            Discard
+                          </Button>
+                        </>
+                      )}
+                    <Link
+                      href={`/maintenance/${req.id}`}
+                      className={buttonClasses({
+                        variant: "secondary",
+                        size: "sm",
+                      })}
+                    >
+                      Manage
+                    </Link>
+                  </div>
                 </div>
               </div>
             ))}
@@ -563,6 +761,7 @@ export function MaintenanceWorkspace({
                         {req.archivedAt && (
                           <Badge tone="neutral">Archived</Badge>
                         )}
+                        <OfflineSyncBadge badge={syncBadges[req.id]} />
                       </div>
                     </TableCell>
                     <TableCell className="text-xs text-muted-foreground tabular-nums">
@@ -581,15 +780,46 @@ export function MaintenanceWorkspace({
                       {formatManilaDate(toManilaDate(new Date(req.createdAt)))}
                     </TableCell>
                     <TableCell className="text-right">
-                      <Link
-                        href={`/maintenance/${req.id}`}
-                        className={buttonClasses({
-                          variant: "secondary",
-                          size: "sm",
-                        })}
-                      >
-                        Manage
-                      </Link>
+                      <div className="flex flex-wrap justify-end gap-1.5">
+                        {syncBadges[req.id] &&
+                          syncBadges[req.id]!.status !== "pending" && (
+                            <>
+                              <Button
+                                size="sm"
+                                variant="secondary"
+                                onClick={() =>
+                                  handleResolveAttention(
+                                    syncBadges[req.id]!,
+                                    "keep_mine",
+                                  )
+                                }
+                              >
+                                Keep draft
+                              </Button>
+                              <Button
+                                size="sm"
+                                variant="danger"
+                                onClick={() =>
+                                  handleResolveAttention(
+                                    syncBadges[req.id]!,
+                                    "discard",
+                                  )
+                                }
+                              >
+                                Discard
+                              </Button>
+                            </>
+                          )}
+                        <Link
+                          href={`/maintenance/${req.id}`}
+                          className={buttonClasses({
+                            variant: "secondary",
+                            size: "sm",
+                          })}
+                        >
+                          Manage
+                        </Link>
+                      </div>
                     </TableCell>
                   </TableRow>
                 ))}
@@ -602,6 +832,12 @@ export function MaintenanceWorkspace({
           />
         </Card>
       )}
+
+      <OfflineVaultUnlockDialog
+        open={unlockPromptOpen}
+        onClose={() => setUnlockPromptOpen(false)}
+        onUnlocked={() => reloadMaintenance()}
+      />
     </div>
   );
 }

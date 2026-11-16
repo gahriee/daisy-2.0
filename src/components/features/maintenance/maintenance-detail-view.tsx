@@ -3,6 +3,11 @@
 import { useState, useTransition } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
+import { useBrowserOnline } from "@/components/features/offline/offline-status-bar";
+import {
+  OfflineSyncBadge,
+  OfflineVaultUnlockDialog,
+} from "@/components/features/offline/offline-vault-unlock";
 import { Alert } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
 import { Button, buttonClasses } from "@/components/ui/button";
@@ -32,6 +37,7 @@ import {
   restoreMaintenanceRequestAction,
 } from "@/features/maintenance/actions";
 import {
+  AddMaintenanceUpdateSyncPayloadSchema,
   MAINTENANCE_CATEGORY_LABELS,
   MAINTENANCE_PRIORITY_LABELS,
   MAINTENANCE_STATUS_LABELS,
@@ -43,6 +49,12 @@ import { useTablePagination } from "@/hooks/use-table-pagination";
 import { useTableSort } from "@/hooks/use-table-sort";
 import { addManilaDays, formatManilaDate, toManilaDate } from "@/lib/dates";
 import type { SortColumnDef } from "@/lib/table-sort";
+import type { OfflineEntitySyncBadge } from "@/offline/snapshot-selectors";
+import {
+  getOfflineVaultClientState,
+  OfflineVaultLockedError,
+  submitOfflineCapableMutation,
+} from "@/offline/workspace-bridge";
 import {
   ATTACHMENT_ACCEPT_ATTR,
   MAINTENANCE_PRIORITY_TONE,
@@ -90,13 +102,22 @@ export function MaintenanceDetailView({
   proofMaxMb,
   proofMaxFilesPerRecord,
   justCreated = false,
+  offlineMode = false,
+  syncBadge,
+  onRefreshVault,
 }: {
   request: MaintenanceRequestDto;
   proofMaxMb: number;
   proofMaxFilesPerRecord: number;
   justCreated?: boolean;
+  offlineMode?: boolean;
+  syncBadge?: OfflineEntitySyncBadge;
+  onRefreshVault?: () => void | Promise<void>;
 }) {
   const router = useRouter();
+  const online = useBrowserOnline();
+  const isOfflineView = offlineMode || !online;
+  const [unlockPromptOpen, setUnlockPromptOpen] = useState(false);
   const [statusTo, setStatusTo] = useState<"" | MaintenanceStatusValue>("");
   const [note, setNote] = useState("");
   const [holdFormOpen, setHoldFormOpen] = useState(false);
@@ -128,6 +149,7 @@ export function MaintenanceDetailView({
   const uploader = useAttachmentUploader({
     maxMb: proofMaxMb,
     remainingSlots: remainingAttachmentSlots,
+    offlineMode,
   });
 
   const attachmentsSort = useTableSort(
@@ -157,6 +179,96 @@ export function MaintenanceDetailView({
     }
 
     startTransition(async () => {
+      const vault = await getOfflineVaultClientState();
+      const useOfflineBridge =
+        offlineMode ||
+        !vault.online ||
+        (vault.vaultUnlocked && Boolean(vault.deviceId));
+
+      if (useOfflineBridge) {
+        const parsed = AddMaintenanceUpdateSyncPayloadSchema.safeParse({
+          statusTo: statusTo === "" ? null : statusTo,
+          note,
+          attachmentIntentIds: uploader.readyIntentIds,
+        });
+        if (!parsed.success) {
+          setFeedback({
+            tone: "danger",
+            message:
+              parsed.error.issues[0]?.message ??
+              "Enter an update note, status change, or attachment.",
+          });
+          return;
+        }
+        try {
+          const nowIso = new Date().toISOString();
+          const res = await submitOfflineCapableMutation({
+            type: "maintenance.update",
+            entityId: request.id,
+            baseVersion: request.version,
+            payload: parsed.data,
+            projectionPayload: {
+              ...request,
+              status: parsed.data.statusTo ?? request.status,
+              updatedAt: nowIso,
+              updates: [
+                {
+                  id: crypto.randomUUID(),
+                  statusFrom: request.status,
+                  statusTo: parsed.data.statusTo,
+                  note: parsed.data.note ?? "",
+                  createdByActorType: "owner",
+                  createdAt: nowIso,
+                },
+                ...request.updates,
+              ],
+            },
+            ...(uploader.queuedAttachments.length > 0
+              ? {
+                  attachments: {
+                    kind: "maintenance_attachment" as const,
+                    files: uploader.queuedAttachments.map((item) => ({
+                      attachmentId: item.localId,
+                      clientFileId: item.localId,
+                      fileName: item.fileName,
+                      mimeType: item.mimeType,
+                      bytes: item.queuedBytes!,
+                    })),
+                    maxBytes: proofMaxMb * 1024 * 1024,
+                    maxFiles: remainingAttachmentSlots,
+                  },
+                }
+              : {}),
+            syncedMessage: "Maintenance update saved and synced.",
+            queuedMessage: "Update saved on this device (pending sync).",
+          });
+          setStatusTo("");
+          setNote("");
+          uploader.reset();
+          setFeedback({
+            tone: res.delivery === "needs_attention" ? "danger" : "success",
+            message:
+              res.delivery === "needs_attention" ? res.reason : res.message,
+          });
+          await onRefreshVault?.();
+          if (navigator.onLine && !offlineMode) {
+            router.refresh();
+          }
+        } catch (error) {
+          if (error instanceof OfflineVaultLockedError) {
+            setUnlockPromptOpen(true);
+          }
+          setFeedback({
+            tone: "danger",
+            message:
+              error instanceof Error
+                ? error.message
+                : "Could not save update offline.",
+          });
+        }
+        return;
+      }
+
       const result = await addMaintenanceUpdateAction({
         requestId: request.id,
         expectedVersion: request.version,
@@ -246,6 +358,57 @@ export function MaintenanceDetailView({
     setConfirmError(null);
 
     startTransition(async () => {
+      const vault = await getOfflineVaultClientState();
+      const useOfflineBridge =
+        offlineMode ||
+        !vault.online ||
+        (vault.vaultUnlocked && Boolean(vault.deviceId));
+
+      if (useOfflineBridge) {
+        try {
+          const nowIso = new Date().toISOString();
+          const res = await submitOfflineCapableMutation({
+            type: isArchived ? "maintenance.restore" : "maintenance.archive",
+            entityId: request.id,
+            baseVersion: request.version,
+            payload: {},
+            projectionPayload: {
+              ...request,
+              archivedAt: isArchived ? null : nowIso,
+              updatedAt: nowIso,
+            },
+            syncedMessage: isArchived
+              ? "Maintenance request restored and synced."
+              : "Maintenance request archived and synced.",
+            queuedMessage: isArchived
+              ? "Restore saved on this device (pending sync)."
+              : "Archive saved on this device (pending sync).",
+          });
+          setPendingConfirm(null);
+          setFeedback({
+            tone: res.delivery === "needs_attention" ? "danger" : "success",
+            message:
+              res.delivery === "needs_attention" ? res.reason : res.message,
+          });
+          await onRefreshVault?.();
+          if (navigator.onLine && !offlineMode) {
+            router.refresh();
+          }
+        } catch (error) {
+          if (error instanceof OfflineVaultLockedError) {
+            setPendingConfirm(null);
+            setUnlockPromptOpen(true);
+          } else {
+            setConfirmError(
+              error instanceof Error
+                ? error.message
+                : "Could not update request offline.",
+            );
+          }
+        }
+        return;
+      }
+
       const result = isArchived
         ? await restoreMaintenanceRequestAction({
             requestId: request.id,
@@ -287,6 +450,7 @@ export function MaintenanceDetailView({
               {MAINTENANCE_CATEGORY_LABELS[request.category]}
             </Badge>
             {isArchived && <Badge tone="neutral">Archived</Badge>}
+            <OfflineSyncBadge badge={syncBadge} />
           </div>
 
           <div className="grid gap-0.5 text-sm text-muted-foreground">
@@ -634,7 +798,9 @@ export function MaintenanceDetailView({
                               {item.status === "uploading"
                                 ? "Uploading…"
                                 : item.status === "ready"
-                                  ? "Uploaded"
+                                  ? item.queuedBytes
+                                    ? "Queued for sync"
+                                    : "Uploaded"
                                   : (item.errorMessage ?? "Error")}
                             </span>
                           </div>
@@ -700,9 +866,14 @@ export function MaintenanceDetailView({
                   type="button"
                   size="sm"
                   variant="secondary"
+                  disabled={isOfflineView}
                   onClick={() => setHoldFormOpen((open) => !open)}
                 >
-                  {holdFormOpen ? "Close hold form" : "Place hold"}
+                  {isOfflineView
+                    ? "Place hold (online only)"
+                    : holdFormOpen
+                      ? "Close hold form"
+                      : "Place hold"}
                 </Button>
               )}
           </div>
@@ -734,24 +905,28 @@ export function MaintenanceDetailView({
                   size="sm"
                   variant="secondary"
                   loading={pending}
+                  disabled={isOfflineView}
                   onClick={() => {
                     setConfirmError(null);
                     setPendingConfirm("complete-hold");
                   }}
                 >
-                  Return to service
+                  {isOfflineView
+                    ? "Return to service (online only)"
+                    : "Return to service"}
                 </Button>
                 <Button
                   type="button"
                   size="sm"
                   variant="danger"
                   loading={pending}
+                  disabled={isOfflineView}
                   onClick={() => {
                     setConfirmError(null);
                     setPendingConfirm("cancel-hold");
                   }}
                 >
-                  Cancel hold
+                  {isOfflineView ? "Cancel hold (online only)" : "Cancel hold"}
                 </Button>
               </div>
             </div>
@@ -877,6 +1052,11 @@ export function MaintenanceDetailView({
             : "primary"
         }
         loading={pending}
+      />
+
+      <OfflineVaultUnlockDialog
+        open={unlockPromptOpen}
+        onClose={() => setUnlockPromptOpen(false)}
       />
     </div>
   );

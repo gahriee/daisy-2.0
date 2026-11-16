@@ -1,0 +1,32 @@
+# Session Summary: Billing, Payments, Transients, Maintenance, Notices, and Settings Modules
+
+- **Date:** 11-13-26 (Asia/Manila)
+- **Sequence:** 5
+- **Agent:** gemini
+- **Session ID:** 277ce2c0-7671-4425-95bf-6870be6ebb6d
+- **Topic:** billing-payments-transients-maintenance-notices-and-settings-split
+
+## Executive Summary
+
+Implemented Steps 3–6 of the core backend and Owner/public workspaces: **Billing & Invoicing** (`/billing`, `POST /api/jobs/billing/generate`), **Settings** independent module routes & decoupled notifications (`/settings/{profile,policies,operations,devices}`), **Payments, Proofs & Collections** (`/payments`, credit carry-forward, linked reversals, S3 proof pipeline), **Transients, Reservations & Public Booking** (`/transients`, `/transients/requests/[requestId]`, public `/book`), and **Maintenance & Notices** (`/maintenance`, `/notices`, S3 attachments, unified `MAINTENANCE_HOLD` allocations), plus standardized `Select` filters inside `SearchFilterBar`.
+
+## Key Architectural & Technical Decisions
+
+- **Billing & Invoicing (`20261113170000_billing_and_invoicing`):** Added `DocumentSequence`, `Invoice`, `InvoiceItem`, `InvoiceAdjustment` with SQL checks and partial unique indexes (`Invoice_ownerUserId_invoiceNumber_key`, active period uniqueness allowing post-void regeneration). Implemented exact `BigInt` (`HALF_UP`) proration/deposit math, `SyncHead`-locked batch invoicing, immutable adjustments/voids, derived tenant balances, PII-free overdue notifications, and `CRON_SECRET` Bearer auth on `POST /api/jobs/billing/generate`.
+- **SearchFilter Standardization & Independent Settings Subpages:** Removed tab/chip filters from `SearchFilter` in favor of labeled `Select` controls (`BillingWorkspace`, `DeviceManagementPanel`), split Settings persistence into isolated per-module column updates (`/settings/{profile,policies,operations,devices}` with `/settings` redirecting to `/settings/profile`), and decoupled `policiesComplete` vs `stayScheduleComplete` warnings/notifications.
+- **Payments, Proofs & Collections (`20261113234500_payments_proofs_collections`):** Added `Payment`, `PaymentAllocation`, `PaymentProofIntent`, `PaymentProof`, sequential `'RECEIPT'` `DocumentSequence`, `overpaymentPolicy` credit carry-forward/FIFO auto-apply, immutable linked `REVERSAL` entries restoring balances, S3 proof upload intent/relay SHA-256 verification outside transactions, DB-backed `30/600s` upload rate limits, 60-second signed downloads, and `payment.record` sync handling.
+- **Transients & Public Booking (`20261114000000_transients_and_public_booking`):** Added `TransientGuest`, `TransientReservation`, `BookingRequest`, room publishing fields, and XOR payer constraints on `Invoice`/`Payment`. Split private Owner APIs (`GET /api/transients`) from anonymous `/book` (`GET /api/public/availability`, `POST /api/public/booking-requests` with canonical idempotency keys, HMAC IP rate-limiting, `no-store`/`no-referrer`, and `DENY` headers), integrating unified half-open `[startDate, endDate)` allocation locks, rate-change review, and tentative `transient_*` sync conflict handling.
+- **Maintenance & Notices (`20261114020000_maintenance_and_notices`):** Added `MaintenanceRequest`, append-only `MaintenanceUpdate`, `MaintenanceAttachmentIntent`, `MaintenanceAttachment`, `Notice`, and `Allocation.maintenanceRequestId` so `MAINTENANCE_HOLD` allocations block conflicting stays and auto-release on `RESOLVED`/`CANCELLED`. Implemented attachment relay/downloads, `maintenance.*` sync replay with `existingOutcomePreview` duplicate handling, `EVERYONE`/`ROOM`/`TENANT` notices, and PII-free urgent maintenance alerts.
+
+## Cumulative File Changes
+
+- (modified) - `prisma/schema.prisma`, `src/server/db/client.ts` - Added Billing, Payment, Transient/BookingRequest, Maintenance, and Notice schemas, SQL constraints, and updated `PRISMA_CLIENT_SCHEMA_TAG`.
+- (new) - `prisma/migrations/{20261113170000_billing_and_invoicing,20261113234500_payments_proofs_collections,20261114000000_transients_and_public_booking,20261114020000_maintenance_and_notices}/migration.sql` - Incremental migrations applied to `dev` and `test-integration` (`production` untouched).
+- (new) - `src/features/billing/{schemas,calculations,service,actions}.ts`, `src/app/api/billing/route.ts`, `src/app/api/jobs/billing/generate/route.ts`, `src/app/billing/page.tsx`, `src/components/features/billing/{billing-dialogs,billing-workspace}.tsx` - Billing domain services, scheduled job endpoint, and UI.
+- (new) - `src/features/payments/{schemas,calculations,sync-contracts,projections,proofs,service,sync-handler,actions}.ts`, `src/app/api/payments/**`, `src/app/payments/page.tsx`, `src/components/features/payments/{payment-dialogs,payments-workspace}.tsx` - Payments, proofs, reversals, and sync support.
+- (new) - `src/features/transients/{schemas,calculations,sync-contracts,service,public-service,sync-handler,actions}.ts`, `src/app/api/{transients,public/availability,public/booking-requests}/route.ts`, `src/app/{transients/page,transients/requests/[requestId]/page,book/page}.tsx`, `src/components/features/transients/{transient-dialogs,transients-workspace,booking-request-detail,public-booking-client}.tsx` - Transient management and `/book` public storefront.
+- (new) - `src/features/maintenance/{schemas,sync-contracts,attachments,service,sync-handler,actions}.ts`, `src/features/notices/{schemas,service,actions}.ts`, `src/app/api/{maintenance/**,notices/route}.ts`, `src/app/{maintenance,notices}/page.tsx`, `src/components/features/{maintenance,notices}/*` - Maintenance ticketing, attachments, bed holds, and Notices module.
+- (new) - `src/app/settings/_lib/settings-page.tsx`, `src/app/settings/{profile,policies,operations,devices}/page.tsx` - Independent Settings subpages (removing `?tab=` search params).
+- (modified) - `src/features/{allocations,tenants,settings}/*`, `src/server/{notifications/service,storage/client}.ts`, `src/components/ui/search-filter.tsx`, `src/components/layout/workspace-shell.tsx`, `next.config.ts`, `.env.example`, `DESIGN.md`, `docs/architecture/architecture.md` - Extended shared storage/allocation/notification/UI layers, CSP/frame headers on `/book`, `Select`-only `SearchFilterBar`, and `CRON_SECRET` docs.
+- (new / modified) - `tests/unit/**`, `tests/integration/**`, `docs/test/**` - Added unit & PostgreSQL integration coverage and updated mirrored test logs across Billing, Settings, Payments, Transients, Maintenance, Notices, Allocations, and Tenants.
+

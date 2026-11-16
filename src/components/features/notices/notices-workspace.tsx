@@ -4,6 +4,10 @@ import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 
 import { useState, useTransition } from "react";
 import Image from "next/image";
+import {
+  OfflineSnapshotBanner,
+  useOfflineSnapshotState,
+} from "@/components/features/offline/offline-vault-unlock";
 import { Alert } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -51,6 +55,7 @@ import { useTablePagination } from "@/hooks/use-table-pagination";
 import { useTableSort } from "@/hooks/use-table-sort";
 import { formatManilaDate } from "@/lib/dates";
 import type { SortColumnDef } from "@/lib/table-sort";
+import { loadNoticesOverviewFromVault } from "@/offline/snapshot-selectors-extra";
 import { NOTICE_LIFECYCLE_TONE, NoticeFormDialog } from "./notice-dialogs";
 
 function RefreshIcon() {
@@ -170,10 +175,37 @@ const NOTICE_SORT_COLUMNS: Record<NoticeSortKey, SortColumnDef<NoticeDto>> = {
 
 export function NoticesWorkspace({
   initialOverview,
+  offlineMode = false,
+  initialLastSyncedAt = null,
 }: {
   initialOverview: NoticeOverviewDto;
+  offlineMode?: boolean;
+  initialLastSyncedAt?: string | null;
 }) {
-  const [overview, setOverview] = useState(initialOverview);
+  const {
+    data: overview,
+    online,
+    isOfflineView,
+    lastSyncedAt,
+    pendingCount,
+    needsAttentionCount,
+    reload,
+  } = useOfflineSnapshotState<NoticeOverviewDto>({
+    initialData: initialOverview,
+    offlineMode,
+    initialLastSyncedAt,
+    loadFromVault: async (db, key) => {
+      const res = await loadNoticesOverviewFromVault(db, key);
+      return { data: res.overview, lastSyncedAt: res.lastSyncedAt };
+    },
+    fetchOnline: async () => {
+      const res = await fetch("/api/notices", { cache: "no-store" });
+      if (!res.ok) {
+        throw new Error("Could not refresh notices.");
+      }
+      return (await res.json()) as NoticeOverviewDto;
+    },
+  });
   const [searchQuery, setSearchQuery] = useState("");
   const [statusFilter, setStatusFilter] = useState("CURRENT");
   const [audienceFilter, setAudienceFilter] = useState("ALL");
@@ -194,12 +226,7 @@ export function NoticesWorkspace({
   async function reloadNotices() {
     startRefresh(async () => {
       try {
-        const res = await fetch("/api/notices", { cache: "no-store" });
-        if (!res.ok) {
-          throw new Error("Could not refresh notices.");
-        }
-        const next = (await res.json()) as NoticeOverviewDto;
-        setOverview(next);
+        await reload();
       } catch (error) {
         setFeedback({
           tone: "danger",
@@ -292,7 +319,8 @@ export function NoticesWorkspace({
         ? [
             {
               id: "edit",
-              label: "Edit",
+              label: isOfflineView ? "Edit (online only)" : "Edit",
+              disabled: isOfflineView,
               onSelect: () => {
                 setEditingNotice(notice);
                 setDialogSessionKey((k) => k + 1);
@@ -303,9 +331,16 @@ export function NoticesWorkspace({
         : []),
       {
         id: notice.archivedAt ? "restore" : "archive",
-        label: notice.archivedAt ? "Restore" : "Archive",
+        label: notice.archivedAt
+          ? isOfflineView
+            ? "Restore (online only)"
+            : "Restore"
+          : isOfflineView
+            ? "Archive (online only)"
+            : "Archive",
         tone: notice.archivedAt ? ("default" as const) : ("danger" as const),
         busy: busyNoticeId === notice.id,
+        disabled: isOfflineView,
         onSelect: () => {
           setConfirmError(null);
           setConfirmingNotice(notice);
@@ -339,16 +374,27 @@ export function NoticesWorkspace({
           </Button>
           <Button
             size="md"
+            disabled={isOfflineView}
             onClick={() => {
               setEditingNotice(null);
               setDialogSessionKey((k) => k + 1);
               setDialogOpen(true);
             }}
           >
-            New notice
+            {isOfflineView ? "New notice (online only)" : "New notice"}
           </Button>
         </div>
       </header>
+
+      <OfflineSnapshotBanner
+        online={online}
+        offlineMode={offlineMode}
+        lastSyncedAt={lastSyncedAt}
+        pendingCount={pendingCount}
+        needsAttentionCount={needsAttentionCount}
+        syncing={refreshing}
+        onSyncNow={reloadNotices}
+      />
 
       {feedback && (
         <Alert

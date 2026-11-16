@@ -5,6 +5,7 @@ import {
   GetObjectCommand,
   PutObjectCommand,
   HeadObjectCommand,
+  DeleteObjectCommand,
 } from "@aws-sdk/client-s3";
 import { getSignedUrl } from "@aws-sdk/s3-request-presigner";
 import { z } from "zod";
@@ -159,6 +160,23 @@ export async function getPrivateObject(
   } catch (error) {
     if (isS3NotFoundError(error)) {
       return null;
+    }
+    throw error;
+  } finally {
+    storage.destroy();
+  }
+}
+
+export async function deletePrivateObject(key: string): Promise<boolean> {
+  const storage = getStorage();
+  try {
+    await storage.send(
+      new DeleteObjectCommand({ Bucket: ASSETS_BUCKET, Key: key }),
+    );
+    return true;
+  } catch (error) {
+    if (isS3NotFoundError(error)) {
+      return false;
     }
     throw error;
   } finally {

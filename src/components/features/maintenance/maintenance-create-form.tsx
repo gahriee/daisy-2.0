@@ -1,8 +1,9 @@
 "use client";
 
-import { useState, useTransition } from "react";
+import { useEffect, useState, useTransition } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
+import { OfflineVaultUnlockDialog } from "@/components/features/offline/offline-vault-unlock";
 import { Alert } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
 import { Button, buttonClasses } from "@/components/ui/button";
@@ -14,6 +15,7 @@ import { Select } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
 import { createMaintenanceRequestAction } from "@/features/maintenance/actions";
 import {
+  CreateMaintenanceSyncPayloadSchema,
   MAINTENANCE_CATEGORIES,
   MAINTENANCE_CATEGORY_LABELS,
   MAINTENANCE_PRIORITIES,
@@ -22,6 +24,12 @@ import {
   type MaintenanceRoomOptionDto,
 } from "@/features/maintenance/schemas";
 import { ROOM_BUILDING_LABELS } from "@/features/rooms/schemas";
+import {
+  cacheOfflinePoliciesMeta,
+  getOfflineVaultClientState,
+  OfflineVaultLockedError,
+  submitOfflineCapableMutation,
+} from "@/offline/workspace-bridge";
 import {
   ATTACHMENT_ACCEPT_ATTR,
   MAINTENANCE_PRIORITY_TONE,
@@ -34,13 +42,29 @@ export function MaintenanceCreateForm({
   proofMaxMb,
   proofMaxFilesPerRecord,
   initialRoomId = null,
+  offlineMode = false,
 }: {
   rooms: MaintenanceRoomOptionDto[];
   proofMaxMb: number;
   proofMaxFilesPerRecord: number;
   initialRoomId?: string | null;
+  offlineMode?: boolean;
 }) {
   const router = useRouter();
+  const [unlockPromptOpen, setUnlockPromptOpen] = useState(false);
+
+  useEffect(() => {
+    if (offlineMode || !navigator.onLine) return;
+    const timer = window.setTimeout(() => {
+      void cacheOfflinePoliciesMeta({
+        proofMaxMb,
+        proofMaxFilesPerRecord,
+        proofMaxBytes: proofMaxMb * 1024 * 1024,
+      });
+    }, 0);
+    return () => window.clearTimeout(timer);
+  }, [offlineMode, proofMaxFilesPerRecord, proofMaxMb]);
+
   const defaultRoomId =
     (initialRoomId && rooms.some((room) => room.id === initialRoomId)
       ? initialRoomId
@@ -59,6 +83,7 @@ export function MaintenanceCreateForm({
   const uploader = useAttachmentUploader({
     maxMb: proofMaxMb,
     remainingSlots: proofMaxFilesPerRecord,
+    offlineMode,
   });
 
   const selectedRoom = rooms.find((room) => room.id === roomId) ?? null;
@@ -74,6 +99,106 @@ export function MaintenanceCreateForm({
     }
 
     startTransition(async () => {
+      const vault = await getOfflineVaultClientState();
+      const useOfflineBridge =
+        offlineMode ||
+        !vault.online ||
+        (vault.vaultUnlocked && Boolean(vault.deviceId));
+
+      if (useOfflineBridge) {
+        const parsed = CreateMaintenanceSyncPayloadSchema.safeParse({
+          roomId,
+          bedId: null,
+          title,
+          description,
+          category,
+          priority,
+          attachmentIntentIds: uploader.readyIntentIds,
+        });
+        if (!parsed.success) {
+          setErrorMessage(
+            parsed.error.issues[0]?.message ??
+              "Review maintenance fields before saving.",
+          );
+          return;
+        }
+        try {
+          const entityId = crypto.randomUUID();
+          const nowIso = new Date().toISOString();
+          const res = await submitOfflineCapableMutation({
+            type: "maintenance.create",
+            entityId,
+            baseVersion: 0,
+            payload: parsed.data,
+            projectionPayload: {
+              id: entityId,
+              roomId: parsed.data.roomId,
+              roomNumber: selectedRoom?.number ?? "—",
+              bedId: parsed.data.bedId,
+              bedNumber: null,
+              title: parsed.data.title,
+              description: parsed.data.description,
+              category: parsed.data.category,
+              priority: parsed.data.priority,
+              status: "OPEN",
+              archivedAt: null,
+              createdAt: nowIso,
+              updatedAt: nowIso,
+              updates: [],
+              attachments: uploader.queuedAttachments.map((item) => ({
+                id: item.localId,
+                maintenanceUpdateId: null,
+                fileName: item.fileName,
+                mimeType: item.mimeType,
+                byteSize: item.byteSize,
+                sha256: "",
+                downloadPath: "",
+                createdAt: nowIso,
+              })),
+              activeHolds: [],
+            },
+            ...(uploader.queuedAttachments.length > 0
+              ? {
+                  attachments: {
+                    kind: "maintenance_attachment" as const,
+                    files: uploader.queuedAttachments.map((item) => ({
+                      attachmentId: item.localId,
+                      clientFileId: item.localId,
+                      fileName: item.fileName,
+                      mimeType: item.mimeType,
+                      bytes: item.queuedBytes!,
+                    })),
+                    maxBytes: proofMaxMb * 1024 * 1024,
+                    maxFiles: proofMaxFilesPerRecord,
+                  },
+                }
+              : {}),
+            syncedMessage: "Maintenance request logged and synced.",
+            queuedMessage:
+              "Maintenance request saved on this device (pending sync).",
+          });
+
+          if (res.delivery === "synced") {
+            router.push(`/maintenance/${entityId}?created=1`);
+          } else {
+            router.push("/maintenance");
+          }
+          if (navigator.onLine && !offlineMode) {
+            router.refresh();
+          }
+        } catch (error) {
+          if (error instanceof OfflineVaultLockedError) {
+            setUnlockPromptOpen(true);
+          }
+          setErrorMessage(
+            error instanceof Error
+              ? error.message
+              : "Could not save maintenance request locally.",
+          );
+        }
+        return;
+      }
+
       const result = await createMaintenanceRequestAction({
         roomId,
         bedId: null,
@@ -296,7 +421,9 @@ export function MaintenanceCreateForm({
                           {item.status === "uploading"
                             ? "Uploading…"
                             : item.status === "ready"
-                              ? "Uploaded"
+                              ? item.queuedBytes
+                                ? "Queued for sync"
+                                : "Uploaded"
                               : (item.errorMessage ?? "Error")}
                         </p>
                       </div>
@@ -354,9 +481,9 @@ export function MaintenanceCreateForm({
                 </dd>
               </div>
               <div className="flex items-center justify-between gap-3">
-                <dt className="text-muted-foreground">Uploaded files</dt>
+                <dt className="text-muted-foreground">Attachments</dt>
                 <dd className="font-medium text-foreground tabular-nums">
-                  {uploader.readyIntentIds.length} / {proofMaxFilesPerRecord}
+                  {uploader.readyCount} / {proofMaxFilesPerRecord}
                 </dd>
               </div>
             </dl>
@@ -386,6 +513,11 @@ export function MaintenanceCreateForm({
           </Card>
         </form>
       </CompactFormScope>
+
+      <OfflineVaultUnlockDialog
+        open={unlockPromptOpen}
+        onClose={() => setUnlockPromptOpen(false)}
+      />
     </div>
   );
 }

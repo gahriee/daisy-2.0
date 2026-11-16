@@ -12,6 +12,7 @@ import {
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { DaisyBrand } from "@/components/layout/daisy-brand";
+import { OfflineStatusBar } from "@/components/features/offline/offline-status-bar";
 import { Alert } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
 import { Button, buttonClasses } from "@/components/ui/button";
@@ -116,6 +117,26 @@ function DashboardIcon() {
       <rect x="11" y="3" width="6" height="6" rx="1.25" />
       <rect x="3" y="11" width="6" height="6" rx="1.25" />
       <rect x="11" y="11" width="6" height="6" rx="1.25" />
+    </svg>
+  );
+}
+
+function ReportsIcon() {
+  return (
+    <svg
+      aria-hidden="true"
+      className="size-4.5"
+      viewBox="0 0 20 20"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.65"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+    >
+      <path d="M4 16.5h12" />
+      <path d="M6 16.5v-5" />
+      <path d="M10 16.5v-9" />
+      <path d="M14 16.5V5.5" />
     </svg>
   );
 }
@@ -891,6 +912,24 @@ export function WorkspaceShell({
               >
                 Dashboard
               </SidebarLink>
+              <SidebarLink
+                href="/reports"
+                active={pathname.startsWith("/reports")}
+                icon={<ReportsIcon />}
+                {...(sidebarCollapsed ? { title: "Reports" } : {})}
+                onClick={() => setSidebarOpen(false)}
+              >
+                Reports
+              </SidebarLink>
+              <SidebarLink
+                href="/offline"
+                active={pathname === "/offline"}
+                icon={<PaymentsIcon />}
+                {...(sidebarCollapsed ? { title: "Offline vault" } : {})}
+                onClick={() => setSidebarOpen(false)}
+              >
+                Offline vault
+              </SidebarLink>
             </SidebarGroup>
 
             <Separator />
@@ -1078,6 +1117,7 @@ export function WorkspaceShell({
           </TopbarLeft>
 
           <TopbarActions>
+            <OfflineStatusBar />
             {primaryAction && (
               <Link
                 href={primaryAction.href}

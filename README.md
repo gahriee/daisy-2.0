@@ -1,19 +1,12 @@
 # Daisy
 
-Single-Owner boarding house and transient management system. This checkout has
-Next.js starter UI and live Neon database, Auth and private storage foundations.
-Business features, broader login security controls, encrypted offline persistence and PWA delivery remain planned.
+Single-Owner boarding house and transient management system (tenants, rooms/beds, allocations, billing, payments and proofs, maintenance, notices, reports, public `/book` requests, and offline-first PWA vault/outbox).
 
-The selected stack uses Next.js, React, TypeScript, Tailwind CSS, Prisma and
-Dexie, with Neon for PostgreSQL, managed Better Auth and private Object Storage.
-Cloudflare Workers remains the planned app host and job scheduler. `neon.ts`
-declares managed Auth and the private `assets` bucket. The backend includes a
-restricted auth proxy, Owner session checks and a private download signing primitive;
-business attachment ownership, uploads and broader audit workflows still need implementation.
+The selected stack uses Next.js (Webpack), React, TypeScript, Tailwind CSS, Prisma, ApexCharts, and Dexie, with Neon for PostgreSQL, managed Better Auth, and private Object Storage (`neon.ts`). Hosting targets Cloudflare Workers via `@opennextjs/cloudflare` (`open-next.config.ts`, `wrangler.jsonc`, `worker/index.ts`).
 
 ## Setup
 
-Use Node 26.13.1 (`.node-version`) and pnpm 10.28.2 (`packageManager`).
+Use Node 26.13.1 (`.node-version`) and pnpm 12.18.0 (`packageManager`; `pnpm-workspace.yaml` sets `nodeLinker: hoisted` so Next.js standalone tracing and `@opennextjs/cloudflare` bundle `@aws-sdk/client-s3` subpath exports cleanly).
 
 ```sh
 pnpm install --frozen-lockfile
@@ -60,8 +53,14 @@ pnpm build
 
 For fast targeted iteration, filter ESLint/Vitest to changed files (`pnpm test:integration tests/integration/<domain>/<file>.test.ts`) and run `pnpm build` only when routes, layouts, CSS, or config change (see `.agents/rules/7-verification-commands.md`).
 
-Build and dev use Webpack/PostCSS because the starter's Turbopack CSS worker
-failed on this Windows setup. Workers hosting still needs its own deployment validation.
+Build and dev use Webpack/PostCSS because Turbopack's CSS worker failed on Windows. For Cloudflare Workers packaging, preview, and authorized deployment:
+
+```sh
+pnpm cf:build
+pnpm cf:preview
+pnpm cf:deploy # explicit Owner deploy authorization required
+```
+
 For explicitly authorized service checks:
 
 ```sh

@@ -10,30 +10,130 @@ function createClient(connectionString: string): PrismaClient {
 const PRISMA_CLIENT_SCHEMA_TAG =
   "20261114150000_building_separation_and_tenant_contracts";
 
-// The module survives between requests; development HMR reuses compatible clients.
-const globalDatabase = globalThis as typeof globalThis & {
-  daisyDatabase?: { url: string; schemaTag?: string; client: PrismaClient };
+type CachedDatabase = {
+  url: string;
+  schemaTag: string;
+  client: PrismaClient;
+  disconnected?: boolean;
 };
-let moduleDatabase:
-  { url: string; schemaTag?: string; client: PrismaClient } | undefined;
+
+type CloudflareRequestContext = {
+  ctx?: object;
+};
+
+const CLOUDFLARE_CONTEXT_SYMBOL = Symbol.for("__cloudflare-context__");
+const CLOUDFLARE_USER_AGENT = "Cloudflare-Workers";
+
+// The module survives between requests; development HMR and split route chunks
+// share globalThis.daisyDatabase so one chunk never disconnects another's pool.
+const globalDatabase = globalThis as typeof globalThis & {
+  daisyDatabase?: CachedDatabase;
+};
+let moduleDatabase: CachedDatabase | undefined;
+// In Cloudflare Workers, cache PrismaClient per ExecutionContext rather than
+// globally so Neon WebSocket sockets never cross request isolation boundaries.
+const cloudflareRequestDatabases = new WeakMap<object, CachedDatabase>();
+
+function hasUsableClient(client: unknown): client is PrismaClient {
+  if (client instanceof PrismaClient) {
+    return true;
+  }
+  return (
+    typeof client === "object" &&
+    client !== null &&
+    typeof (client as { $disconnect?: unknown }).$disconnect === "function"
+  );
+}
+
+function disconnectCached(entry: CachedDatabase | undefined): void {
+  if (!entry || entry.disconnected) {
+    return;
+  }
+  entry.disconnected = true;
+  void entry.client.$disconnect().catch(() => {});
+}
+
+function isCloudflareWorkersRuntime(): boolean {
+  return (
+    typeof globalThis.navigator === "object" &&
+    globalThis.navigator !== null &&
+    globalThis.navigator.userAgent === CLOUDFLARE_USER_AGENT
+  );
+}
+
+function getActiveCloudflareContext(): CloudflareRequestContext | undefined {
+  const candidate = (globalThis as Record<symbol, unknown>)[
+    CLOUDFLARE_CONTEXT_SYMBOL
+  ];
+  if (!candidate || typeof candidate !== "object") {
+    return undefined;
+  }
+  return candidate as CloudflareRequestContext;
+}
+
+function getCloudflareRequestDatabase(url: string): PrismaClient {
+  const requestCtx = getActiveCloudflareContext()?.ctx;
+  if (!requestCtx || typeof requestCtx !== "object") {
+    return createClient(url);
+  }
+
+  const cached = cloudflareRequestDatabases.get(requestCtx);
+  if (
+    cached &&
+    !cached.disconnected &&
+    cached.url === url &&
+    cached.schemaTag === PRISMA_CLIENT_SCHEMA_TAG &&
+    hasUsableClient(cached.client)
+  ) {
+    return cached.client;
+  }
+
+  disconnectCached(cached);
+  const entry: CachedDatabase = {
+    url,
+    schemaTag: PRISMA_CLIENT_SCHEMA_TAG,
+    client: createClient(url),
+  };
+  cloudflareRequestDatabases.set(requestCtx, entry);
+  return entry.client;
+}
 
 export function getDatabase(): PrismaClient {
   const url = readDatabaseUrl(process.env);
-  const cached = moduleDatabase ?? globalDatabase.daisyDatabase;
+
+  if (isCloudflareWorkersRuntime()) {
+    return getCloudflareRequestDatabase(url);
+  }
+
+  const cached =
+    process.env.NODE_ENV !== "production"
+      ? (globalDatabase.daisyDatabase ?? moduleDatabase)
+      : (moduleDatabase ?? globalDatabase.daisyDatabase);
+
   if (
-    cached?.url === url &&
+    cached &&
+    !cached.disconnected &&
+    cached.url === url &&
     cached.schemaTag === PRISMA_CLIENT_SCHEMA_TAG &&
-    cached.client instanceof PrismaClient
-  )
+    hasUsableClient(cached.client)
+  ) {
+    moduleDatabase = cached;
     return cached.client;
-  if (cached) void cached.client.$disconnect();
-  const client = createClient(url);
-  moduleDatabase = { url, schemaTag: PRISMA_CLIENT_SCHEMA_TAG, client };
-  if (process.env.NODE_ENV !== "production")
-    globalDatabase.daisyDatabase = {
-      url,
-      schemaTag: PRISMA_CLIENT_SCHEMA_TAG,
-      client,
-    };
-  return client;
+  }
+
+  disconnectCached(cached);
+  if (moduleDatabase && moduleDatabase !== cached) {
+    disconnectCached(moduleDatabase);
+  }
+
+  const entry: CachedDatabase = {
+    url,
+    schemaTag: PRISMA_CLIENT_SCHEMA_TAG,
+    client: createClient(url),
+  };
+  moduleDatabase = entry;
+  if (process.env.NODE_ENV !== "production") {
+    globalDatabase.daisyDatabase = entry;
+  }
+  return entry.client;
 }

@@ -1,12 +1,12 @@
 # Business settings, devices, notifications and auth limits
 
 - Status: PASS for backend and PostgreSQL integration checks; Owner UI/device verification PENDING.
-- Last run: 2026-11-14 11:23:32 (UTC+8)
-- Runtime: Windows, Vitest 5.1.0, Neon PostgreSQL (Singapore).
-- Command: `pnpm test:integration tests/integration/tenants/tenants-and-assignments.test.ts tests/integration/settings/settings-and-devices.test.ts`
-- Result: 5 passed here (`6.44 s`); targeted 8 passed, 0 failed, 0 skipped across 2 files, `50.87 s`.
+- Last run: 2026-11-16 23:31:26 (UTC+8)
+- Runtime: Windows, Node 26.13.1, pnpm 12.18.0, Vitest 5.1.0, Prisma 7.10.1, Neon PostgreSQL (Singapore).
+- Command: `pnpm test:integration`
+- Result: 5 passed here (`5.67 s`); suite 64 passed, 0 failed, 0 skipped across 17 files, `509.94 s`.
 - Target: explicitly opted-in expiring schema-only branch `test-integration` (`ep-super-paper-b3f9xatn`) via ignored `.env.test.local` (`TEST_DATABASE_URL`). Never production.
-- Migration: `20261114111500_tenant_notes` applied to `test-integration` and `dev`; `production` untouched.
+- Migration: `20261114150000_building_separation_and_tenant_contracts` applied to `test-integration` and `dev`; `production` remains at `20261113060000_recovery_security`.
 
 ## Verified criteria
 
@@ -29,4 +29,5 @@ Teardown deleted all UUID-prefixed `NotificationRead`, `AuditLog`, `ChangeFeed`,
 | 2026-11-13 23:25:23 | pnpm test:integration tests/integration/settings/settings-and-devices.test.ts | 5 passed (targeted) | 7.87 s |
 | 2026-11-14 04:11:35 | pnpm test:integration tests/integration/rooms/inventory-and-archival.test.ts tests/integration/tenants/tenants-and-assignments.test.ts tests/integration/billing/invoicing-and-lifecycle.test.ts tests/integration/settings/settings-and-devices.test.ts tests/integration/transients/transients-and-public-booking.test.ts tests/integration/maintenance/maintenance-and-holds.test.ts | 5 passed (targeted 20/20 across 6 files) | 9.35 s (263.82 s targeted) |
 | 2026-11-14 11:23:32 | pnpm test:integration tests/integration/tenants/tenants-and-assignments.test.ts tests/integration/settings/settings-and-devices.test.ts | 5 passed (targeted 8/8 across 2 files) | 6.44 s (50.87 s targeted) |
+| 2026-11-16 23:31:26 | `pnpm test:integration` | 5 passed (suite: 64/64 across 17 files) | 5.67 s (509.94 s suite) |
 

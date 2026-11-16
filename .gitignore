@@ -47,3 +47,8 @@ next-env.d.ts
 # taste skill transient runs
 .taste-skill/chrome-*
 .taste-skill/*.log
+
+# cloudflare workers & opennext
+/.open-next/
+/.wrangler/
+.dev.vars*

@@ -6,6 +6,7 @@ export type AppErrorCode =
   | "conflict"
   | "allocation_conflict"
   | "precondition_failed"
+  | "rebootstrap_required"
   | "rate_limited"
   | "service_unavailable";
 
@@ -71,6 +72,14 @@ export class AllocationConflictError extends AppError {
 export class PreconditionError extends AppError {
   constructor(message = "Complete the required setup before continuing.") {
     super("precondition_failed", 422, message);
+  }
+}
+
+export class RebootstrapRequiredError extends AppError {
+  constructor(
+    message = "Sync state expired or rotated. Rebootstrap your local snapshot.",
+  ) {
+    super("rebootstrap_required", 410, message);
   }
 }
 

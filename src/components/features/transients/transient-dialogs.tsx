@@ -17,21 +17,49 @@ import {
   type TransientActionResult,
 } from "@/features/transients/actions";
 import { computeTransientNights } from "@/features/transients/calculations";
-import type {
-  TransientGuestDto,
-  TransientReservationDto,
-  TransientRoomOptionDto,
+import {
+  CreateTransientGuestSyncPayloadSchema,
+  CreateTransientReservationSyncPayloadSchema,
+  type TransientGuestDto,
+  type TransientReservationDto,
+  type TransientRoomOptionDto,
 } from "@/features/transients/schemas";
 import { addManilaDays, toManilaDate } from "@/lib/dates";
-import { formatPhpCurrency, parseMoneyDecimal } from "@/lib/money";
+import {
+  formatMoneyDecimal,
+  formatPhpCurrency,
+  parseMoneyDecimal,
+} from "@/lib/money";
+import {
+  getOfflineVaultClientState,
+  OfflineVaultLockedError,
+  submitOfflineCapableMutation,
+} from "@/offline/workspace-bridge";
+
+function mapTransientIssues(
+  issues: Array<{ path: PropertyKey[]; message: string }>,
+): Record<string, string> {
+  const fieldErrors: Record<string, string> = {};
+  for (const issue of issues) {
+    const key = String(issue.path[0] ?? "form");
+    if (!fieldErrors[key]) {
+      fieldErrors[key] = issue.message;
+    }
+  }
+  return fieldErrors;
+}
 
 export function CreateTransientGuestDialog({
   open,
+  offlineMode = false,
   onClose,
+  onRequireVaultUnlock,
   onSaved,
 }: {
   open: boolean;
+  offlineMode?: boolean;
   onClose: () => void;
+  onRequireVaultUnlock?: () => void;
   onSaved: (message: string) => void | Promise<void>;
 }) {
   const [state, submitAction, pending] = useActionState(
@@ -39,6 +67,67 @@ export function CreateTransientGuestDialog({
       prev: TransientActionResult,
       formData: FormData,
     ): Promise<TransientActionResult> => {
+      const vault = await getOfflineVaultClientState();
+      const useOfflineBridge =
+        offlineMode ||
+        !vault.online ||
+        (vault.vaultUnlocked && Boolean(vault.deviceId));
+
+      if (useOfflineBridge) {
+        const parsed = CreateTransientGuestSyncPayloadSchema.safeParse({
+          fullName: String(formData.get("fullName") ?? ""),
+          phone: String(formData.get("phone") ?? ""),
+          email: String(formData.get("email") ?? ""),
+          notes: String(formData.get("notes") ?? ""),
+        });
+        if (!parsed.success) {
+          return {
+            status: "error",
+            message:
+              parsed.error.issues[0]?.message ??
+              "Review guest fields before saving.",
+            fieldErrors: mapTransientIssues(parsed.error.issues),
+          };
+        }
+        try {
+          const entityId = crypto.randomUUID();
+          const nowIso = new Date().toISOString();
+          const res = await submitOfflineCapableMutation({
+            type: "transient_guest.create",
+            entityId,
+            baseVersion: 0,
+            payload: parsed.data,
+            projectionPayload: {
+              id: entityId,
+              ...parsed.data,
+              archivedAt: null,
+              createdAt: nowIso,
+              updatedAt: nowIso,
+            },
+            syncedMessage: "Transient guest added and synced.",
+            queuedMessage:
+              "Transient guest saved on this device (pending sync).",
+          });
+          onClose();
+          await onSaved(
+            res.delivery === "needs_attention" ? res.reason : res.message,
+          );
+          return { status: "saved", message: "Saved.", entityId };
+        } catch (error) {
+          if (error instanceof OfflineVaultLockedError) {
+            onRequireVaultUnlock?.();
+          }
+          return {
+            status: "error",
+            message:
+              error instanceof Error
+                ? error.message
+                : "Could not save guest locally.",
+            fieldErrors: {},
+          };
+        }
+      }
+
       const res = await createTransientGuestAction(prev, formData);
       if (res.status === "saved") {
         onClose();
@@ -138,15 +227,19 @@ export function CreateTransientGuestDialog({
 
 export function CreateTransientReservationDialog({
   open,
+  offlineMode = false,
   guests,
   rooms,
   onClose,
+  onRequireVaultUnlock,
   onSaved,
 }: {
   open: boolean;
+  offlineMode?: boolean;
   guests: TransientGuestDto[];
   rooms: TransientRoomOptionDto[];
   onClose: () => void;
+  onRequireVaultUnlock?: () => void;
   onSaved: (message: string) => void | Promise<void>;
 }) {
   const activeGuests = guests.filter((g) => !g.archivedAt);
@@ -172,6 +265,102 @@ export function CreateTransientReservationDialog({
       prev: TransientActionResult,
       formData: FormData,
     ): Promise<TransientActionResult> => {
+      const vault = await getOfflineVaultClientState();
+      const useOfflineBridge =
+        offlineMode ||
+        !vault.online ||
+        (vault.vaultUnlocked && Boolean(vault.deviceId));
+
+      if (useOfflineBridge) {
+        const parsed = CreateTransientReservationSyncPayloadSchema.safeParse({
+          guestId,
+          roomId,
+          bedId: null,
+          scope: "WHOLE_ROOM",
+          checkInDateManila: checkInDate,
+          checkOutDateManila: checkOutDate,
+          partySize,
+          dailyRateOverride,
+          notes: String(formData.get("notes") ?? ""),
+          tentative: offlineMode || !vault.online ? true : tentative,
+          issueInvoiceImmediately:
+            offlineMode || !vault.online ? false : issueInvoiceImmediately,
+        });
+        if (!parsed.success) {
+          return {
+            status: "error",
+            message:
+              parsed.error.issues[0]?.message ??
+              "Review stay details before booking.",
+            fieldErrors: mapTransientIssues(parsed.error.issues),
+          };
+        }
+        try {
+          const entityId = crypto.randomUUID();
+          const nowIso = new Date().toISOString();
+          const selectedGuest = activeGuests.find((g) => g.id === guestId);
+          const stayNights = computeTransientNights(
+            parsed.data.checkInDateManila,
+            parsed.data.checkOutDateManila,
+          );
+          const rateStr =
+            parsed.data.dailyRateOverride ??
+            selectedRoom?.resolvedDailyRate ??
+            "0.00";
+          const totalCentavos = parseMoneyDecimal(rateStr) * BigInt(stayNights);
+
+          const res = await submitOfflineCapableMutation({
+            type: "transient_reservation.create",
+            entityId,
+            baseVersion: 0,
+            payload: parsed.data,
+            projectionPayload: {
+              id: entityId,
+              guestId: parsed.data.guestId,
+              guestName: selectedGuest?.fullName ?? "Transient guest",
+              guestPhone: selectedGuest?.phone ?? null,
+              guestEmail: selectedGuest?.email ?? null,
+              roomId: parsed.data.roomId,
+              roomNumber: selectedRoom?.number ?? "—",
+              roomTypeName: selectedRoom?.roomTypeName ?? "Transient",
+              bedId: null,
+              bedNumber: null,
+              scope: "WHOLE_ROOM",
+              checkInDateManila: parsed.data.checkInDateManila,
+              checkOutDateManila: parsed.data.checkOutDateManila,
+              nights: stayNights,
+              partySize: parsed.data.partySize,
+              dailyRate: rateStr,
+              totalAmount: formatMoneyDecimal(totalCentavos),
+              status: "TENTATIVE",
+              notes: parsed.data.notes,
+              createdAt: nowIso,
+              updatedAt: nowIso,
+            },
+            syncedMessage: "Transient reservation saved and synced.",
+            queuedMessage:
+              "Tentative stay saved on this device (requires server confirmation on sync).",
+          });
+          onClose();
+          await onSaved(
+            res.delivery === "needs_attention" ? res.reason : res.message,
+          );
+          return { status: "saved", message: "Saved.", entityId };
+        } catch (error) {
+          if (error instanceof OfflineVaultLockedError) {
+            onRequireVaultUnlock?.();
+          }
+          return {
+            status: "error",
+            message:
+              error instanceof Error
+                ? error.message
+                : "Could not save stay locally.",
+            fieldErrors: {},
+          };
+        }
+      }
+
       const res = await createTransientReservationAction(prev, formData);
       if (res.status === "saved") {
         onClose();
@@ -366,12 +555,14 @@ export function CreateTransientReservationDialog({
             onChange={(e) => setTentative(e.target.checked)}
             label="Save as tentative hold instead of confirmed"
           />
-          <Checkbox
-            name="issueInvoiceImmediately"
-            checked={issueInvoiceImmediately}
-            onChange={(e) => setIssueInvoiceImmediately(e.target.checked)}
-            label="Create and issue stay invoice right away"
-          />
+          {!offlineMode && (
+            <Checkbox
+              name="issueInvoiceImmediately"
+              checked={issueInvoiceImmediately}
+              onChange={(e) => setIssueInvoiceImmediately(e.target.checked)}
+              label="Create and issue stay invoice right away"
+            />
+          )}
         </div>
 
         <div className="flex flex-wrap justify-end gap-2.5 pt-2">

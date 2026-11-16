@@ -21,22 +21,52 @@ import {
   type TenantActionResult,
   type TenantNoteActionResult,
 } from "@/features/tenants/actions";
-import type {
-  AssignableBedOptionDto,
-  TenantAssignmentDto,
-  TenantDto,
-  TenantNoteDto,
+import {
+  CreateTenantSchema,
+  UpdateTenantSchema,
+  type AssignableBedOptionDto,
+  type TenantAssignmentDto,
+  type TenantDto,
+  type TenantNoteDto,
 } from "@/features/tenants/schemas";
 import { addManilaDays, formatManilaDateTime, toManilaDate } from "@/lib/dates";
 import { formatPhpCurrency } from "@/lib/money";
+import {
+  getOfflineVaultClientState,
+  OfflineDeviceMissingError,
+  OfflineVaultLockedError,
+  submitOfflineCapableMutation,
+} from "@/offline/workspace-bridge";
+
+function mapTenantFieldIssues(
+  issues: Array<{ path: PropertyKey[]; message: string }>,
+): Record<string, string> {
+  const fieldErrors: Record<string, string> = {};
+  for (const issue of issues) {
+    const key = String(issue.path[0] ?? "form");
+    if (!fieldErrors[key]) {
+      fieldErrors[key] = issue.message;
+    }
+  }
+  return fieldErrors;
+}
+
+function readFormText(formData: FormData, key: string): string {
+  const val = formData.get(key);
+  return typeof val === "string" ? val : "";
+}
 
 export function CreateTenantDialog({
   open,
+  offlineMode = false,
   onClose,
+  onRequireVaultUnlock,
   onSaved,
 }: {
   open: boolean;
+  offlineMode?: boolean;
   onClose: () => void;
+  onRequireVaultUnlock?: () => void;
   onSaved: (message: string) => void | Promise<void>;
 }) {
   const [clientId, setClientId] = useState(() =>
@@ -50,6 +80,79 @@ export function CreateTenantDialog({
       prev: TenantActionResult,
       formData: FormData,
     ): Promise<TenantActionResult> => {
+      const vaultState = await getOfflineVaultClientState();
+      const useOfflineBridge =
+        offlineMode ||
+        !vaultState.online ||
+        (vaultState.vaultUnlocked && Boolean(vaultState.deviceId));
+
+      if (useOfflineBridge) {
+        const entityId =
+          readFormText(formData, "id").trim() || crypto.randomUUID();
+        const parsed = CreateTenantSchema.safeParse({
+          id: entityId,
+          fullName: readFormText(formData, "fullName"),
+          phone: readFormText(formData, "phone"),
+          email: readFormText(formData, "email"),
+          address: readFormText(formData, "address"),
+          emergencyContact: readFormText(formData, "emergencyContact"),
+        });
+        if (!parsed.success) {
+          return {
+            status: "error",
+            message: "Review the highlighted fields before saving.",
+            fieldErrors: mapTenantFieldIssues(parsed.error.issues),
+          };
+        }
+        try {
+          const { id: _omitted, ...createPayload } = parsed.data;
+          void _omitted;
+          const nowIso = new Date().toISOString();
+          const res = await submitOfflineCapableMutation({
+            type: "tenant.create",
+            entityId,
+            baseVersion: 0,
+            payload: createPayload,
+            projectionPayload: {
+              ...createPayload,
+              archivedAt: null,
+              createdAt: nowIso,
+              updatedAt: nowIso,
+            },
+            syncedMessage: "Tenant added and synced.",
+            queuedMessage:
+              "Tenant saved on this device (pending server confirmation).",
+          });
+          if (res.delivery === "needs_attention") {
+            onClose();
+            await onSaved(`Tenant saved in Needs attention: ${res.reason}`);
+            return { status: "idle" };
+          }
+          if (
+            typeof crypto !== "undefined" &&
+            typeof crypto.randomUUID === "function"
+          ) {
+            setClientId(crypto.randomUUID());
+          }
+          onClose();
+          await onSaved(res.message);
+          return { status: "saved", message: res.message, tenantId: entityId };
+        } catch (error) {
+          if (error instanceof OfflineVaultLockedError) {
+            onRequireVaultUnlock?.();
+          }
+          return {
+            status: "error",
+            message:
+              error instanceof OfflineDeviceMissingError ||
+              error instanceof Error
+                ? error.message
+                : "Could not save tenant offline.",
+            fieldErrors: {},
+          };
+        }
+      }
+
       const result = await createTenantAction(prev, formData);
       if (result.status === "saved") {
         if (
@@ -191,11 +294,15 @@ export function CreateTenantDialog({
 
 export function EditTenantDialog({
   tenant,
+  offlineMode = false,
   onClose,
+  onRequireVaultUnlock,
   onSaved,
 }: {
   tenant: TenantDto | null;
+  offlineMode?: boolean;
   onClose: () => void;
+  onRequireVaultUnlock?: () => void;
   onSaved: (message: string) => void | Promise<void>;
 }) {
   const [state, submitAction, pending] = useActionState(
@@ -203,6 +310,73 @@ export function EditTenantDialog({
       prev: TenantActionResult,
       formData: FormData,
     ): Promise<TenantActionResult> => {
+      const vaultState = await getOfflineVaultClientState();
+      const useOfflineBridge =
+        offlineMode ||
+        !vaultState.online ||
+        (vaultState.vaultUnlocked && Boolean(vaultState.deviceId));
+
+      if (useOfflineBridge && tenant) {
+        const parsed = UpdateTenantSchema.safeParse({
+          tenantId: tenant.id,
+          expectedVersion: tenant.version,
+          fullName: readFormText(formData, "fullName"),
+          phone: readFormText(formData, "phone"),
+          email: readFormText(formData, "email"),
+          address: readFormText(formData, "address"),
+          emergencyContact: readFormText(formData, "emergencyContact"),
+        });
+        if (!parsed.success) {
+          return {
+            status: "error",
+            message: "Review the highlighted fields before saving.",
+            fieldErrors: mapTenantFieldIssues(parsed.error.issues),
+          };
+        }
+        try {
+          const {
+            tenantId: _tid,
+            expectedVersion,
+            ...updatePayload
+          } = parsed.data;
+          void _tid;
+          const nowIso = new Date().toISOString();
+          const res = await submitOfflineCapableMutation({
+            type: "tenant.update",
+            entityId: tenant.id,
+            baseVersion: expectedVersion,
+            payload: updatePayload,
+            projectionPayload: {
+              ...tenant,
+              ...updatePayload,
+              updatedAt: nowIso,
+            },
+            syncedMessage: "Tenant details updated and synced.",
+            queuedMessage:
+              "Changes saved on this device (pending server confirmation).",
+          });
+          onClose();
+          if (res.delivery === "needs_attention") {
+            await onSaved(`Changes saved in Needs attention: ${res.reason}`);
+            return { status: "idle" };
+          }
+          await onSaved(res.message);
+          return { status: "saved", message: res.message, tenantId: tenant.id };
+        } catch (error) {
+          if (error instanceof OfflineVaultLockedError) {
+            onRequireVaultUnlock?.();
+          }
+          return {
+            status: "error",
+            message:
+              error instanceof Error
+                ? error.message
+                : "Could not save changes offline.",
+            fieldErrors: {},
+          };
+        }
+      }
+
       const result = await updateTenantAction(prev, formData);
       if (result.status === "saved") {
         onClose();

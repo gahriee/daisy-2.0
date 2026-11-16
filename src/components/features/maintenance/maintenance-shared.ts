@@ -7,6 +7,7 @@ import {
   type MaintenancePriorityValue,
   type MaintenanceStatusValue,
 } from "@/features/maintenance/schemas";
+import { getOfflineVaultClientState } from "@/offline/workspace-bridge";
 
 export const MAINTENANCE_STATUS_TONE: Record<
   MaintenanceStatusValue,
@@ -39,6 +40,7 @@ export type UploadedAttachmentItem = {
   byteSize: number;
   status: "uploading" | "ready" | "error";
   intentId: string | null;
+  queuedBytes?: Uint8Array;
   errorMessage: string | null;
 };
 
@@ -80,6 +82,7 @@ export function formatByteSize(bytes: number): string {
 export function useAttachmentUploader(params: {
   maxMb: number;
   remainingSlots: number;
+  offlineMode?: boolean;
 }) {
   const [items, setItems] = useState<UploadedAttachmentItem[]>([]);
   const [notice, setNotice] = useState<string | null>(null);
@@ -129,6 +132,29 @@ export function useAttachmentUploader(params: {
             status: "error",
             intentId: null,
             errorMessage: `File exceeds the configured ${params.maxMb} MB limit.`,
+          },
+        ]);
+        continue;
+      }
+
+      const vaultState = await getOfflineVaultClientState();
+      if (
+        params.offlineMode ||
+        !vaultState.online ||
+        (vaultState.vaultUnlocked && Boolean(vaultState.deviceId))
+      ) {
+        const bytes = new Uint8Array(await file.arrayBuffer());
+        setItems((prev) => [
+          ...prev,
+          {
+            localId,
+            fileName: file.name,
+            mimeType,
+            byteSize: file.size,
+            status: "ready",
+            intentId: null,
+            queuedBytes: bytes,
+            errorMessage: null,
           },
         ]);
         continue;
@@ -220,8 +246,12 @@ export function useAttachmentUploader(params: {
   }
 
   const readyIntentIds = items
-    .filter((i) => i.status === "ready" && i.intentId)
+    .filter((i) => i.status === "ready" && i.intentId && !i.queuedBytes)
     .map((i) => i.intentId!);
+  const queuedAttachments = items.filter(
+    (i) => i.status === "ready" && Boolean(i.queuedBytes),
+  );
+  const readyCount = readyIntentIds.length + queuedAttachments.length;
   const uploading = items.some((i) => i.status === "uploading");
 
   return {
@@ -229,6 +259,8 @@ export function useAttachmentUploader(params: {
     notice,
     uploading,
     readyIntentIds,
+    queuedAttachments,
+    readyCount,
     handleFileSelect,
     removeItem,
     reset,

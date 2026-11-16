@@ -33,9 +33,9 @@ All AI agents interacting with this repository MUST strictly adhere to the follo
 ### 1.3 Session Compaction (`/end-session`)
 
 - When the user runs `/end-session` (or triggers [`.agents/workflows/end-session.md`](.agents/workflows/end-session.md)):
-  1. Synthesize only this session's owned log, after checking Agent and Session ID.
-  2. Create its permanent summary `docs/memory/MM-DD-YY-SEQUENCE-AGENT-TITLE.md` with the same date, sequence and agent. Reserve it exclusively and never overwrite an existing target. Include Agent and Session ID in its header.
-  3. Verify that the summary preserves the owned log's content before removing only that raw file. Never compact or clean up another active agent's file.
+  1. Compact this session's owned log, and also compact any remaining inactive uncompacted logs (`docs/memory/MM-DD-YY-SEQUENCE-AGENT.md`) into separate summaries (never merge distinct Session IDs into one file; pause only if a concurrent active agent might still be writing to one).
+  2. For each raw log, create its permanent summary `docs/memory/MM-DD-YY-SEQUENCE-AGENT-TITLE.md` with its own date, sequence, Agent, and Session ID in the header. Reserve it exclusively and never overwrite an existing target.
+  3. Verify that each summary preserves its raw log's content before deleting that raw file.
 
 ### 1.4 Test Result Documentation (MANDATORY)
 

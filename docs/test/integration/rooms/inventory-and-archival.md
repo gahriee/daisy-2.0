@@ -1,10 +1,10 @@
 # Rooms, room types, beds, soft archival & Owner isolation
 
 - Status: PASS for backend and PostgreSQL integration checks; Owner UI/device verification PENDING.
-- Last run: 2026-11-15 20:24:10 (UTC+8)
-- Runtime: Windows, Node 24.20.0, pnpm 12.18.0, Vitest 5.1.0, Prisma 7.10.1, Neon PostgreSQL (Singapore).
+- Last run: 2026-11-16 23:31:26 (UTC+8)
+- Runtime: Windows, Node 26.13.1, pnpm 12.18.0, Vitest 5.1.0, Prisma 7.10.1, Neon PostgreSQL (Singapore).
 - Command: `pnpm test:integration`
-- Result: 4 passed here (`42.73 s`); suite 56 passed, 0 failed, 0 skipped across 13 files, `434.42 s`.
+- Result: 4 passed here (`37.30 s`); suite 64 passed, 0 failed, 0 skipped across 17 files, `509.94 s`.
 - Target: explicitly opted-in expiring schema-only branch `test-integration` (`ep-super-paper-b3f9xatn`) via ignored `.env.test.local` (`TEST_DATABASE_URL`). Never production.
 - Migration: `20261114150000_building_separation_and_tenant_contracts` applied to `test-integration` and `dev`; `production` remains at `20261113060000_recovery_security`.
 - Target file: [tests/integration/rooms/inventory-and-archival.test.ts](../../../../tests/integration/rooms/inventory-and-archival.test.ts) -> [src/features/rooms/service.ts](../../../../src/features/rooms/service.ts), [src/features/rooms/photos.ts](../../../../src/features/rooms/photos.ts), [src/app/api/rooms/route.ts](../../../../src/app/api/rooms/route.ts), [src/app/api/rooms/photos/[photoId]/route.ts](../../../../src/app/api/rooms/photos/[photoId]/route.ts), [src/app/api/public/room-photos/[photoId]/route.ts](../../../../src/app/api/public/room-photos/[photoId]/route.ts)
@@ -34,4 +34,5 @@ Teardown deleted all UUID-prefixed `SecurityRateLimit` (`room-photo-upload:*`), 
 | 2026-11-14 04:33:54 | pnpm test:integration tests/integration/rooms/inventory-and-archival.test.ts tests/integration/transients/transients-and-public-booking.test.ts | 3 passed (targeted 6/6 across 2 files) | 32.99 s (114.48 s targeted) |
 | 2026-11-14 11:59:05 | pnpm test:integration tests/integration/billing/invoicing-and-lifecycle.test.ts tests/integration/payments/payments-proofs-and-sync.test.ts tests/integration/rooms/inventory-and-archival.test.ts tests/integration/transients/transients-and-public-booking.test.ts tests/integration/maintenance/maintenance-and-holds.test.ts | 4 passed (targeted 23/23 across 5 files) | 47.79 s (314.33 s targeted) |
 | 2026-11-15 20:24:10 | pnpm test:integration | 4 passed (suite: 56/56 across 13 files) | 42.73 s (434.42 s suite) |
+| 2026-11-16 23:31:26 | `pnpm test:integration` | 4 passed (suite: 64/64 across 17 files) | 37.30 s (509.94 s suite) |
 

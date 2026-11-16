@@ -45,6 +45,9 @@ pnpm lint
 pnpm test:unit
 pnpm test:integration
 pnpm build
+pnpm cf:build
+pnpm cf:preview
+pnpm cf:deploy
 pnpm db:check
 pnpm db:seed
 pnpm check:neon
