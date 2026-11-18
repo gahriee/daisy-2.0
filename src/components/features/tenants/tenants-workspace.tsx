@@ -298,11 +298,11 @@ export function TenantsWorkspace({
                 updatedAt: nowIso,
               },
               syncedMessage: isArchiving
-                ? "Tenant archived and synced."
-                : "Tenant restored and synced.",
+                ? "Tenant archived."
+                : "Tenant restored.",
               queuedMessage: isArchiving
-                ? "Archive saved on this device (pending sync)."
-                : "Restore saved on this device (pending sync).",
+                ? "Archive saved on this device (waiting to go online)."
+                : "Restore saved on this device (waiting to go online).",
             });
             setConfirmingTenant(null);
             if (res.delivery === "needs_attention") {
@@ -364,14 +364,14 @@ export function TenantsWorkspace({
           setFeedback({
             tone: "success",
             message: navigator.onLine
-              ? "Re-queued draft against current server state."
-              : "Re-queued draft for next sync.",
+              ? "Marked your draft to try saving again."
+              : "Marked your draft to save once online.",
           });
         } else {
           await resolveNeedsAttentionDiscard(badge.opId);
           setFeedback({
             tone: "success",
-            message: "Discarded local conflict draft.",
+            message: "Removed saved draft.",
           });
         }
         await reloadTenants();

@@ -21,6 +21,7 @@ import {
 } from "@/features/transients/actions";
 import {
   BOOKING_REQUEST_STATUS_LABELS,
+  GUEST_SEX_LABELS,
   type BookingRequestDetailDto,
 } from "@/features/transients/schemas";
 import { formatManilaDate } from "@/lib/dates";
@@ -185,21 +186,41 @@ export function BookingRequestDetail({
           </h2>
           <dl className="grid grid-cols-2 gap-3 text-sm">
             <div>
-              <dt className="text-xs text-muted-foreground">Visitor phone</dt>
+              <dt className="text-xs text-muted-foreground">Contact no.</dt>
               <dd className="font-medium text-foreground">
                 {request.guestPhone ?? "—"}
               </dd>
             </div>
             <div>
-              <dt className="text-xs text-muted-foreground">Visitor email</dt>
+              <dt className="text-xs text-muted-foreground">Email</dt>
               <dd className="font-medium text-foreground">
                 {request.guestEmail ?? "—"}
               </dd>
             </div>
             <div>
+              <dt className="text-xs text-muted-foreground">Age</dt>
+              <dd className="font-medium text-foreground tabular-nums">
+                {request.guestAge ?? "—"}
+              </dd>
+            </div>
+            <div>
+              <dt className="text-xs text-muted-foreground">Sex</dt>
+              <dd className="font-medium text-foreground">
+                {request.guestSex ? GUEST_SEX_LABELS[request.guestSex] : "—"}
+              </dd>
+            </div>
+            <div className="col-span-2">
+              <dt className="text-xs text-muted-foreground">Address</dt>
+              <dd className="font-medium text-foreground">
+                {request.guestAddress ?? "—"}
+              </dd>
+            </div>
+            <div>
               <dt className="text-xs text-muted-foreground">Guests</dt>
               <dd className="font-medium text-foreground tabular-nums">
-                {request.partySize}
+                {request.adultsCount !== null && request.childrenCount !== null
+                  ? `${request.adultsCount} ${request.adultsCount === 1 ? "adult" : "adults"}, ${request.childrenCount} ${request.childrenCount === 1 ? "child" : "children"} (${request.partySize} total)`
+                  : request.partySize}
               </dd>
             </div>
             <div>
@@ -230,7 +251,7 @@ export function BookingRequestDetail({
             <p className="text-xs text-muted-foreground">
               {canApprove
                 ? `Room ${room.number} is currently free for these dates.`
-                : `Room ${room.number} has a conflicting allocation for these dates.`}
+                : `Room ${room.number} is already booked for these dates.`}
             </p>
           </div>
         </Card>
@@ -239,7 +260,7 @@ export function BookingRequestDetail({
           <div className="grid gap-6">
             <Card className="grid gap-4 p-5">
               <h2 className="text-base font-semibold text-foreground">
-                Approve &amp; lock allocation
+                Approve &amp; reserve room
               </h2>
 
               <form

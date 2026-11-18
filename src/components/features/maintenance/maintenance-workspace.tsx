@@ -337,14 +337,14 @@ export function MaintenanceWorkspace({
           setFeedback({
             tone: "success",
             message: navigator.onLine
-              ? "Re-queued maintenance draft against current server state."
-              : "Re-queued maintenance draft for next sync.",
+              ? "Marked your repair draft to try saving again."
+              : "Marked your repair draft to save once online.",
           });
         } else {
           await resolveNeedsAttentionDiscard(badge.opId);
           setFeedback({
             tone: "success",
-            message: "Discarded local maintenance draft.",
+            message: "Removed saved repair draft.",
           });
         }
         await reloadMaintenance();
@@ -485,7 +485,7 @@ export function MaintenanceWorkspace({
         <MetricCard
           label="Urgent priority"
           value={overview.totals.urgentOpenCount}
-          description="Needs prompt Owner attention"
+          description="Needs attention right away"
           icon={<UrgentIcon />}
           tone={overview.totals.urgentOpenCount > 0 ? "warning" : "neutral"}
         />

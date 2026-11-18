@@ -7,8 +7,7 @@ function createClient(connectionString: string): PrismaClient {
   return new PrismaClient({ adapter: new PrismaNeon({ connectionString }) });
 }
 
-const PRISMA_CLIENT_SCHEMA_TAG =
-  "20261114150000_building_separation_and_tenant_contracts";
+const PRISMA_CLIENT_SCHEMA_TAG = "20261117210500_booking_request_guest_details";
 
 type CachedDatabase = {
   url: string;

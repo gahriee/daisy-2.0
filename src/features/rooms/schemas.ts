@@ -29,8 +29,11 @@ export const ROOM_PHOTO_ALLOWED_MIME_TYPES = [
 export type RoomPhotoAllowedMimeType =
   (typeof ROOM_PHOTO_ALLOWED_MIME_TYPES)[number];
 
-export const ROOM_PHOTO_MAX_GALLERY_ITEMS = 8;
 export const ROOM_PHOTO_MAX_CAPTION_LENGTH = 160;
+export const ROOM_PHOTO_OUTPUT_WIDTH = 1200;
+export const ROOM_PHOTO_OUTPUT_HEIGHT = 900;
+export const ROOM_PHOTO_ASPECT_RATIO =
+  ROOM_PHOTO_OUTPUT_WIDTH / ROOM_PHOTO_OUTPUT_HEIGHT;
 
 export type BedStatusValue = (typeof BED_STATUSES)[number];
 export type EditableBedStatusValue = (typeof EDITABLE_BED_STATUSES)[number];
@@ -236,19 +239,22 @@ export const RoomPhotoManifestItemSchema = z.discriminatedUnion("kind", [
 
 export const RoomPhotoManifestSchema = z.object({
   preview: RoomPhotoManifestItemSchema.nullable(),
-  gallery: z
-    .array(RoomPhotoManifestItemSchema)
-    .max(
-      ROOM_PHOTO_MAX_GALLERY_ITEMS,
-      `Attach at most ${ROOM_PHOTO_MAX_GALLERY_ITEMS} gallery shots per room.`,
-    ),
+  gallery: z.array(RoomPhotoManifestItemSchema),
 });
+
+function hasNonEmptyRoomPhotos(
+  photos: z.input<typeof RoomPhotoManifestSchema> | undefined,
+): boolean {
+  if (!photos) return false;
+  return photos.preview !== null || photos.gallery.length > 0;
+}
 
 function enforceRoomBuildingRates(
   val: {
     building?: RoomBuildingValue | undefined;
     baseMonthlyRate: string | null;
     transientDailyRate: string | null;
+    photos?: z.input<typeof RoomPhotoManifestSchema> | undefined;
   },
   ctx: z.RefinementCtx,
 ) {
@@ -257,6 +263,13 @@ function enforceRoomBuildingRates(
       code: z.ZodIssueCode.custom,
       message: "Boarding House rooms cannot set a transient daily rate.",
       path: ["transientDailyRate"],
+    });
+  }
+  if (val.building === "BOARDING" && hasNonEmptyRoomPhotos(val.photos)) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      message: "Boarding House rooms do not support public room photos.",
+      path: ["photos"],
     });
   }
   if (val.building === "TRANSIENT" && val.baseMonthlyRate !== null) {

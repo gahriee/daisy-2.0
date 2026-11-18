@@ -535,12 +535,12 @@ export function BusinessSettingsForm({
             </SettingsRow>
 
             <SettingsRow
-              title="Financial policies"
-              description="Explicit Owner rules for mid-month move-ins, deposits, and surplus payments."
+              title="Billing rules"
+              description="Your rules for mid-month move-ins, deposits, and extra payments."
             >
               <Field
                 id="settings-proration"
-                label="Proration policy"
+                label="Partial-month rent rule"
                 {...(fieldErrors.prorationPolicy
                   ? { error: fieldErrors.prorationPolicy }
                   : {})}
@@ -760,12 +760,12 @@ export function BusinessSettingsForm({
           </SettingsRow>
 
           <SettingsRow
-            title="Offline & proof limits"
-            description="Duration an encrypted browser copy can work offline plus upload size and file caps."
+            title="Offline & photo limits"
+            description="How long offline records stay open on this device plus photo file size and upload limits."
           >
             <Field
               id="settings-offline-days"
-              label="Offline unlock period (days)"
+              label="Days offline access stays active"
               required
               {...(fieldErrors.offlineUnlockMaxDays
                 ? { error: fieldErrors.offlineUnlockMaxDays }

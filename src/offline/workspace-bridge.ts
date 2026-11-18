@@ -18,10 +18,16 @@ import {
 } from "./sync-engine";
 
 export const DAISY_OFFLINE_VAULT_EVENT = "daisy:offline-vault-changed";
+export const DAISY_OPEN_SYNC_MODAL_EVENT = "daisy:open-sync-modal";
 
 export function notifyOfflineVaultChanged(): void {
   if (typeof window === "undefined") return;
   window.dispatchEvent(new Event(DAISY_OFFLINE_VAULT_EVENT));
+}
+
+export function openOfflineSyncModal(): void {
+  if (typeof window === "undefined") return;
+  window.dispatchEvent(new Event(DAISY_OPEN_SYNC_MODAL_EVENT));
 }
 
 export class OfflineVaultLockedError extends Error {

@@ -39,7 +39,7 @@ export async function getOwnerWorkspaceProfile(
   const rawBusiness = settings?.businessName?.trim();
 
   return {
-    ownerName: rawName || "Property Owner",
+    ownerName: rawName || "Property Manager",
     businessName: rawBusiness || "Daisy Workspace",
   };
 }

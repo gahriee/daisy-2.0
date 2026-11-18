@@ -327,8 +327,9 @@ export function PaymentCreateForm({
                   },
                 }
               : {}),
-            syncedMessage: "Payment recorded and synced.",
-            queuedMessage: "Payment saved on this device (pending sync).",
+            syncedMessage: "Payment saved.",
+            queuedMessage:
+              "Payment saved on this device (waiting to go online).",
           });
 
           if (res.delivery === "synced") {
@@ -465,7 +466,7 @@ export function PaymentCreateForm({
     const batch = selected.slice(0, remainingSlots);
     if (selected.length > remainingSlots) {
       setUploadNotice(
-        `Only the first ${remainingSlots} ${remainingSlots === 1 ? "file was" : "files were"} queued to stay within your limit of ${proofMaxFilesPerRecord}.`,
+        `Only the first ${remainingSlots} ${remainingSlots === 1 ? "file was" : "files were"} added to stay within your limit of ${proofMaxFilesPerRecord}.`,
       );
     }
 
@@ -564,7 +565,8 @@ export function PaymentCreateForm({
           !intentPayload.proxyUploadPath
         ) {
           throw new Error(
-            intentPayload.error ?? "Could not authorize proof upload.",
+            intentPayload.error ??
+              "Could not start uploading this payment photo.",
           );
         }
 
@@ -1003,7 +1005,7 @@ export function PaymentCreateForm({
                         className="grid gap-2 rounded-control border border-border bg-background/40 p-3 sm:grid-cols-[1fr_9rem] sm:items-center"
                       >
                         <Checkbox
-                          aria-label={`Allocate payment to ${inv.invoiceNumber ?? inv.id}`}
+                          aria-label={`Apply payment to ${inv.invoiceNumber ?? inv.id}`}
                           checked={checked}
                           onChange={(event) =>
                             toggleInvoiceSelection(inv, event.target.checked)
@@ -1034,7 +1036,7 @@ export function PaymentCreateForm({
                         />
 
                         <Input
-                          aria-label={`Amount allocated to ${inv.invoiceNumber ?? inv.id}`}
+                          aria-label={`Amount applied to ${inv.invoiceNumber ?? inv.id}`}
                           inputMode="decimal"
                           placeholder="0.00"
                           value={allocatedVal}
@@ -1142,7 +1144,7 @@ export function PaymentCreateForm({
                         >
                           {item.status === "ready"
                             ? item.queuedBytes
-                              ? "Queued for sync"
+                              ? "Waiting to save"
                               : "Verified"
                             : item.status === "uploading"
                               ? "Uploading"

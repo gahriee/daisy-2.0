@@ -38,6 +38,7 @@ const NEVER_CACHE_PREFIXES = [
   "/settings",
   "/audit",
   "/reports",
+  "/notifications",
 ] as const;
 
 const STATIC_PUBLIC_PREFIXES = [

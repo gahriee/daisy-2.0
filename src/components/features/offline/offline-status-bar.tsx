@@ -1,12 +1,7 @@
 "use client";
 
 import { useEffect, useState, useSyncExternalStore } from "react";
-import Link from "next/link";
 import { Badge } from "@/components/ui/badge";
-import {
-  DAISY_OFFLINE_VAULT_EVENT,
-  triggerForegroundSyncIfUnlocked,
-} from "@/offline/workspace-bridge";
 import {
   getBrowserOfflineDb,
   recordOnlineSessionAnchor,
@@ -15,6 +10,12 @@ import {
   getOfflineSyncStatus,
   type SyncStatusSummary,
 } from "@/offline/sync-engine";
+import {
+  DAISY_OFFLINE_VAULT_EVENT,
+  DAISY_OPEN_SYNC_MODAL_EVENT,
+  triggerForegroundSyncIfUnlocked,
+} from "@/offline/workspace-bridge";
+import { OfflineSyncDialog } from "./offline-sync-dialog";
 
 function subscribeOnline(callback: () => void) {
   window.addEventListener("online", callback);
@@ -35,13 +36,14 @@ export function useBrowserOnline(): boolean {
 
 /**
  * Registers the service worker, anchors authenticated online presence in the
- * local vault metadata, and surfaces separate network vs. sync status pills.
+ * local vault metadata, and opens the workspace sync modal from the Topbar.
  */
 export function OfflineStatusBar() {
   const online = useBrowserOnline();
   const [syncSummary, setSyncSummary] = useState<SyncStatusSummary | null>(
     null,
   );
+  const [modalOpen, setModalOpen] = useState(false);
 
   useEffect(() => {
     let swRegistration: ServiceWorkerRegistration | null = null;
@@ -102,14 +104,22 @@ export function OfflineStatusBar() {
     const handleOnlineReconnect = () => {
       void triggerForegroundSyncIfUnlocked().then(() => refreshLocalState());
     };
+    const handleOpenSyncModal = () => {
+      setModalOpen(true);
+    };
     window.addEventListener(DAISY_OFFLINE_VAULT_EVENT, handleVaultChange);
     window.addEventListener("online", handleOnlineReconnect);
+    window.addEventListener(DAISY_OPEN_SYNC_MODAL_EVENT, handleOpenSyncModal);
 
     return () => {
       cancelled = true;
       window.clearInterval(timer);
       window.removeEventListener(DAISY_OFFLINE_VAULT_EVENT, handleVaultChange);
       window.removeEventListener("online", handleOnlineReconnect);
+      window.removeEventListener(
+        DAISY_OPEN_SYNC_MODAL_EVENT,
+        handleOpenSyncModal,
+      );
     };
   }, []);
 
@@ -121,25 +131,35 @@ export function OfflineStatusBar() {
         : "neutral";
 
   const syncLabel = !syncSummary
-    ? "Local vault"
+    ? "Offline copy"
     : syncSummary.needsAttentionCount > 0
-      ? `${syncSummary.needsAttentionCount} needs attention`
+      ? `${syncSummary.needsAttentionCount} need attention`
       : syncSummary.pendingCount > 0
-        ? `${syncSummary.pendingCount} pending sync`
+        ? `${syncSummary.pendingCount} waiting to save`
         : syncSummary.lastSyncedAt
-          ? "Synced"
-          : "Not synced";
+          ? "Up to date"
+          : "Not updated yet";
 
   return (
-    <Link
-      href="/offline"
-      className="flex flex-wrap items-center gap-1.5 rounded-control px-1.5 py-1 text-xs transition-colors hover:bg-surface-muted"
-      title="Open offline vault and sync queue"
-    >
-      <Badge tone={online ? "success" : "warning"}>
-        {online ? "Online" : "Offline"}
-      </Badge>
-      <Badge tone={syncTone}>{syncLabel}</Badge>
-    </Link>
+    <>
+      <button
+        type="button"
+        onClick={() => setModalOpen(true)}
+        className="inline-flex min-h-11 cursor-pointer flex-wrap items-center gap-1.5 rounded-control px-1.5 py-1 text-xs transition-colors duration-(--duration-control) ease-(--ease-control) hover:bg-surface-muted sm:min-h-9"
+        title="Open offline access & updates"
+        aria-label={`Connection and offline status: ${online ? "Online" : "Offline"}, ${syncLabel}`}
+      >
+        <Badge tone={online ? "success" : "warning"}>
+          {online ? "Online" : "Offline"}
+        </Badge>
+        <Badge tone={syncTone}>{syncLabel}</Badge>
+      </button>
+
+      <OfflineSyncDialog
+        open={modalOpen}
+        onClose={() => setModalOpen(false)}
+        online={online}
+      />
+    </>
   );
 }

@@ -3,6 +3,10 @@
 import { useEffect, useState, useTransition } from "react";
 import Link from "next/link";
 import { useBrowserOnline } from "@/components/features/offline/offline-status-bar";
+import {
+  formatOfflineOperationType,
+  OfflineVaultUnlockCard,
+} from "@/components/features/offline/offline-vault-unlock";
 import { DaisyBrand } from "@/components/layout/daisy-brand";
 import { Alert } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
@@ -29,7 +33,6 @@ import {
   inspectAndRequestStorageQuota,
   listDecryptedNeedsAttention,
   listDecryptedProjections,
-  unlockOrInitializeOfflineVault,
   type DecryptedEntityView,
   type NeedsAttentionView,
   type StorageQuotaStatus,
@@ -48,8 +51,8 @@ import {
 const SNAPSHOT_CATEGORIES = [
   { key: "tenant", label: "Tenants" },
   { key: "room", label: "Rooms & beds" },
-  { key: "invoice", label: "Open invoices" },
-  { key: "transient_reservation", label: "Transient stays" },
+  { key: "invoice", label: "Open bills" },
+  { key: "transient_reservation", label: "Short stays" },
   { key: "maintenance_request", label: "Maintenance" },
   { key: "notice", label: "Notices" },
 ] as const;
@@ -113,7 +116,6 @@ export function OfflineVaultWorkspace() {
   const online = useBrowserOnline();
   const [unlocked, setUnlocked] = useState<boolean>(false);
   const [deviceId, setDeviceId] = useState<string | null>(null);
-  const [passphrase, setPassphrase] = useState("");
   const [syncSummary, setSyncSummary] = useState<SyncStatusSummary>({
     pendingCount: 0,
     needsAttentionCount: 0,
@@ -215,46 +217,12 @@ export function OfflineVaultWorkspace() {
     };
   }, []);
 
-  function handleUnlockSubmit(event: React.FormEvent) {
-    event.preventDefault();
-    setErrorMessage(null);
-    setStatusNotice(null);
-
-    startBusy(async () => {
-      try {
-        const db = getBrowserOfflineDb();
-        const custody = getVaultCustody();
-        const res = await unlockOrInitializeOfflineVault({
-          db,
-          custody,
-          passphrase,
-          isOnline: navigator.onLine,
-        });
-        setPassphrase("");
-        setUnlocked(true);
-        setDeviceId(res.deviceId);
-        await reloadMetadataAndUnlockedViews();
-        setStatusNotice(
-          res.initializedNew
-            ? "Offline vault initialized on this device."
-            : "Offline vault unlocked in memory.",
-        );
-      } catch (error) {
-        setErrorMessage(
-          error instanceof Error
-            ? error.message
-            : "Could not unlock the offline vault.",
-        );
-      }
-    });
-  }
-
   function handleLockVault() {
     getVaultCustody().lock();
     setUnlocked(false);
     setProjections([]);
     setNeedsAttention([]);
-    setStatusNotice("Offline vault locked and key cleared from memory.");
+    setStatusNotice("Offline copy locked for privacy.");
   }
 
   function handleSyncNow() {
@@ -265,7 +233,7 @@ export function OfflineVaultWorkspace() {
       try {
         if (!navigator.onLine) {
           throw new Error(
-            "You are offline. Queued work stays saved on this device until connection returns.",
+            "You are offline. Changes stay saved on this device until your internet comes back.",
           );
         }
         const db = getBrowserOfflineDb();
@@ -278,20 +246,22 @@ export function OfflineVaultWorkspace() {
         await reloadMetadataAndUnlockedViews();
 
         if (res.status === "already_running") {
-          setStatusNotice("Another tab is already syncing this device.");
+          setStatusNotice(
+            "Another browser tab is already updating this device.",
+          );
         } else if (res.status === "rate_limited") {
           setErrorMessage(
-            `Sync throttled briefly. Retry in ${res.retryAfterSeconds ?? 10} seconds.`,
+            `Too many updates at once. Try again in ${res.retryAfterSeconds ?? 10} seconds.`,
           );
         } else {
           setStatusNotice(
-            `Synced ${res.appliedCount} queued change(s) and applied ${res.pulledCount} server update(s).`,
+            `Saved ${res.appliedCount} pending change(s) and received ${res.pulledCount} update(s).`,
           );
         }
       } catch (error) {
         setUnlocked(getVaultCustody().isUnlocked());
         setErrorMessage(
-          error instanceof Error ? error.message : "Sync could not complete.",
+          error instanceof Error ? error.message : "Update could not finish.",
         );
       }
     });
@@ -306,7 +276,7 @@ export function OfflineVaultWorkspace() {
       try {
         if (!deviceId) {
           throw new Error(
-            "Register this device in Settings -> Trusted devices before queueing offline edits.",
+            "Add this device in Settings -> Trusted devices before saving offline changes.",
           );
         }
         const fullName = draftTenantName.trim();
@@ -333,13 +303,13 @@ export function OfflineVaultWorkspace() {
         setDraftTenantPhone("");
         await reloadMetadataAndUnlockedViews();
         setStatusNotice(
-          "Saved on this device (pending server confirmation on next Sync now).",
+          "Saved on this device. Tap Update now when online to confirm.",
         );
       } catch (error) {
         setErrorMessage(
           error instanceof Error
             ? error.message
-            : "Could not save draft locally.",
+            : "Could not save draft on this device.",
         );
       }
     });
@@ -358,13 +328,13 @@ export function OfflineVaultWorkspace() {
         });
         await reloadMetadataAndUnlockedViews();
         setStatusNotice(
-          "Re-queued as a fresh operation against current snapshot version. Run Sync now when ready.",
+          "Marked your saved change to try again. Tap Update now when ready.",
         );
       } catch (error) {
         setErrorMessage(
           error instanceof Error
             ? error.message
-            : "Could not re-queue operation.",
+            : "Could not mark this change to try again.",
         );
       }
     });
@@ -380,11 +350,11 @@ export function OfflineVaultWorkspace() {
         await discardNeedsAttentionOperation(db, key, opId);
         await reloadMetadataAndUnlockedViews();
         setStatusNotice(
-          "Discarded conflicting local draft and restored confirmed snapshot view.",
+          "Removed your draft and restored the latest saved record.",
         );
       } catch (error) {
         setErrorMessage(
-          error instanceof Error ? error.message : "Could not discard draft.",
+          error instanceof Error ? error.message : "Could not remove draft.",
         );
       }
     });
@@ -417,8 +387,8 @@ export function OfflineVaultWorkspace() {
             {syncSummary.pendingCount > 0
               ? `${syncSummary.pendingCount} saved on device`
               : syncSummary.lastSyncedAt
-                ? "Synced"
-                : "Not synced"}
+                ? "Up to date"
+                : "Not updated yet"}
           </Badge>
         </div>
 
@@ -438,7 +408,7 @@ export function OfflineVaultWorkspace() {
                 onClick={handleLockVault}
                 disabled={busy}
               >
-                Lock vault
+                Lock copy
               </Button>
               <Button
                 type="button"
@@ -448,7 +418,7 @@ export function OfflineVaultWorkspace() {
                 disabled={busy || !online}
                 onClick={handleSyncNow}
               >
-                Sync now
+                Update now
               </Button>
             </>
           )}
@@ -457,27 +427,26 @@ export function OfflineVaultWorkspace() {
 
       <section className="grid gap-1">
         <h1 className="text-xl font-semibold tracking-tight text-foreground sm:text-2xl">
-          Offline vault &amp; sync queue
+          Offline copy &amp; pending changes
         </h1>
         <p className="max-w-prose text-sm text-muted-foreground">
-          Encrypted local workspace backed by IndexedDB. Unsynced entries show
-          as Saved on this device until accepted by the server; confirmed
-          receipts, check-ins, and official invoices always come from Synced
-          state.
+          Private copy saved in this browser. Offline entries show as Saved on
+          this device until confirmed online. Official receipts, check-ins, and
+          bills are confirmed once updated.
         </p>
       </section>
 
       {quota.persisted === false && (
         <Alert tone="warning" role="status">
-          Browser persistent storage is not guaranteed on this device. Run Sync
-          now regularly so queued entries are not lost by storage eviction.
+          Browser storage may be cleared by your device when space is low.
+          Update regularly while online so saved changes are not lost.
         </Alert>
       )}
 
       {quota.nearQuota && (
         <Alert tone="danger" role="alert">
-          Device storage is above 80% capacity. Sync pending items before
-          capturing large proof photos.
+          Device storage is over 80% full. Update pending items while online
+          before taking large payment photos.
         </Alert>
       )}
 
@@ -497,26 +466,26 @@ export function OfflineVaultWorkspace() {
         <MetricCard
           label="Connection"
           value={online ? "Online" : "Offline"}
-          description="Network state stays separate from sync confirmation"
+          description="Shows whether internet is connected"
           icon={<SyncQueueIcon />}
           tone={online ? "success" : "warning"}
         />
         <MetricCard
-          label="Pending outbox"
+          label="Waiting to save"
           value={syncSummary.pendingCount}
-          description="Queued locally as Saved on this device"
+          description="Saved on this device until updated online"
           icon={<SyncQueueIcon />}
           tone={syncSummary.pendingCount > 0 ? "warning" : "neutral"}
         />
         <MetricCard
           label="Needs attention"
           value={syncSummary.needsAttentionCount}
-          description="Conflicts or blocked drafts requiring manual choice"
+          description="Offline changes that need your review"
           icon={<VaultLockIcon />}
           tone={syncSummary.needsAttentionCount > 0 ? "warning" : "neutral"}
         />
         <MetricCard
-          label="Last synced"
+          label="Last updated"
           value={
             syncSummary.lastSyncedAt
               ? formatManilaDateTime(new Date(syncSummary.lastSyncedAt))
@@ -524,63 +493,22 @@ export function OfflineVaultWorkspace() {
           }
           description={
             syncSummary.watermark
-              ? `Snapshot sequence ${syncSummary.watermark}`
-              : "Run Sync now online to download initial snapshot"
+              ? `Update #${syncSummary.watermark}`
+              : "Tap Update now while online to save a copy"
           }
           icon={<VaultLockIcon />}
         />
       </div>
 
       {!unlocked ? (
-        <Card className="max-w-lg p-6">
-          <form onSubmit={handleUnlockSubmit} className="grid gap-4">
-            <div className="grid gap-1">
-              <h2 className="text-base font-semibold text-foreground">
-                Unlock offline vault
-              </h2>
-              <p className="text-sm text-muted-foreground">
-                Enter your device passphrase (minimum 8 characters) to derive
-                your in-memory AES-GCM key. Auto-locks after 15 minutes of
-                inactivity.
-              </p>
-            </div>
-            <Field id="vault-passphrase" label="Vault passphrase" required>
-              {(props) => (
-                <Input
-                  {...props}
-                  type="password"
-                  autoComplete="current-password"
-                  value={passphrase}
-                  onChange={(e) => setPassphrase(e.target.value)}
-                />
-              )}
-            </Field>
-            <div className="flex flex-wrap items-center gap-2">
-              <Button
-                type="submit"
-                variant="primary"
-                size="md"
-                loading={busy}
-                disabled={busy}
-              >
-                Unlock vault
-              </Button>
-              <Link
-                href="/settings/devices"
-                className={buttonClasses({ variant: "secondary", size: "md" })}
-              >
-                Trusted devices
-              </Link>
-            </div>
-          </form>
-        </Card>
+        <OfflineVaultUnlockCard onUnlocked={reloadMetadataAndUnlockedViews} />
       ) : (
         <div className="grid gap-6">
           {needsAttention.length > 0 && (
             <Card className="overflow-hidden">
               <TableCardHeader
                 title="Needs attention"
-                description="Review blocked or conflicting offline drafts before retrying."
+                description="Review offline changes that could not be saved before trying again."
               />
               <div className="grid divide-y divide-border">
                 {needsAttention.map(({ record, envelope }) => (
@@ -590,13 +518,13 @@ export function OfflineVaultWorkspace() {
                   >
                     <div className="grid gap-1">
                       <div className="flex flex-wrap items-center gap-2">
-                        <Badge tone="danger">{record.status}</Badge>
-                        <span className="font-mono text-xs text-muted-foreground">
-                          {envelope.type}
+                        <Badge tone="danger">Needs attention</Badge>
+                        <span className="text-xs font-medium text-muted-foreground">
+                          {formatOfflineOperationType(envelope.type)}
                         </span>
                       </div>
                       <span className="text-sm font-medium text-foreground">
-                        {record.reason ?? "Requires manual resolution."}
+                        {record.reason ?? "Needs your review before saving."}
                       </span>
                     </div>
                     <div className="flex flex-wrap items-center gap-2">
@@ -631,10 +559,10 @@ export function OfflineVaultWorkspace() {
             <form onSubmit={handleQueueTenantDraft} className="grid gap-4">
               <div className="grid gap-0.5">
                 <h2 className="text-sm font-semibold text-foreground">
-                  Quick offline tenant draft
+                  Quick offline tenant entry
                 </h2>
                 <p className="text-xs text-muted-foreground">
-                  Encrypted locally and queued until next Sync now.
+                  Saved privately on this device until your next Update now.
                 </p>
               </div>
               <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
@@ -677,7 +605,7 @@ export function OfflineVaultWorkspace() {
             className="grid gap-4"
           >
             <TabsList
-              aria-label="Offline cached records"
+              aria-label="Records saved on this device"
               className="overflow-x-auto"
             >
               {SNAPSHOT_CATEGORIES.map((cat) => (
@@ -696,19 +624,19 @@ export function OfflineVaultWorkspace() {
                 <TableCardHeader
                   title={
                     SNAPSHOT_CATEGORIES.find((c) => c.key === activeCategory)
-                      ?.label ?? "Snapshot"
+                      ?.label ?? "Saved records"
                   }
                   description={
                     syncSummary.lastSyncedAt
-                      ? `Offline snapshot last confirmed at ${formatManilaDateTime(new Date(syncSummary.lastSyncedAt))}`
-                      : "No server snapshot downloaded yet."
+                      ? `Last updated on ${formatManilaDateTime(new Date(syncSummary.lastSyncedAt))}`
+                      : "No offline copy saved yet."
                   }
                 />
                 {filteredProjections.length === 0 ? (
                   <TableEmptyState
                     illustration="sweet-home"
-                    title="No cached records here"
-                    description="Run Sync now while online to download the latest Owner snapshot for offline viewing."
+                    title="No saved records here"
+                    description="Tap Update now while online to save the latest records for offline viewing."
                   />
                 ) : (
                   <Table containerClassName="rounded-none border-0">
@@ -716,7 +644,7 @@ export function OfflineVaultWorkspace() {
                       <TableRow>
                         <TableHead>Record</TableHead>
                         <TableHead>Detail</TableHead>
-                        <TableHead>Sync state</TableHead>
+                        <TableHead>Status</TableHead>
                       </TableRow>
                     </TableHeader>
                     <TableBody>
@@ -742,7 +670,7 @@ export function OfflineVaultWorkspace() {
                                 ? "Needs attention"
                                 : item.isPendingLocal
                                   ? "Saved on this device"
-                                  : "Synced"}
+                                  : "Up to date"}
                             </Badge>
                           </TableCell>
                         </TableRow>

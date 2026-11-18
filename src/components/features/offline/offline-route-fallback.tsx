@@ -63,7 +63,7 @@ function resolveOfflineShellTitle(pathname: string): string {
   if (pathname.startsWith("/rooms")) return "Rooms";
   if (pathname.startsWith("/billing")) return "Billing";
   if (pathname.startsWith("/notices")) return "Notices";
-  return "Offline vault";
+  return "Offline copy";
 }
 
 type OfflineRouteData =
@@ -221,7 +221,7 @@ export function OfflineRouteFallback() {
       setLoadError(
         error instanceof Error
           ? error.message
-          : "Could not load offline vault snapshot.",
+          : "Could not open the offline copy.",
       );
     }
   }
@@ -258,17 +258,17 @@ export function OfflineRouteFallback() {
         {!vaultUnlocked ? (
           <div className="grid gap-4">
             <Alert tone="warning" role="status">
-              You are viewing the offline shell for {title}. Unlock your local
-              vault passphrase to view saved snapshots on this device.
+              You are viewing the offline copy for {title}. Enter your offline
+              password to open saved records on this device.
             </Alert>
             <OfflineVaultUnlockCard
-              title={`Unlock saved ${title.toLowerCase()} snapshot`}
+              title={`Open saved ${title.toLowerCase()} records`}
               onUnlocked={refreshFallbackView}
             />
           </div>
         ) : !routeData ? (
           <Card className="text-sm text-muted-foreground">
-            Loading saved {title.toLowerCase()} snapshot from local vault…
+            Loading saved {title.toLowerCase()} records from this device...
           </Card>
         ) : routeData.kind === "dashboard" ? (
           <DashboardWorkspace
@@ -357,8 +357,8 @@ export function OfflineRouteFallback() {
         ) : (
           <Card className="grid gap-3">
             <p className="text-sm text-muted-foreground">
-              This item is not available in the local snapshot on this device
-              yet. Run Sync now once online.
+              This item is not saved on this device yet. Tap Update now once you
+              are back online.
             </p>
             <div>
               <Link
@@ -378,9 +378,8 @@ export function OfflineRouteFallback() {
     <WorkspaceShell title={title}>
       <div className="grid gap-5">
         <Alert tone="warning" role="status">
-          This route ({pathname}) requires an internet connection or has no
-          detail snapshot view offline. Use your offline workspace links below
-          or review the queue in Offline vault.
+          This page ({pathname}) is only available while online. Choose an
+          offline page below or check pending items in Offline copy.
         </Alert>
         {!vaultUnlocked && (
           <OfflineVaultUnlockCard onUnlocked={refreshFallbackView} />
@@ -420,7 +419,7 @@ export function OfflineRouteFallback() {
             href="/offline"
             className={buttonClasses({ variant: "primary", size: "md" })}
           >
-            Offline vault
+            Offline copy
           </Link>
         </div>
         {vaultUnlocked && <OfflineVaultWorkspace />}

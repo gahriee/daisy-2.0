@@ -102,7 +102,7 @@ export function ResetPasswordForm() {
         setShowPassword(false);
         setShowConfirmation(false);
         setMessage(
-          "If this is the Owner’s email, a code is on its way. Check your inbox and spam folder.",
+          "If that email matches your account, a reset code is on its way. Check your inbox and spam folder.",
         );
         requestAnimationFrame(() => code.current?.focus());
       } else {

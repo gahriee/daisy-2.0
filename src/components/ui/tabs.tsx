@@ -129,7 +129,7 @@ export function TabsList({
       onKeyDown={handleKeyDown}
       {...props}
       className={cn(
-        "flex max-w-full items-center overflow-x-auto",
+        "flex max-w-full items-center overflow-x-auto overscroll-x-contain",
         variant === "underline"
           ? "gap-1 border-b border-border"
           : "gap-1 rounded-panel border border-border bg-surface-muted p-1",

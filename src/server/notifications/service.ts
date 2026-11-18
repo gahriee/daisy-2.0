@@ -1,4 +1,5 @@
 import "server-only";
+import type { OwnerNotification } from "@/features/notifications/schemas";
 import {
   MAINTENANCE_CATEGORY_LABELS,
   type MaintenanceCategoryValue,
@@ -17,16 +18,7 @@ import {
 import { ensureOwnerRecord } from "@/server/db/owner-record";
 import { getDatabase } from "@/server/db/client";
 
-export type OwnerNotification = {
-  key: string;
-  title: string;
-  message: string;
-  destination: string;
-  tone: "info" | "warning" | "success";
-  createdAt: string;
-  read: boolean;
-  readAt: string | null;
-};
+export type { OwnerNotification };
 
 /**
  * Projects Owner-scoped notifications at read time from an explicit allowlist of
@@ -52,6 +44,7 @@ export async function listOwnerNotifications(
     pendingBookingRequests,
     urgentMaintenance,
     readRows,
+    dismissedRows,
   ] = await Promise.all([
     db.securityEvent.findMany({
       where: { ownerUserId, action: "RESET_COMPLETED" },
@@ -143,8 +136,15 @@ export async function listOwnerNotifications(
       where: { ownerUserId },
       select: { notificationKey: true, readAt: true },
     }),
+    db.notificationDismissal.findMany({
+      where: { ownerUserId },
+      select: { notificationKey: true },
+    }),
   ]);
 
+  const dismissedKeys = new Set(
+    dismissedRows.map((row) => row.notificationKey),
+  );
   const readMap = new Map(
     readRows.map((row) => [row.notificationKey, row.readAt.toISOString()]),
   );
@@ -290,7 +290,7 @@ export async function listOwnerNotifications(
     });
   }
 
-  return items;
+  return items.filter((item) => !dismissedKeys.has(item.key));
 }
 
 export async function markOwnerNotificationsRead(
@@ -312,5 +312,49 @@ export async function markOwnerNotificationsRead(
         create: { ownerUserId, notificationKey },
       });
     }
+  });
+}
+
+export async function markOwnerNotificationsUnread(
+  ownerUserId: string,
+  keys: string[],
+): Promise<void> {
+  if (keys.length === 0) return;
+  const db = getDatabase();
+  const uniqueKeys = [...new Set(keys)].slice(0, 50);
+
+  await db.notificationRead.deleteMany({
+    where: {
+      ownerUserId,
+      notificationKey: { in: uniqueKeys },
+    },
+  });
+}
+
+export async function deleteOwnerNotifications(
+  ownerUserId: string,
+  keys: string[],
+): Promise<void> {
+  if (keys.length === 0) return;
+  const db = getDatabase();
+  const uniqueKeys = [...new Set(keys)].slice(0, 50);
+
+  await db.$transaction(async (tx) => {
+    await ensureOwnerRecord(tx, ownerUserId);
+    for (const notificationKey of uniqueKeys) {
+      await tx.notificationDismissal.upsert({
+        where: {
+          ownerUserId_notificationKey: { ownerUserId, notificationKey },
+        },
+        update: {},
+        create: { ownerUserId, notificationKey },
+      });
+    }
+    await tx.notificationRead.deleteMany({
+      where: {
+        ownerUserId,
+        notificationKey: { in: uniqueKeys },
+      },
+    });
   });
 }

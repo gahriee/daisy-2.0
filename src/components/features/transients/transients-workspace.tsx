@@ -422,14 +422,14 @@ export function TransientsWorkspace({
           setFeedback({
             tone: "success",
             message: navigator.onLine
-              ? "Re-queued draft against current server state."
-              : "Re-queued draft for next sync.",
+              ? "Marked your draft to try saving again."
+              : "Marked your draft to save once online.",
           });
         } else {
           await resolveNeedsAttentionDiscard(badge.opId);
           setFeedback({
             tone: "success",
-            message: "Discarded local transient draft.",
+            message: "Removed saved draft.",
           });
         }
         await reloadOverview();
@@ -442,7 +442,7 @@ export function TransientsWorkspace({
             message:
               error instanceof Error
                 ? error.message
-                : "Could not resolve local draft.",
+                : "Could not resolve saved draft.",
           });
         }
       }
@@ -483,12 +483,10 @@ export function TransientsWorkspace({
                 : { checkedOutAt: nowIso }),
               updatedAt: nowIso,
             },
-            syncedMessage: isCheckIn
-              ? "Checked in and synced."
-              : "Checked out and synced.",
+            syncedMessage: isCheckIn ? "Checked in." : "Checked out.",
             queuedMessage: isCheckIn
-              ? "Check-in saved on this device (pending sync)."
-              : "Check-out saved on this device (pending sync).",
+              ? "Check-in saved on this device (waiting to go online)."
+              : "Check-out saved on this device (waiting to go online).",
           });
           setConfirmStayAction(null);
           if (res.delivery === "needs_attention") {
@@ -1017,12 +1015,12 @@ export function TransientsWorkspace({
                 }
                 title={
                   overview.reservations.length === 0
-                    ? "No transient stays recorded"
-                    : "No matching transient stays"
+                    ? "No short stays recorded"
+                    : "No matching short stays"
                 }
                 description={
                   overview.reservations.length === 0
-                    ? "Add a walk-in stay directly or approve a public booking request to lock a room allocation."
+                    ? "Add a walk-in stay directly or approve a guest booking request to reserve a room."
                     : "Try clearing what you entered or changing the selected status."
                 }
                 actions={

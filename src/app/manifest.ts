@@ -5,7 +5,7 @@ export default function manifest(): MetadataRoute.Manifest {
     name: "Daisy Property Manager",
     short_name: "Daisy",
     description:
-      "Single-Owner boarding house and transient room management workspace.",
+      "Manage boarding house rooms, tenants, short stays, bills, and payments.",
     start_url: "/",
     display: "standalone",
     background_color: "#f7f7f7",
@@ -24,4 +24,3 @@ export default function manifest(): MetadataRoute.Manifest {
     ],
   };
 }
-

@@ -237,7 +237,7 @@ export function TenantContractDetail({
         }}
         onConfirm={handleArchive}
         title="Archive signed contract?"
-        description="This marks the signed contract record as archived while keeping an audit trail."
+        description="This marks the signed contract as archived while keeping it in your records."
         errorMessage={archiveError}
         confirmLabel="Archive contract"
         confirmVariant="danger"

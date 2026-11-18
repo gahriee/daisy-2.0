@@ -53,6 +53,7 @@ import type {
   AllocationScopeValue,
   BookingRequestDto,
   BookingRequestStatusValue,
+  GuestSexValue,
   TransientGuestDto,
   TransientReservationDto,
   TransientReservationStatusValue,
@@ -233,6 +234,10 @@ function toBookingRequestDto(
       ? rawStatus
       : "PENDING";
 
+  const rawSex = asString(row.data.guestSex);
+  const guestSex: GuestSexValue | null =
+    rawSex === "MALE" || rawSex === "FEMALE" ? rawSex : null;
+
   return {
     id: asNonEmptyString(row.data.id, row.entityId),
     version: Math.max(1, asNumber(row.data._version ?? row.data.version, 1)),
@@ -242,6 +247,9 @@ function toBookingRequestDto(
     roomTypeName: asNonEmptyString(row.data.roomTypeName, "Transient"),
     scope: asString(row.data.scope) === "BED" ? "BED" : "WHOLE_ROOM",
     guestName,
+    guestAge: typeof row.data.guestAge === "number" ? row.data.guestAge : null,
+    guestSex,
+    guestAddress: asString(row.data.guestAddress),
     guestPhone: asString(row.data.guestPhone),
     guestEmail: asString(row.data.guestEmail),
     notes: asString(row.data.notes),
@@ -249,6 +257,12 @@ function toBookingRequestDto(
     checkOutDateManila: asNonEmptyString(row.data.checkOutDateManila),
     nights: Math.max(1, asNumber(row.data.nights, 1)),
     partySize: Math.max(1, asNumber(row.data.partySize, 1)),
+    adultsCount:
+      typeof row.data.adultsCount === "number" ? row.data.adultsCount : null,
+    childrenCount:
+      typeof row.data.childrenCount === "number"
+        ? row.data.childrenCount
+        : null,
     quotedDailyRate: formatMoneyDecimal(
       parseSafeMoney(row.data.quotedDailyRate),
     ),

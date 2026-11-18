@@ -52,7 +52,7 @@ const DEVICE_SORT_COLUMNS: Record<
   status: {
     getValue: (device) =>
       device.revokedAt
-        ? "Revoked"
+        ? "Removed"
         : device.isCurrent
           ? "Active (this device)"
           : "Active",
@@ -86,7 +86,7 @@ const DEVICE_STATUS_OPTIONS: readonly {
 }[] = [
   { value: "all", label: "All devices" },
   { value: "active", label: "Active" },
-  { value: "revoked", label: "Revoked" },
+  { value: "revoked", label: "Removed" },
 ];
 
 const manilaDateTimeFormatter = new Intl.DateTimeFormat("en-PH", {
@@ -185,18 +185,18 @@ export function DeviceManagementPanel({
         label?: string;
       };
       if (!response.ok) {
-        setErrorMessage(data.error ?? "Could not register this device.");
+        setErrorMessage(data.error ?? "Could not add this device.");
         return;
       }
       setLabel("");
       setStatusMessage(
         data.reused
-          ? `This browser is already registered as ${data.label}.`
-          : `Registered this browser as ${data.label}.`,
+          ? `This browser is already trusted as ${data.label}.`
+          : `Added this browser as ${data.label}.`,
       );
       await refreshDevices();
     } catch {
-      setErrorMessage("Connection interrupted before registration finished.");
+      setErrorMessage("Connection stopped before adding this device.");
     } finally {
       setRegistering(false);
     }
@@ -221,16 +221,16 @@ export function DeviceManagementPanel({
         error?: string;
       };
       if (!response.ok) {
-        setRevokeError(data.error ?? "Could not revoke device.");
+        setRevokeError(data.error ?? "Could not remove this device.");
         return;
       }
       setConfirmingDevice(null);
       setStatusMessage(
-        "Device revoked. Its next sync or upload request will be denied; your sign-in session remains active.",
+        "Device access removed. This device can no longer save offline changes or upload photos. You will stay signed in.",
       );
       await refreshDevices();
     } catch {
-      setRevokeError("Connection interrupted while revoking device.");
+      setRevokeError("Connection stopped while removing device.");
     } finally {
       setRevokingId(null);
     }
@@ -242,17 +242,17 @@ export function DeviceManagementPanel({
         <div className="flex flex-wrap items-start justify-between gap-3">
           <div className="grid gap-1">
             <h2 className="text-base font-semibold tracking-tight text-foreground">
-              Browser authorization
+              Browser permission
             </h2>
             <p className="max-w-prose text-sm leading-6 text-muted-foreground">
-              Sync and proof uploads require both an active Owner session and a
-              non-revoked HttpOnly device cookie.
+              Offline saving and payment photo uploads only work when you are
+              signed in on a trusted browser.
             </p>
           </div>
           <Badge tone={currentDevice ? "success" : "neutral"}>
             {currentDevice
               ? `This browser: ${currentDevice.label}`
-              : "This browser not registered"}
+              : "Not added yet"}
           </Badge>
         </div>
 
@@ -273,8 +273,8 @@ export function DeviceManagementPanel({
             <form onSubmit={handleRegister} noValidate className="grid gap-4">
               <Field
                 id="device-label"
-                label="Register this browser"
-                description="Name this phone or computer so you can recognize it later."
+                label="Add this device"
+                description="Give this phone or computer a name you will recognize."
                 required
                 {...(labelError ? { error: labelError } : {})}
               >
@@ -284,7 +284,7 @@ export function DeviceManagementPanel({
                       {...props}
                       value={label}
                       onChange={(event) => setLabel(event.target.value)}
-                      placeholder="e.g. Owner phone"
+                      placeholder="e.g. Front desk phone"
                       maxLength={60}
                       className="sm:flex-1"
                     />
@@ -295,7 +295,7 @@ export function DeviceManagementPanel({
                       disabled={registering}
                       className="min-h-10 shrink-0 sm:min-h-9"
                     >
-                      {registering ? "Registering…" : "Register device"}
+                      {registering ? "Adding…" : "Add device"}
                     </Button>
                   </div>
                 )}
@@ -312,7 +312,7 @@ export function DeviceManagementPanel({
             setSearchQuery("");
             setStatusFilter("all");
           }}
-          aria-label="Find registered devices"
+          aria-label="Find trusted devices"
         >
           <div className="grid grid-cols-1 gap-3 sm:grid-cols-3 sm:items-end">
             <div className="sm:col-span-2">
@@ -366,11 +366,11 @@ export function DeviceManagementPanel({
           />
           <div className="grid justify-items-center gap-1.5">
             <EmptyStateTitle id="devices-empty-title">
-              No devices registered yet
+              No trusted devices yet
             </EmptyStateTitle>
             <EmptyStateDescription>
-              Register this browser above to receive an HttpOnly device cookie
-              for offline sync and attachment uploads.
+              Add this browser above so this device can save offline updates and
+              upload payment photos.
             </EmptyStateDescription>
           </div>
         </EmptyState>
@@ -393,8 +393,7 @@ export function DeviceManagementPanel({
               No matching devices
             </EmptyStateTitle>
             <EmptyStateDescription>
-              Clear what you entered or reset the status to see all registered
-              browsers.
+              Clear your search or change the status filter to see all devices.
             </EmptyStateDescription>
           </div>
           <EmptyStateActions>
@@ -421,10 +420,11 @@ export function DeviceManagementPanel({
                 id="devices-table-heading"
                 className="text-sm font-semibold text-foreground"
               >
-                Registered Owner devices
+                Trusted devices
               </h2>
               <p className="text-xs text-muted-foreground">
-                Revoking a device immediately blocks its next sync or upload.
+                Removing a device stops it from saving updates or uploading
+                photos right away.
               </p>
             </div>
             <span className="text-xs font-medium text-muted-foreground tabular-nums">
@@ -446,7 +446,7 @@ export function DeviceManagementPanel({
                       <div className="flex flex-wrap items-center gap-1.5">
                         {device.isCurrent && <Badge tone="info">Current</Badge>}
                         <Badge tone={isRevoked ? "danger" : "success"}>
-                          {isRevoked ? "Revoked" : "Active"}
+                          {isRevoked ? "Removed" : "Active"}
                         </Badge>
                       </div>
                     </div>
@@ -456,7 +456,7 @@ export function DeviceManagementPanel({
                         Last seen {formatTimestamp(device.lastSeenAt)}
                       </span>
                       {isRevoked && (
-                        <span>Revoked {formatTimestamp(device.revokedAt)}</span>
+                        <span>Removed {formatTimestamp(device.revokedAt)}</span>
                       )}
                     </div>
                     {!isRevoked && (
@@ -472,7 +472,7 @@ export function DeviceManagementPanel({
                             setConfirmingDevice(device);
                           }}
                         >
-                          {revokingId === device.id ? "Revoking…" : "Revoke"}
+                          {revokingId === device.id ? "Removing…" : "Remove"}
                         </Button>
                       </div>
                     )}
@@ -510,7 +510,7 @@ export function DeviceManagementPanel({
                       </TableCell>
                       <TableCell>
                         <Badge tone={isRevoked ? "danger" : "success"}>
-                          {isRevoked ? "Revoked" : "Active"}
+                          {isRevoked ? "Removed" : "Active"}
                         </Badge>
                       </TableCell>
                       <TableCell className="whitespace-nowrap text-muted-foreground tabular-nums">
@@ -518,7 +518,7 @@ export function DeviceManagementPanel({
                       </TableCell>
                       <TableCell className="whitespace-nowrap text-muted-foreground tabular-nums">
                         {isRevoked
-                          ? `Revoked ${formatTimestamp(device.revokedAt)}`
+                          ? `Removed ${formatTimestamp(device.revokedAt)}`
                           : formatTimestamp(device.lastSeenAt)}
                       </TableCell>
                       <TableCell className="text-right">
@@ -534,7 +534,7 @@ export function DeviceManagementPanel({
                               setConfirmingDevice(device);
                             }}
                           >
-                            {revokingId === device.id ? "Revoking…" : "Revoke"}
+                            {revokingId === device.id ? "Removing…" : "Remove"}
                           </Button>
                         ) : (
                           <span className="text-xs text-muted-foreground">
@@ -566,17 +566,17 @@ export function DeviceManagementPanel({
         }}
         title={
           confirmingDevice
-            ? `Revoke device "${confirmingDevice.label}"?`
-            : "Revoke device?"
+            ? `Remove access for "${confirmingDevice.label}"?`
+            : "Remove device access?"
         }
-        description="Its next sync or upload request will be denied immediately. Your current sign-in session remains active."
+        description="This device will no longer be allowed to save updates or upload photos. You will stay signed in."
         warningMessage={
           confirmingDevice?.isCurrent
-            ? "This is the browser you are currently using. Revoking stops offline sync until you register a replacement device."
+            ? "This is the browser you are using right now. Removing it stops offline saving on this device until you add it again."
             : undefined
         }
         errorMessage={revokeError}
-        confirmLabel="Revoke device"
+        confirmLabel="Remove access"
         confirmVariant="danger"
         loading={
           confirmingDevice !== null && revokingId === confirmingDevice.id

@@ -220,7 +220,7 @@ export function InvoiceDetailView({
                 }}
                 onConfirm={handleIssue}
                 title="Issue draft invoice?"
-                description="Issuing locks this draft statement, assigns an official invoice number, and opens it for payment collection."
+                description="Issuing finalizes this draft bill, gives it an official number, and opens it for payment."
                 errorMessage={issueError}
                 confirmLabel="Issue invoice"
                 confirmVariant="primary"
@@ -325,7 +325,7 @@ export function InvoiceDetailView({
             {invoice.snapshotProrationPolicy && (
               <div className="grid gap-0.5">
                 <span className="font-medium text-foreground">
-                  Proration policy snapshot
+                  Partial-month rent rule
                 </span>
                 <span>
                   {PRORATION_POLICY_LABELS[invoice.snapshotProrationPolicy]}
@@ -335,7 +335,7 @@ export function InvoiceDetailView({
             {invoice.snapshotDepositPolicy && (
               <div className="grid gap-0.5">
                 <span className="font-medium text-foreground">
-                  Deposit policy snapshot
+                  Deposit rule
                 </span>
                 <span>
                   {DEPOSIT_POLICY_LABELS[invoice.snapshotDepositPolicy]}

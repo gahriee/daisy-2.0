@@ -51,11 +51,12 @@ export function ReversePaymentDialog({
   return (
     <Dialog
       open={payment !== null}
-      onClose={pending ? () => {} : onClose}
+      onClose={onClose}
+      dismissDisabled={pending}
       title="Reverse payment"
       {...(payment
         ? {
-            description: `Create a linked negative reversal for ${payment.receiptNumber ?? "this payment"} (PHP ${payment.amount}) and restore allocated invoice balances.`,
+            description: `Record a reversal for ${payment.receiptNumber ?? "this payment"} (PHP ${payment.amount}) and reopen any bills it paid.`,
           }
         : {})}
     >
@@ -71,9 +72,9 @@ export function ReversePaymentDialog({
           )}
 
           <Alert tone="warning" role="status">
-            Posted payments stay immutable in the ledger. Reversing restores any
-            allocated invoices to Issued or Partially paid and cancels
-            unallocated credit from this receipt.
+            Saved payments remain in your payment history. Reversing reopens the
+            bills this payment covered and cancels any leftover tenant credit
+            from this receipt.
           </Alert>
 
           <Field

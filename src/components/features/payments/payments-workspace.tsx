@@ -345,14 +345,14 @@ export function PaymentsWorkspace({
           setFeedback({
             tone: "success",
             message: navigator.onLine
-              ? "Re-queued draft against current server state."
-              : "Re-queued payment draft for next sync.",
+              ? "Marked your payment draft to try saving again."
+              : "Marked your payment draft to save once online.",
           });
         } else {
           await resolveNeedsAttentionDiscard(badge.opId);
           setFeedback({
             tone: "success",
-            message: "Discarded local payment draft.",
+            message: "Removed saved payment draft.",
           });
         }
         await reloadPayments();
@@ -488,8 +488,8 @@ export function PaymentsWorkspace({
             Payments &amp; collections
           </h1>
           <p className="text-sm leading-6 text-muted-foreground">
-            Official receipts, multi-invoice settlements, verified proof
-            attachments, and immutable reversals.
+            Official receipts, bill payments, verified payment photos, and
+            permanent reversals.
           </p>
         </div>
 
@@ -570,8 +570,8 @@ export function PaymentsWorkspace({
           setConfirmCreditTenant(null);
           handleApplyCredit(tenantId);
         }}
-        title="Apply unallocated credit?"
-        description="Available tenant credit will be applied oldest-first to open invoice balances."
+        title="Apply tenant credit?"
+        description="Available tenant credit will be applied to the oldest open bills first."
         details={
           confirmCreditTenant ? (
             <>
@@ -618,9 +618,9 @@ export function PaymentsWorkspace({
           icon={<CollectedIcon />}
         />
         <MetricCard
-          label="Unallocated credit"
+          label="Credit left"
           value={formatPhpCurrency(overview.totals.unallocatedCreditAmount)}
-          description="Posted excess held for future invoices"
+          description="Extra paid held for future bills"
           icon={<CreditIcon />}
         />
         <MetricCard
@@ -829,7 +829,7 @@ export function PaymentsWorkspace({
                     Amount
                   </TableHead>
                   <TableHead numeric {...sortHeaderProps("unallocated")}>
-                    Unallocated
+                    Credit left
                   </TableHead>
                   <TableHead {...sortHeaderProps("proofs")}>Proofs</TableHead>
                   <TableHead {...sortHeaderProps("status")}>Status</TableHead>

@@ -173,9 +173,9 @@ export function MaintenanceCreateForm({
                   },
                 }
               : {}),
-            syncedMessage: "Maintenance request logged and synced.",
+            syncedMessage: "Repair request logged.",
             queuedMessage:
-              "Maintenance request saved on this device (pending sync).",
+              "Repair request saved on this device (waiting to go online).",
           });
 
           if (res.delivery === "synced") {
@@ -422,7 +422,7 @@ export function MaintenanceCreateForm({
                             ? "Uploading…"
                             : item.status === "ready"
                               ? item.queuedBytes
-                                ? "Queued for sync"
+                                ? "Waiting to save"
                                 : "Uploaded"
                               : (item.errorMessage ?? "Error")}
                         </p>

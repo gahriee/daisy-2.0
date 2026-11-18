@@ -157,9 +157,13 @@ export function RoomForm({
             {isArchived && <Badge tone="neutral">Archived</Badge>}
           </div>
           <p className="text-sm leading-6 text-muted-foreground">
-            {mode === "edit"
-              ? "Rates are configured on room types. Update room details or manage room photos."
-              : "Choose a room type to apply its configured rates, and upload optional room photos."}
+            {isTransient
+              ? mode === "edit"
+                ? "Rates are configured on room types. Update room details or manage cropped photos for /book."
+                : "Choose a room type to apply its configured rates, and upload cropped photos for /book."
+              : mode === "edit"
+                ? "Rates are configured on room types. Update room details below."
+                : "Choose a room type to apply its configured monthly rate."}
           </p>
         </div>
 
@@ -383,29 +387,31 @@ export function RoomForm({
                   </Field>
                 </Card>
 
-                <Card className="grid gap-4">
-                  <div className="grid gap-1">
-                    <h2 className="text-base font-semibold text-foreground">
-                      Room photos
-                    </h2>
-                    <p className="text-xs text-muted-foreground">
-                      Add one preview card image and optional captioned gallery
-                      shots for visitors.
-                    </p>
-                  </div>
+                {isTransient && (
+                  <Card className="grid gap-4">
+                    <div className="grid gap-1">
+                      <h2 className="text-base font-semibold text-foreground">
+                        Room photos
+                      </h2>
+                      <p className="text-xs text-muted-foreground">
+                        Add one preview card image and optional captioned
+                        gallery shots cropped to match the public /book page.
+                      </p>
+                    </div>
 
-                  <RoomPhotosEditor
-                    {...(room
-                      ? {
-                          roomId: room.id,
-                          initialPreviewPhoto: room.previewPhoto,
-                          initialGalleryPhotos: room.galleryPhotos,
-                        }
-                      : {})}
-                    disabled={pending}
-                    onUploadingChange={setPhotosUploading}
-                  />
-                </Card>
+                    <RoomPhotosEditor
+                      {...(room
+                        ? {
+                            roomId: room.id,
+                            initialPreviewPhoto: room.previewPhoto,
+                            initialGalleryPhotos: room.galleryPhotos,
+                          }
+                        : {})}
+                      disabled={pending}
+                      onUploadingChange={setPhotosUploading}
+                    />
+                  </Card>
+                )}
               </div>
 
               <Card className="grid gap-4 lg:sticky lg:top-6 lg:col-span-4">

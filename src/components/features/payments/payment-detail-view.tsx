@@ -249,14 +249,14 @@ export function PaymentDetailView({
 
       <Card className="overflow-hidden p-0 sm:p-0">
         <TableCardHeader
-          title="Invoice allocations"
-          count={`${payment.allocations.length} ${payment.allocations.length === 1 ? "allocation" : "allocations"}`}
+          title="Bills paid"
+          count={`${payment.allocations.length} ${payment.allocations.length === 1 ? "bill" : "bills"}`}
         />
 
         {payment.allocations.length === 0 ? (
           <TableEmptyState
-            title="No invoice allocations"
-            description="No invoice allocations on this entry."
+            title="No bills covered"
+            description="No bills were paid by this receipt."
           />
         ) : (
           <>
@@ -315,7 +315,7 @@ export function PaymentDetailView({
             </div>
             <TablePagination
               {...allocationsPage.paginationProps}
-              label="Invoice allocations table pagination"
+              label="Bills paid table pagination"
             />
           </>
         )}

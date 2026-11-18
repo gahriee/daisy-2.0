@@ -12,9 +12,9 @@ import {
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { DaisyBrand } from "@/components/layout/daisy-brand";
+import { NotificationCard } from "@/components/features/notifications/notification-card";
 import { OfflineStatusBar } from "@/components/features/offline/offline-status-bar";
 import { Alert } from "@/components/ui/alert";
-import { Badge } from "@/components/ui/badge";
 import { Button, buttonClasses } from "@/components/ui/button";
 import { Separator } from "@/components/ui/separator";
 import {
@@ -35,10 +35,15 @@ import {
   TopbarMenuButton,
   TopbarTitle,
 } from "@/components/ui/topbar";
+import {
+  chunkNotificationKeys,
+  NOTIFICATIONS_UPDATED_EVENT,
+  sortOwnerNotifications,
+  type OwnerNotification,
+} from "@/features/notifications/schemas";
 import { cn } from "@/lib/cn";
 import { formatManilaDateTime } from "@/lib/dates";
 import type { OwnerWorkspaceProfile } from "@/server/auth/workspace-profile";
-import type { OwnerNotification } from "@/server/notifications/service";
 
 const SIDEBAR_STORAGE_KEY = "daisy:sidebar-collapsed";
 const SIDEBAR_ROOMS_STORAGE_KEY = "daisy:sidebar-nav:rooms";
@@ -446,8 +451,27 @@ function TopbarOwnerControls({ profile }: { profile: OwnerWorkspaceProfile }) {
       .catch(() => {
         // Ignore unauthenticated/offline failures cleanly on public/static pages.
       });
+
+    function handleNotificationsUpdated(event: Event) {
+      const customEvent = event as CustomEvent<{
+        notifications?: OwnerNotification[];
+      }>;
+      if (Array.isArray(customEvent.detail?.notifications)) {
+        setNotifications(customEvent.detail.notifications);
+        setNotifLoaded(true);
+      }
+    }
+
+    window.addEventListener(
+      NOTIFICATIONS_UPDATED_EVENT,
+      handleNotificationsUpdated,
+    );
     return () => {
       active = false;
+      window.removeEventListener(
+        NOTIFICATIONS_UPDATED_EVENT,
+        handleNotificationsUpdated,
+      );
     };
   }, []);
 
@@ -483,33 +507,43 @@ function TopbarOwnerControls({ profile }: { profile: OwnerWorkspaceProfile }) {
   const [markReadError, setMarkReadError] = useState<string | null>(null);
   const [signOutConfirmOpen, setSignOutConfirmOpen] = useState(false);
 
+  const sortedNotifications = sortOwnerNotifications(notifications);
+  const previewNotifications = sortedNotifications.slice(0, 5);
   const unreadCount = notifications.filter((n) => !n.read).length;
 
   async function markAllRead() {
     const unreadKeys = notifications.filter((n) => !n.read).map((n) => n.key);
-    if (unreadKeys.length === 0 || markingRead) return;
+    const batches = chunkNotificationKeys(unreadKeys, 50);
+    if (batches.length === 0 || markingRead) return;
     setMarkReadError(null);
     setMarkingRead(true);
     try {
-      const response = await fetch("/api/notifications/read", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ keys: unreadKeys }),
-        cache: "no-store",
-      });
-      if (response.ok) {
-        const nowIso = new Date().toISOString();
-        setNotifications((prev) =>
-          prev.map((item) => ({
-            ...item,
-            read: true,
-            readAt: item.readAt ?? nowIso,
-          })),
-        );
-        setMarkReadConfirmOpen(false);
-      } else {
-        setMarkReadError("Could not mark notifications as read right now.");
+      for (const batch of batches) {
+        const response = await fetch("/api/notifications/read", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ keys: batch }),
+          cache: "no-store",
+        });
+        if (!response.ok) {
+          setMarkReadError("Could not mark notifications as read right now.");
+          return;
+        }
       }
+
+      const nowIso = new Date().toISOString();
+      const updated = notifications.map((item) => ({
+        ...item,
+        read: true,
+        readAt: item.readAt ?? nowIso,
+      }));
+      setNotifications(updated);
+      window.dispatchEvent(
+        new CustomEvent(NOTIFICATIONS_UPDATED_EVENT, {
+          detail: { notifications: updated },
+        }),
+      );
+      setMarkReadConfirmOpen(false);
     } catch {
       setMarkReadError("Connection interrupted while marking notifications.");
     } finally {
@@ -583,13 +617,22 @@ function TopbarOwnerControls({ profile }: { profile: OwnerWorkspaceProfile }) {
         {notifOpen && (
           <div
             role="dialog"
-            aria-label="Owner notifications"
-            className="absolute right-0 z-50 mt-2 w-80 max-w-[calc(100vw-2rem)] rounded-panel border border-border bg-surface p-3 shadow-[0_12px_28px_-16px_rgb(34_34_34/0.18)]"
+            aria-label="Notifications"
+            className="absolute right-0 z-50 mt-2 w-[22rem] max-w-[calc(100vw-1.5rem)] rounded-panel border border-border bg-surface p-3 shadow-[0_14px_32px_-16px_rgb(34_34_34/0.18)] sm:w-[24rem]"
           >
             <div className="flex items-center justify-between gap-2 border-b border-border pb-2.5">
-              <span className="text-sm font-semibold text-foreground">
-                Notifications
-              </span>
+              <div className="grid gap-0.5">
+                <span className="text-sm font-semibold text-foreground">
+                  Notifications
+                </span>
+                <span className="text-xs text-muted-foreground tabular-nums">
+                  {unreadCount > 0
+                    ? `${unreadCount} unread`
+                    : notifLoaded
+                      ? "All caught up"
+                      : "Loading alerts"}
+                </span>
+              </div>
               {unreadCount > 0 && (
                 <Button
                   size="sm"
@@ -606,36 +649,48 @@ function TopbarOwnerControls({ profile }: { profile: OwnerWorkspaceProfile }) {
               )}
             </div>
 
-            <div className="mt-2.5 grid max-h-72 gap-2 overflow-y-auto">
-              {!notifLoaded || notifications.length === 0 ? (
-                <p className="py-4 text-center text-xs text-muted-foreground">
+            <div className="mt-2.5 grid max-h-[min(65dvh,30rem)] gap-2 overflow-y-auto overscroll-contain">
+              {!notifLoaded || previewNotifications.length === 0 ? (
+                <p className="py-5 text-center text-xs text-muted-foreground">
                   No active alerts right now.
                 </p>
               ) : (
-                notifications.map((item) => (
-                  <Link
+                previewNotifications.map((item) => (
+                  <NotificationCard
                     key={item.key}
-                    href={item.destination}
-                    onClick={() => setNotifOpen(false)}
-                    className={cn(
-                      "grid gap-1 rounded-control border p-2.5 text-left transition-colors hover:bg-background",
-                      item.read
-                        ? "border-border bg-surface"
-                        : "border-warning-border bg-warning-surface/50",
-                    )}
-                  >
-                    <div className="flex items-center justify-between gap-2">
-                      <span className="text-xs font-semibold text-foreground">
-                        {item.title}
-                      </span>
-                      {!item.read && <Badge tone="warning">Unread</Badge>}
-                    </div>
-                    <p className="whitespace-pre-line text-xs leading-5 text-muted-foreground">
-                      {item.message}
-                    </p>
-                  </Link>
+                    notification={item}
+                    density="compact"
+                    onNavigate={() => setNotifOpen(false)}
+                  />
                 ))
               )}
+            </div>
+
+            <div className="mt-2.5 border-t border-border pt-2">
+              <Link
+                href="/notifications"
+                onClick={() => setNotifOpen(false)}
+                className="group flex min-h-11 items-center justify-between gap-2 rounded-control px-2.5 text-sm font-medium text-foreground transition-colors duration-(--duration-control) ease-(--ease-control) hover:bg-surface-muted"
+              >
+                <span>See all</span>
+                <span className="inline-flex items-center gap-1.5 text-xs text-muted-foreground tabular-nums">
+                  {notifications.length > 5 && (
+                    <span>5 of {notifications.length}</span>
+                  )}
+                  <svg
+                    aria-hidden="true"
+                    viewBox="0 0 16 16"
+                    fill="none"
+                    stroke="currentColor"
+                    strokeWidth="1.7"
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    className="size-3.5 text-muted-foreground transition-transform duration-(--duration-control) ease-(--ease-control) group-hover:translate-x-0.5 group-hover:text-foreground motion-reduce:transform-none"
+                  >
+                    <path d="M3.5 8h9m-3.5-3.5L12.5 8 9 11.5" />
+                  </svg>
+                </span>
+              </Link>
             </div>
           </div>
         )}
@@ -681,7 +736,7 @@ function TopbarOwnerControls({ profile }: { profile: OwnerWorkspaceProfile }) {
         {profileOpen && (
           <div
             role="menu"
-            aria-label="Owner account menu"
+            aria-label="Account menu"
             className="absolute right-0 z-50 mt-2 w-60 rounded-panel border border-border bg-surface p-2 shadow-[0_12px_28px_-16px_rgb(34_34_34/0.18)]"
           >
             <div className="grid gap-0.5 border-b border-border px-2.5 py-2">
@@ -716,7 +771,7 @@ function TopbarOwnerControls({ profile }: { profile: OwnerWorkspaceProfile }) {
                 onClick={() => setProfileOpen(false)}
                 className="flex min-h-9 items-center rounded-control px-2.5 py-1.5 text-sm leading-5 text-foreground transition-colors hover:bg-surface-muted"
               >
-                Audit log
+                Activity history
               </Link>
             </div>
 
@@ -767,7 +822,7 @@ function TopbarOwnerControls({ profile }: { profile: OwnerWorkspaceProfile }) {
         }}
         onConfirm={() => void handleSignOut()}
         title="Sign out of Daisy?"
-        description="Your active session on this browser will end and you will be returned to the sign-in page."
+        description="You will be signed out on this browser and returned to the sign-in screen."
         errorMessage={signOutError}
         confirmLabel="Sign out"
         confirmVariant="danger"
@@ -822,7 +877,7 @@ type WorkspaceShellProps = {
 export function WorkspaceShell({
   title,
   profile = {
-    ownerName: "Property Owner",
+    ownerName: "Property Manager",
     businessName: "Daisy Workspace",
   },
   primaryAction,
@@ -920,15 +975,6 @@ export function WorkspaceShell({
                 onClick={() => setSidebarOpen(false)}
               >
                 Reports
-              </SidebarLink>
-              <SidebarLink
-                href="/offline"
-                active={pathname === "/offline"}
-                icon={<PaymentsIcon />}
-                {...(sidebarCollapsed ? { title: "Offline vault" } : {})}
-                onClick={() => setSidebarOpen(false)}
-              >
-                Offline vault
               </SidebarLink>
             </SidebarGroup>
 
@@ -1077,10 +1123,10 @@ export function WorkspaceShell({
                 href="/audit"
                 active={pathname === "/audit"}
                 icon={<AuditIcon />}
-                {...(sidebarCollapsed ? { title: "Audit log" } : {})}
+                {...(sidebarCollapsed ? { title: "Activity history" } : {})}
                 onClick={() => setSidebarOpen(false)}
               >
-                Audit log
+                Activity history
               </SidebarLink>
               <SidebarNavDisclosure
                 label="Settings"

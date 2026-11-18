@@ -118,6 +118,7 @@ export function ApexChart({
         fontFamily: "var(--font-geist), system-ui, sans-serif",
         foreColor: "#6a6a6a",
         background: "transparent",
+        parentHeightOffset: 0,
         redrawOnParentResize: true,
         redrawOnWindowResize: true,
         ...options.chart,
@@ -186,6 +187,7 @@ export function ApexChart({
   }, [height, options, series, type]);
 
   const latestConfigRef = useRef<ApexOptions>(mergedConfig);
+  const renderedConfigRef = useRef<ApexOptions | null>(null);
 
   useEffect(() => {
     const target = containerRef.current;
@@ -193,37 +195,66 @@ export function ApexChart({
 
     let cancelled = false;
     readyRef.current = false;
+    renderedConfigRef.current = null;
+    target.replaceChildren();
+    target.style.minHeight = "";
 
     void import("apexcharts").then((mod) => {
       if (cancelled || !containerRef.current) return;
+      const mountNode = containerRef.current;
+      // Clear any leftover or aborted .apexcharts-canvas before appending a fresh chart.
+      mountNode.replaceChildren();
+      mountNode.style.minHeight = "";
+
+      const initialConfig = latestConfigRef.current;
+      renderedConfigRef.current = initialConfig;
+
       const ApexChartsCtor = mod.default;
-      const chart = new ApexChartsCtor(
-        containerRef.current,
-        latestConfigRef.current,
-      );
+      const chart = new ApexChartsCtor(mountNode, initialConfig);
       instanceRef.current = chart;
       void chart.render().then(() => {
-        if (cancelled) return;
+        if (cancelled || instanceRef.current !== chart) return;
         readyRef.current = true;
         setLoadedKey(chartKey);
-        void chart.updateOptions(latestConfigRef.current, false, false);
+        if (latestConfigRef.current !== renderedConfigRef.current) {
+          renderedConfigRef.current = latestConfigRef.current;
+          void chart.updateOptions(latestConfigRef.current, false, false);
+        }
       });
     });
 
     return () => {
       cancelled = true;
       readyRef.current = false;
+      renderedConfigRef.current = null;
       const existing = instanceRef.current;
       instanceRef.current = null;
       if (existing) {
-        existing.destroy();
+        // ApexCharts' destroy() leaves pending 150ms _windowResize timers active.
+        const resizeTimer = (
+          existing as unknown as {
+            w?: { globals?: { resizeTimer?: number } };
+          }
+        ).w?.globals?.resizeTimer;
+        if (typeof resizeTimer === "number") {
+          window.clearTimeout(resizeTimer);
+        }
+        try {
+          existing.destroy();
+        } catch {
+          // Ignore teardown errors if unmount occurred before mount settled.
+        }
       }
+      target.replaceChildren();
+      target.style.minHeight = "";
     };
   }, [chartKey]);
 
   useEffect(() => {
     latestConfigRef.current = mergedConfig;
     if (!readyRef.current || !instanceRef.current) return;
+    if (renderedConfigRef.current === mergedConfig) return;
+    renderedConfigRef.current = mergedConfig;
     const reducedMotion =
       typeof window !== "undefined" &&
       window.matchMedia("(prefers-reduced-motion: reduce)").matches;
@@ -239,7 +270,7 @@ export function ApexChart({
     >
       {!loaded && (
         <Skeleton
-          className="absolute inset-0 w-full rounded-control"
+          className="absolute inset-0 h-full w-full rounded-control"
           style={{ height }}
         />
       )}

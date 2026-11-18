@@ -168,7 +168,13 @@ persistent rail on `lg+` and slide-over drawer on mobile) paired with `Topbar`
 (`64 px` opaque hairline bar) establishes a centered workspace canvas
 in `src/components/layout/` (`max-w-7xl` with responsive outer margins from
 `16 px` on mobile to `40–56 px` on desktop), while primitives shrink cleanly
-within page grids.
+within page grids. Root scrolling sets `80 px` top scroll padding to clear the
+`64 px` sticky `Topbar`, smooth native anchor scrolling only when reduced motion
+is unset, `overscroll-contain` on bounded drawers, dialogs, tables, tabs, and
+select menus, and fine-pointer token-aligned scrollbars (`11 px` page / `9 px`
+inner panels with neutral `--control-border` -> `--muted-foreground` ->
+`--foreground` pill thumbs and transparent inner tracks) while preserving native
+overlay scrollbars on touch devices and system defaults in forced-colors mode.
 
 ## Elevation & Depth
 
@@ -249,17 +255,19 @@ forced-color mode restores native checkbox appearance and system highlights.
   `/reports` pairs KPI `MetricCard`s, dynamic `SearchFilterBar` date/building
   controls (no manual Apply button), analytical ApexCharts, and comparison /
   overall computation summary tables with `TableFooter` totals instead of raw
-  record lists (detailed line-item rows export via CSV).
+  record lists (detailed line-item rows download as a spreadsheet).
 - **Dialog vs. dedicated pages:** accessible modal surface (`role="dialog"`,
-  `aria-modal="true"`) with `Escape` and backdrop dismissal (suppressible via
-  `dismissDisabled` during pending saves), initial focus and return-focus
-  restoration, `FormDensityProvider` (`filter` density for compact modal
-  controls), and a `rounded-panel` hairline header/body layout sized cleanly for
-  `360 px` and desktop viewports. Reserve modals strictly for concise, focused
-  confirmations, previews, or compact lookups/forms; never render complex
-  multi-section workflows, file/gallery editors, or dynamic repeating-row forms
-  (such as invoice line items or payment invoice allocations) inside a modal—use
-  a dedicated sub-page (`/rooms/new`, `/rooms/[roomId]`,
+  `aria-modal="true"`) with `Escape` and explicit close/cancel button dismissal
+  (backdrop clicks do not close modals by default so active crops, form drafts,
+  and confirmations stay protected unless `closeOnBackdrop` is opted in;
+  suppressible via `dismissDisabled` during pending saves), initial focus and
+  return-focus restoration, `FormDensityProvider` (`filter` density for compact
+  modal controls), and a `rounded-panel` hairline header/body layout sized
+  cleanly for `360 px` and desktop viewports. Reserve modals strictly for
+  concise, focused confirmations, previews, or compact lookups/forms; never
+  render complex multi-section workflows, file/gallery editors, or dynamic
+  repeating-row forms (such as invoice line items or bill payments) inside a
+  modal; use a dedicated sub-page (`/rooms/new`, `/rooms/[roomId]`,
   `/transients/listings/[roomId]`, `/billing/new`, `/billing/[invoiceId]`,
   `/payments/new`, `/payments/[paymentId]`, `/maintenance/new`,
   `/maintenance/[requestId]`) paired with `CompactFormScope` and `Topbar`
@@ -267,8 +275,9 @@ forced-color mode restores native checkbox appearance and system highlights.
 - **ConfirmDialog:** shared confirmation modal
   (`src/components/ui/confirm-dialog.tsx`) built on `Dialog` that gates every
   immediate state-changing action across row menus, mobile cards, header buttons,
-  card controls, note deletions, maintenance holds, booking decisions, device
-  revocation, notification mark-read, and sign-out before executing mutations.
+  card controls, note deletions, maintenance holds, booking decisions, trusted
+  device removal, notification mark-read, and sign-out before executing
+  changes.
   Pairs a `secondary` Cancel control with a loading-guarded `primary` or
   destructive `danger` (`--danger` fill + white text) Confirm button, inline
   `details` / `warningMessage` / `errorMessage` feedback, and parent
@@ -280,9 +289,9 @@ forced-color mode restores native checkbox appearance and system highlights.
 - **Sidebar and Topbar:** sticky `256 px` white navigation rail (`Sidebar`,
   `lg:sticky lg:top-0 lg:h-svh`) with primary links (`Dashboard`,
   `Rooms & beds`, `Tenants`, `Transients`, `Billing`, `Payments`, `Maintenance`,
-  `Notices`, `Audit log`, `Settings`) without a Design system nav entry, a
+  `Notices`, `Activity history`, `Settings`) without a Design system nav entry, a
   bottom-mounted desktop rail collapse toggle (`76 px` icon rail paired with
-  live `Asia/Manila` date and time), and a full-width mobile slide-over drawer
+  live local date and time), and a full-width mobile slide-over drawer
   (`Escape` and backdrop dismiss). Desktop rail collapse and individual
   `SidebarNavDisclosure` expanded/collapsed states (`Rooms & beds`, `Settings`)
   persist across refreshes via `localStorage`.
@@ -291,8 +300,26 @@ forced-color mode restores native checkbox appearance and system highlights.
   The `64 px` sticky opaque `Topbar` pairs section breadcrumbs
   (`Settings > [module]`, `Rooms > [subpage]`, `Tenants > [tenant]`,
   `Transients > [subpage]`, `Billing > [invoice]`, `Payments > [payment]`,
-  `Maintenance > [request]`) with real Owner notification alerts and the Owner
-  profile & name menu (containing Settings shortcuts and sign-out).
+  `Maintenance > [request]`) with the `OfflineStatusBar` button (opening a
+  flat, non-nested `OfflineSyncDialog` modal for CSPRNG auto-generated offline
+  password setup compatible with browser/iOS password managers, unlock,
+  manual `Update now`, and `ConfirmDialog`-gated `Needs attention` review
+  without navigating away to `/offline`), live workspace notifications, and the
+  account profile menu (`Property Manager` fallback, Settings shortcuts, and
+  sign-out).
+- **Notifications (Topbar popover & `/notifications`):** notification cards keep
+  90–95% neutral surfaces (`bg-surface` with `--control-border` hairline and
+  dark charcoal `Unread` pill when unread; recessed `bg-background/65` stone
+  when read), remain static without card hover lift/background transitions, and
+  express category/urgency through a compact tonal icon tile rather than
+  full-card yellow fills. The `Topbar` popover displays at most `5`
+  unread-first notification cards (`ConfirmDialog`-gated `Mark read`) and a
+  `44 px` `See all` footer link to `/notifications`. The `/notifications` main
+  page pairs a standard workspace `<header>` (`h1`, subtitle, `Refresh`, and
+  `Mark all read`), 4 KPI `MetricCard`s, dynamic `SearchFilterBar` filters,
+  bulk `Checkbox` selection (`Mark as read`, `Mark as unread`, `Delete`),
+  per-card `RowActionMenu` (`Mark as read` / `Mark as unread` / `Delete`) gated
+  by `ConfirmDialog`, pagination, and live header badge synchronization.
 - **Tabs (`Tabs`, `TabsList`, `TabsTrigger`, `TabsContent`):** WAI-ARIA `tablist`
   supporting arrow/Home/End keyboard switching, `44 px` touch targets, tabular
   badge counts, and `underline` (2 px Rausch active bar) or `segmented` (stone
@@ -302,7 +329,7 @@ forced-color mode restores native checkbox appearance and system highlights.
   a consistent `TableCardHeader` bar (title on the left, tabular item/record
   count and optional header actions on the right) across both module workspaces
   and detail-view ledgers (`Line items`, `Linked adjustments`,
-  `Invoice allocations`, `Attached proofs`, `Attachments`, `Updates`, `Notes`,
+  `Bills paid`, `Attached proofs`, `Attachments`, `Updates`, `Notes`,
   `Assignment history`, `Signed contracts`, `Invoices`, `Payments`,
   `Public booking room publishing`, `Transient guests`), rendering stacked
   mobile cards (`md:hidden`) paired with `hidden md:block` desktop tables,
@@ -342,23 +369,8 @@ forced-color mode restores native checkbox appearance and system highlights.
   (`icon`, `wordmark`, `lockup`) and `tone` (`light`, `dark`, `monochrome`),
   mirrored by static raster `.png` and vector `.svg` exports in `public/brand/`
   and previewed in `/design-system`. Avoid clip-art petals, gradients, shadows, or dots.
-- **Public booking & transients workspace (`/book`, `/transients`, `/transients/requests/[requestId]`):**
-  `/book` renders outside the Owner sidebar on the warm stone light ground with a
-  clean sticky header, date/party availability filter, published room cards
-  featuring an optional card preview cover (`previewImageUrl`, omitted when
-  unset), `View photos (N)` gallery modal with captions, Prev/Next buttons,
-  arrow-key navigation, and thumbnail strip, estimated `tabular-nums` PHP
-  totals, privacy-consent modal, and explicit retry-same-key offline error
-  recovery (`document-search.svg` when no rooms are published). On dedicated
-  `/rooms/new`, `/rooms/[roomId]`, and `/transients/listings/[roomId]` pages,
-  `Room type` options show names without inline `(₱.../mo)` pricing,
-  monthly/daily rates appear in a read-only summary sourced from the selected
-  room type, and Owners manage 1 preview image plus up to 8 captioned gallery
-  shots. `/transients` pairs KPI summary cards, `SearchFilter` with `Select`
-  filters for requests and stays, room publishing & policy panels, and 360 px
-  mobile card lists + desktop tables, while `/transients/requests/[requestId]`
-  renders independent Owner rate-change review and bed/guest assignment before
-  approval.
+- **Public booking & transients workspace (`/book`, `/book/[roomId]`, `/book/[roomId]/request`, `/transients`, `/transients/requests/[requestId]`):**
+  `/book` renders outside the management sidebar as a full-width, edge-to-edge commercial booking storefront (`w-full px-4 sm:px-6 lg:px-10`, 1–5 column card grid) modeled after commercial travel storefronts in `Rausch and charcoal` without modal dialogs for viewing rooms or submitting requests. `PublicBookingHeader` and `PublicBookingFooter` stay dedicated to guests (property brand lockup on the left, optional front-desk phone link on the right, subtle hero photo attribution line in the `/book` footer, zero staff sign-in or boxy back buttons in the navbar), while `PublicBookingBackLink` sits cleanly as an understated inline text link directly above subpage headings on `/book/[roomId]` and `/book/[roomId]/request`. Main `/book` opens with a plain full-bleed-edge sunlit room hero photograph (`public/images/hero/stay-hero-*.jpg`, no text overlays or scrims), followed by a centered `When` (check-in/check-out dates), `Who` (`44 px` Adults/Children steppers), and Rausch `Search` pill straddling its bottom edge (`sm+`), the `Rooms for short stays` section heading positioned below the search bar, and 1–5 column listing cards with `44 px` sibling carousel controls, plain everyday language (`Private room`, `Shared room (1 guest per bed)`, `Up to date` / `Saved on this device`, senior-friendly labels without technical or `"Owner"` jargon across the workspace), exact PHP totals, and links to dedicated `/book/[roomId]` and `/book/[roomId]/request` pages. Dedicated `/book/[roomId]` pairs a `4:3` arrow-key photo viewer, `4:3` thumbnails, and full `#photos` `4:3` captioned gallery with a sticky right-hand stay calculator. Dedicated `/book/[roomId]/request` aligns editable stay fields with a proportional 12-column guest form (`Full name` `6`, `Age` `2`, compact `Male`/`Female` `radiogroup` matched to `Input` height `4`, `Address` `12`, `Contact no.` `6`, `Email (optional)` `6`, `Note for the host (optional)` `12`), field-level focus validation, payload-keyed retries, and an inline copyable confirmation screen (`Waiting for host confirmation`). Boarding House `/rooms/new` and `/rooms/[roomId]` omit room photos, while on `/transients/rooms/new`, `/transients/rooms/[roomId]`, and `/transients/listings/[roomId]`, `Room type` options omit inline `(₱.../mo)` pricing, read-only rate summaries resolve from the selected type, and property managers upload 1 cover photo plus unlimited captioned gallery shots cropped on-demand (`react-easy-crop`) to `1200 × 900` px (`4:3`) matching `/book` and `/book/[roomId]`. `/transients` pairs KPI cards, `SearchFilter`, and 360 px mobile lists + desktop tables, while `/transients/requests/[requestId]` displays all submitted guest fields alongside rate-change review and bed/guest assignment before approval (`Approve & reserve room`).
 - **Tenants directory & separate notes (`/tenants`, `/tenants/[tenantId]`):**
   `/tenants` opens separate timestamped `TenantNote` management from the row
   `•••` menu and mobile card actions (`Notes` / `Notes (N)`) via `TenantNotesDialog`

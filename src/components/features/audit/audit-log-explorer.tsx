@@ -85,6 +85,19 @@ const AREA_BADGE_TONE: Record<
   sync: "success",
 };
 
+function formatActivityLabel(value: string): string {
+  const cleaned = value.trim().replaceAll(".", " · ").replaceAll("_", " ");
+  return cleaned ? cleaned.charAt(0).toUpperCase() + cleaned.slice(1) : value;
+}
+
+function formatActivityActor(actorType: string): string {
+  const normalized = actorType.trim().toLowerCase();
+  if (normalized === "owner") return "Property Manager";
+  if (normalized === "system") return "Automatic";
+  if (normalized === "public") return "Guest";
+  return formatActivityLabel(actorType);
+}
+
 function buildQueryString(filters: AuditFiltersState): string {
   const params = new URLSearchParams();
   if (filters.area !== "all") params.set("area", filters.area);
@@ -158,7 +171,7 @@ export function AuditLogExplorer({
         if (controller.signal.aborted) return;
         if (!response.ok) {
           setErrorMessage(
-            data.error ?? "Could not load matching audit entries.",
+            data.error ?? "Could not load matching activity records.",
           );
           return;
         }
@@ -172,8 +185,8 @@ export function AuditLogExplorer({
         }
         setErrorMessage(
           typeof navigator !== "undefined" && !navigator.onLine
-            ? "Offline: reconnecting is required to query server audit logs."
-            : "Connection interrupted while updating audit logs.",
+            ? "You are offline. Reconnect to view activity history."
+            : "Connection stopped while refreshing activity history.",
         );
       } finally {
         if (!controller.signal.aborted) {
@@ -228,11 +241,11 @@ export function AuditLogExplorer({
             id="audit-heading"
             className="text-xl font-semibold tracking-tight text-foreground sm:text-2xl"
           >
-            Audit log
+            Activity history
           </h1>
           <p className="max-w-prose text-sm text-muted-foreground">
-            Identifier-only activity across settings, devices, and records in
-            local time.
+            Saved changes across settings, devices, and records shown in local
+            time.
           </p>
         </div>
 
@@ -270,7 +283,7 @@ export function AuditLogExplorer({
         updating={updating}
         hasActiveFilters={hasActiveFilters}
         onClearAll={clearAllFilters}
-        aria-label="Find audit activity"
+        aria-label="Find activity"
       >
         <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-[minmax(220px,1.7fr)_minmax(150px,0.9fr)_minmax(140px,0.8fr)_minmax(140px,0.8fr)]">
           <Field id="audit-search" label="Find activity">
@@ -279,7 +292,7 @@ export function AuditLogExplorer({
                 {...props}
                 value={searchInput}
                 onValueChange={setSearchInput}
-                placeholder="Action, entity, actor, or ID"
+                placeholder="Search action, record, or reference"
               />
             )}
           </Field>
@@ -365,13 +378,13 @@ export function AuditLogExplorer({
           <div className="grid justify-items-center gap-1.5">
             <EmptyStateTitle id="audit-empty-title">
               {hasActiveFilters
-                ? "No matching audit entries"
-                : "No audit entries recorded yet"}
+                ? "No matching activity"
+                : "No activity recorded yet"}
             </EmptyStateTitle>
             <EmptyStateDescription>
               {hasActiveFilters
-                ? "Try clearing what you entered or broadening the date range."
-                : "Saved property settings and domain mutations appear here without exposing personal details."}
+                ? "Clear your search or choose a wider date range."
+                : "Saved changes to your property settings and records appear here without showing private details."}
             </EmptyStateDescription>
           </div>
           {hasActiveFilters && (
@@ -393,10 +406,11 @@ export function AuditLogExplorer({
                 id="audit-table-heading"
                 className="text-sm font-semibold text-foreground"
               >
-                Recorded activity
+                Recorded changes
               </h2>
               <p className="text-xs text-muted-foreground">
-                Read and query requests never generate audit entries.
+                Viewing pages does not add items here. Only saved changes are
+                recorded.
               </p>
             </div>
             <span className="text-xs font-medium text-muted-foreground tabular-nums">
@@ -418,18 +432,16 @@ export function AuditLogExplorer({
                       {formatManilaDateTime(new Date(entry.createdAt))}
                     </span>
                   </div>
-                  <p className="font-mono text-xs font-medium text-foreground">
-                    {entry.action}
+                  <p className="text-xs font-medium text-foreground">
+                    {formatActivityLabel(entry.action)}
                   </p>
                   <div className="flex flex-wrap items-center justify-between gap-2 text-xs text-muted-foreground">
                     <div className="grid gap-0.5">
-                      <span>{entry.actorType}</span>
-                      <span>{entry.entityType}</span>
+                      <span>{formatActivityActor(entry.actorType)}</span>
+                      <span>{formatActivityLabel(entry.entityType)}</span>
                     </div>
                     {entry.sequence && (
-                      <span className="font-mono tabular-nums">
-                        #{entry.sequence}
-                      </span>
+                      <span className="tabular-nums">#{entry.sequence}</span>
                     )}
                   </div>
                   <p className="truncate rounded-control bg-background px-2.5 py-1.5 font-mono text-xs text-muted-foreground">
@@ -445,16 +457,16 @@ export function AuditLogExplorer({
               <TableHeader>
                 <TableRow>
                   <TableHead {...sortHeaderProps("createdAt")}>
-                    Timestamp
+                    Date &amp; time
                   </TableHead>
                   <TableHead {...sortHeaderProps("area")}>Area</TableHead>
-                  <TableHead {...sortHeaderProps("action")}>Action</TableHead>
-                  <TableHead {...sortHeaderProps("actor")}>Actor</TableHead>
-                  <TableHead {...sortHeaderProps("entity")}>
-                    Entity &amp; record ID
+                  <TableHead {...sortHeaderProps("action")}>
+                    What changed
                   </TableHead>
+                  <TableHead {...sortHeaderProps("actor")}>Who</TableHead>
+                  <TableHead {...sortHeaderProps("entity")}>Record</TableHead>
                   <TableHead numeric {...sortHeaderProps("seq")}>
-                    Seq
+                    #
                   </TableHead>
                 </TableRow>
               </TableHeader>
@@ -471,22 +483,24 @@ export function AuditLogExplorer({
                         ] ?? entry.area}
                       </Badge>
                     </TableCell>
-                    <TableCell className="font-mono text-xs font-medium text-foreground">
-                      {entry.action}
+                    <TableCell className="text-xs font-medium text-foreground">
+                      {formatActivityLabel(entry.action)}
                     </TableCell>
                     <TableCell className="text-muted-foreground">
-                      {entry.actorType}
+                      {formatActivityActor(entry.actorType)}
                     </TableCell>
-                    <TableCell className="font-mono text-xs text-muted-foreground">
+                    <TableCell className="text-xs text-muted-foreground">
                       <span className="text-foreground">
-                        {entry.entityType}
+                        {formatActivityLabel(entry.entityType)}
                       </span>
                       {": "}
-                      <span className="break-all">{entry.entityId}</span>
+                      <span className="font-mono break-all">
+                        {entry.entityId}
+                      </span>
                     </TableCell>
                     <TableCell
                       numeric
-                      className="font-mono text-xs text-muted-foreground"
+                      className="text-xs text-muted-foreground tabular-nums"
                     >
                       {entry.sequence ?? "—"}
                     </TableCell>
@@ -497,7 +511,7 @@ export function AuditLogExplorer({
           </div>
           <TablePagination
             {...auditPaginationProps}
-            label="Audit log table pagination"
+            label="Activity history pagination"
           />
         </section>
       )}

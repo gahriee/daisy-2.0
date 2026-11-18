@@ -255,9 +255,7 @@ export function DashboardWorkspace({
         const body = (await res.json().catch(() => null)) as {
           message?: string;
         } | null;
-        throw new Error(
-          body?.message ?? "Could not refresh the dashboard snapshot.",
-        );
+        throw new Error(body?.message ?? "Could not refresh the dashboard.");
       }
       return (await res.json()) as DashboardSnapshotDto;
     },
@@ -271,8 +269,8 @@ export function DashboardWorkspace({
       } catch (error) {
         setRefreshError(
           error instanceof Error
-            ? `${error.message} Showing the last loaded snapshot.`
-            : "Could not refresh the dashboard snapshot. Showing the last loaded snapshot.",
+            ? `${error.message} Showing the last saved summary.`
+            : "Could not refresh the dashboard. Showing the last saved summary.",
         );
       }
     });
@@ -1032,7 +1030,7 @@ export function DashboardWorkspace({
               href="/audit"
               className={buttonClasses({ variant: "secondary", size: "sm" })}
             >
-              Audit log
+              Activity history
             </Link>
           </div>
         </Card>

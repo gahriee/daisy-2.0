@@ -239,8 +239,9 @@ export function MaintenanceDetailView({
                   },
                 }
               : {}),
-            syncedMessage: "Maintenance update saved and synced.",
-            queuedMessage: "Update saved on this device (pending sync).",
+            syncedMessage: "Repair update saved.",
+            queuedMessage:
+              "Update saved on this device (waiting to go online).",
           });
           setStatusTo("");
           setNote("");
@@ -378,11 +379,11 @@ export function MaintenanceDetailView({
               updatedAt: nowIso,
             },
             syncedMessage: isArchived
-              ? "Maintenance request restored and synced."
-              : "Maintenance request archived and synced.",
+              ? "Repair request restored."
+              : "Repair request archived.",
             queuedMessage: isArchived
-              ? "Restore saved on this device (pending sync)."
-              : "Archive saved on this device (pending sync).",
+              ? "Restore saved on this device (waiting to go online)."
+              : "Archive saved on this device (waiting to go online).",
           });
           setPendingConfirm(null);
           setFeedback({
@@ -727,8 +728,8 @@ export function MaintenanceDetailView({
                   Add status update or note
                 </h2>
                 <p className="text-xs text-muted-foreground">
-                  Updates append to the audit timeline and cannot be edited once
-                  posted.
+                  Updates are added to your repair history and cannot be changed
+                  once saved.
                 </p>
               </div>
 
@@ -799,7 +800,7 @@ export function MaintenanceDetailView({
                                 ? "Uploading…"
                                 : item.status === "ready"
                                   ? item.queuedBytes
-                                    ? "Queued for sync"
+                                    ? "Waiting to save"
                                     : "Uploaded"
                                   : (item.errorMessage ?? "Error")}
                             </span>
@@ -1029,12 +1030,12 @@ export function MaintenanceDetailView({
         }
         description={
           pendingConfirm === "archive"
-            ? "Archiving hides this request from active maintenance views. You can restore it anytime."
+            ? "Archiving hides this request from active repair lists. You can restore it anytime."
             : pendingConfirm === "restore"
-              ? "Restoring returns this maintenance request to active queues."
+              ? "Restoring puts this repair request back in your active list."
               : pendingConfirm === "complete-hold"
-                ? "Completing the hold marks the repair complete and restores room availability."
-                : "Cancelling the hold immediately ends the maintenance block and restores room availability."
+                ? "Completing the hold marks the repair done and makes the room available again."
+                : "Cancelling the hold immediately makes the room available for stays again."
         }
         errorMessage={confirmError}
         confirmLabel={

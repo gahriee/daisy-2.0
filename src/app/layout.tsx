@@ -13,9 +13,9 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "Daisy · Owner workspace",
+  title: "Daisy Property Manager",
   description:
-    "Single-Owner management workspace for rooms, tenants, transient stays, billing, and records.",
+    "Manage rooms, tenants, short stays, monthly bills, and payment records in one place.",
 };
 
 export default function RootLayout({ children }: LayoutProps<"/">) {

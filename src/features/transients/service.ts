@@ -65,6 +65,7 @@ import {
   type CreateTransientGuestInput,
   type CreateTransientReservationInput,
   type CreateTransientStayInvoiceInput,
+  type GuestSexValue,
   type RejectBookingRequestInput,
   type TransientBedOptionDto,
   type TransientGuestDto,
@@ -284,6 +285,9 @@ export const bookingRequestSelect = {
   roomId: true,
   scope: true,
   guestName: true,
+  guestAge: true,
+  guestSex: true,
+  guestAddress: true,
   guestPhone: true,
   guestEmail: true,
   notes: true,
@@ -291,6 +295,8 @@ export const bookingRequestSelect = {
   checkOutDateManila: true,
   nights: true,
   partySize: true,
+  adultsCount: true,
+  childrenCount: true,
   quotedDailyRate: true,
   quotedTotalAmount: true,
   privacyConsentAccepted: true,
@@ -317,6 +323,9 @@ type SelectedBookingRequestRow = {
   roomId: string;
   scope: "BED" | "WHOLE_ROOM";
   guestName: string;
+  guestAge: number | null;
+  guestSex: string | null;
+  guestAddress: string | null;
   guestPhone: string | null;
   guestEmail: string | null;
   notes: string | null;
@@ -324,6 +333,8 @@ type SelectedBookingRequestRow = {
   checkOutDateManila: string;
   nights: number;
   partySize: number;
+  adultsCount: number | null;
+  childrenCount: number | null;
   quotedDailyRate: { toString(): string };
   quotedTotalAmount: { toString(): string };
   privacyConsentAccepted: boolean;
@@ -340,6 +351,10 @@ type SelectedBookingRequestRow = {
     roomType: { name: string; dailyRate: { toString(): string } | null };
   };
 };
+
+function normalizeGuestSex(raw: string | null): GuestSexValue | null {
+  return raw === "MALE" || raw === "FEMALE" ? raw : null;
+}
 
 export function toBookingRequestDto(
   row: SelectedBookingRequestRow,
@@ -364,6 +379,9 @@ export function toBookingRequestDto(
     roomTypeName: row.room.roomType.name,
     scope: row.scope,
     guestName: row.guestName,
+    guestAge: row.guestAge,
+    guestSex: normalizeGuestSex(row.guestSex),
+    guestAddress: row.guestAddress,
     guestPhone: row.guestPhone,
     guestEmail: row.guestEmail,
     notes: row.notes,
@@ -371,6 +389,8 @@ export function toBookingRequestDto(
     checkOutDateManila: row.checkOutDateManila,
     nights: row.nights,
     partySize: row.partySize,
+    adultsCount: row.adultsCount,
+    childrenCount: row.childrenCount,
     quotedDailyRate: decimalToString(row.quotedDailyRate),
     quotedTotalAmount: decimalToString(row.quotedTotalAmount),
     currentDailyRate,
@@ -1848,12 +1868,17 @@ export async function approveBookingRequest(
           roomId: true,
           scope: true,
           guestName: true,
+          guestAge: true,
+          guestSex: true,
+          guestAddress: true,
           guestPhone: true,
           guestEmail: true,
           notes: true,
           checkInDateManila: true,
           checkOutDateManila: true,
           partySize: true,
+          adultsCount: true,
+          childrenCount: true,
           quotedDailyRate: true,
           room: {
             select: {
@@ -1933,11 +1958,21 @@ export async function approveBookingRequest(
         }
         guestId = existingGuest.id;
       } else {
+        const demographicNotes = [
+          request.guestAge != null ? `Age: ${request.guestAge}` : null,
+          request.guestSex
+            ? `Sex: ${request.guestSex === "MALE" ? "Male" : "Female"}`
+            : null,
+          request.guestAddress ? `Address: ${request.guestAddress}` : null,
+        ]
+          .filter(Boolean)
+          .join(", ");
+
         const createdGuest = await createTransientGuestInTx(tx, ownerUserId, {
           fullName: request.guestName,
           phone: request.guestPhone,
           email: request.guestEmail,
-          notes: null,
+          notes: demographicNotes || null,
         });
         guestId = createdGuest.id;
       }

@@ -6,6 +6,9 @@ import {
   CreateRoomSchema,
   CreateRoomTypeSchema,
   parseRoomPhotosManifestJsonField,
+  ROOM_PHOTO_ASPECT_RATIO,
+  ROOM_PHOTO_OUTPUT_HEIGHT,
+  ROOM_PHOTO_OUTPUT_WIDTH,
   RoomPhotoManifestSchema,
   UpdateBedSchema,
   UpdateRoomSchema,
@@ -198,7 +201,11 @@ describe("rooms, room types & beds schemas", () => {
     expect(parsed.transientDailyRate).toBeNull();
   });
 
-  it("validates room photo upload intents, captions, max gallery shots, and FormData parsing", () => {
+  it("validates room photo upload intents, captions, unlimited gallery shots, boarding rejection, and FormData parsing", () => {
+    expect(ROOM_PHOTO_OUTPUT_WIDTH).toBe(1200);
+    expect(ROOM_PHOTO_OUTPUT_HEIGHT).toBe(900);
+    expect(ROOM_PHOTO_ASPECT_RATIO).toBeCloseTo(4 / 3, 6);
+
     const validSha = "a".repeat(64);
     expect(
       CreateRoomPhotoIntentSchema.safeParse({
@@ -230,19 +237,59 @@ describe("rooms, room types & beds schemas", () => {
     });
     expect(manifest.gallery[0]?.caption).toBe("Study desk by south window");
 
-    expect(
-      RoomPhotoManifestSchema.safeParse({
-        preview: null,
-        gallery: Array.from({ length: 9 }, () => ({
-          kind: "intent" as const,
-          intentId: randomUUID(),
-          caption: null,
-        })),
-      }).success,
-    ).toBe(false);
+    // Transient room photo gallery accepts more than 8 shots without an artificial cap.
+    const largeManifest = RoomPhotoManifestSchema.safeParse({
+      preview: null,
+      gallery: Array.from({ length: 12 }, (_, idx) => ({
+        kind: "intent" as const,
+        intentId: randomUUID(),
+        caption: `Shot ${idx + 1}`,
+      })),
+    });
+    expect(largeManifest.success).toBe(true);
 
     const formData = new FormData();
     formData.set("roomPhotosJson", JSON.stringify(manifest));
     expect(parseRoomPhotosManifestJsonField(formData)).toEqual(manifest);
+
+    // Boarding House rooms reject public room photos on create and update.
+    const roomTypeId = randomUUID();
+    expect(
+      CreateRoomSchema.safeParse({
+        building: "BOARDING",
+        number: "101",
+        roomTypeId,
+        capacity: 1,
+        baseMonthlyRate: "4500",
+        photos: manifest,
+      }).success,
+    ).toBe(false);
+
+    expect(
+      UpdateRoomSchema.safeParse({
+        roomId: randomUUID(),
+        expectedVersion: 1,
+        building: "BOARDING",
+        number: "101",
+        roomTypeId,
+        capacity: 1,
+        baseMonthlyRate: "4500",
+        photos: {
+          preview: { kind: "intent", intentId: randomUUID(), caption: null },
+          gallery: [],
+        },
+      }).success,
+    ).toBe(false);
+
+    expect(
+      CreateRoomSchema.safeParse({
+        building: "BOARDING",
+        number: "101",
+        roomTypeId,
+        capacity: 1,
+        baseMonthlyRate: "4500",
+        photos: { preview: null, gallery: [] },
+      }).success,
+    ).toBe(true);
   });
 });

@@ -104,9 +104,8 @@ export function CreateTransientGuestDialog({
               createdAt: nowIso,
               updatedAt: nowIso,
             },
-            syncedMessage: "Transient guest added and synced.",
-            queuedMessage:
-              "Transient guest saved on this device (pending sync).",
+            syncedMessage: "Guest added.",
+            queuedMessage: "Guest saved on this device (waiting to go online).",
           });
           onClose();
           await onSaved(
@@ -142,6 +141,7 @@ export function CreateTransientGuestDialog({
     <Dialog
       open={open}
       onClose={onClose}
+      dismissDisabled={pending}
       title="Add transient guest"
       description="Store contact details separately from boarders so repeat short stays can be booked cleanly."
     >
@@ -213,7 +213,12 @@ export function CreateTransientGuestDialog({
         </Field>
 
         <div className="flex flex-wrap justify-end gap-2.5 pt-2">
-          <Button type="button" variant="secondary" onClick={onClose}>
+          <Button
+            type="button"
+            variant="secondary"
+            disabled={pending}
+            onClick={onClose}
+          >
             Cancel
           </Button>
           <Button type="submit" loading={pending}>
@@ -337,9 +342,9 @@ export function CreateTransientReservationDialog({
               createdAt: nowIso,
               updatedAt: nowIso,
             },
-            syncedMessage: "Transient reservation saved and synced.",
+            syncedMessage: "Short stay reserved.",
             queuedMessage:
-              "Tentative stay saved on this device (requires server confirmation on sync).",
+              "Short stay saved on this device (waiting to confirm once online).",
           });
           onClose();
           await onSaved(
@@ -396,9 +401,10 @@ export function CreateTransientReservationDialog({
     <Dialog
       open={open}
       onClose={onClose}
+      dismissDisabled={pending}
       maxWidthClassName="max-w-xl"
-      title="Book transient stay"
-      description="Creates a room allocation across the scheduled check-in and check-out times."
+      title="Book short stay"
+      description="Reserves the room across your chosen check-in and check-out times."
     >
       <form action={submitAction} className="grid gap-4">
         <input type="hidden" name="scope" value="WHOLE_ROOM" />
@@ -566,7 +572,12 @@ export function CreateTransientReservationDialog({
         </div>
 
         <div className="flex flex-wrap justify-end gap-2.5 pt-2">
-          <Button type="button" variant="secondary" onClick={onClose}>
+          <Button
+            type="button"
+            variant="secondary"
+            disabled={pending}
+            onClick={onClose}
+          >
             Cancel
           </Button>
           <Button
@@ -610,10 +621,11 @@ export function CancelTransientDialog({
     <Dialog
       open={Boolean(reservation)}
       onClose={onClose}
+      dismissDisabled={pending}
       title="Cancel transient stay"
       {...(reservation
         ? {
-            description: `Releases Room ${reservation.roomNumber} allocation for ${reservation.guestName}.`,
+            description: `Frees Room ${reservation.roomNumber} from ${reservation.guestName}'s reservation.`,
           }
         : {})}
     >
@@ -642,7 +654,12 @@ export function CancelTransientDialog({
             )}
           </Field>
           <div className="flex flex-wrap justify-end gap-2.5 pt-2">
-            <Button type="button" variant="secondary" onClick={onClose}>
+            <Button
+              type="button"
+              variant="secondary"
+              disabled={pending}
+              onClick={onClose}
+            >
               Keep stay
             </Button>
             <Button type="submit" variant="danger" loading={pending}>
@@ -686,8 +703,9 @@ export function TransientPolicyNoteDialog({
     <Dialog
       open={open}
       onClose={onClose}
+      dismissDisabled={pending}
       title="Public transient policy note"
-      description="Shown on /book next to check-in/out times so visitors know payment, ID, and house rules before submitting a request."
+      description="Shown on your public booking page next to check-in/out times so visitors know payment, ID, and house rules before sending a request."
     >
       <form action={submitAction} className="grid gap-4">
         {state.status === "error" && (
@@ -704,12 +722,17 @@ export function TransientPolicyNoteDialog({
               onChange={(e) => setNote(e.target.value)}
               rows={4}
               maxLength={1000}
-              placeholder="Bring one valid ID on arrival. Requests wait for Owner confirmation before beds are held."
+              placeholder="Bring one valid ID on arrival. Requests wait for host confirmation before beds are held."
             />
           )}
         </Field>
         <div className="flex flex-wrap justify-end gap-2.5 pt-2">
-          <Button type="button" variant="secondary" onClick={onClose}>
+          <Button
+            type="button"
+            variant="secondary"
+            disabled={pending}
+            onClick={onClose}
+          >
             Cancel
           </Button>
           <Button type="submit" loading={pending}>

@@ -108,6 +108,70 @@ describe("transients Zod schemas and sync contracts", () => {
       privacyConsentAccepted: true,
     });
     expect(ok.guestEmail).toBeNull();
+    expect(ok.guestAge).toBeNull();
+    expect(ok.guestSex).toBeNull();
+    expect(ok.guestAddress).toBeNull();
+    expect(ok.adultsCount).toBeNull();
+    expect(ok.childrenCount).toBeNull();
+
+    const withDemographics = SubmitPublicBookingRequestSchema.parse({
+      idempotencyKey: "req-token-demographics-1",
+      roomId: ROOM_ID,
+      scope: "WHOLE_ROOM",
+      checkInDateManila: "2026-11-15",
+      checkOutDateManila: "2026-11-18",
+      partySize: 3,
+      adultsCount: 2,
+      childrenCount: 1,
+      guestName: "  Elena Cruz  ",
+      guestAge: 29,
+      guestSex: "FEMALE",
+      guestAddress: "  Baguio City, Benguet  ",
+      guestPhone: "09171234567",
+      guestEmail: "elena@example.com",
+      notes: null,
+      privacyConsentAccepted: true,
+    });
+    expect(withDemographics.guestName).toBe("Elena Cruz");
+    expect(withDemographics.guestAge).toBe(29);
+    expect(withDemographics.guestSex).toBe("FEMALE");
+    expect(withDemographics.guestAddress).toBe("Baguio City, Benguet");
+    expect(withDemographics.adultsCount).toBe(2);
+    expect(withDemographics.childrenCount).toBe(1);
+
+    const mismatchedAdultsChildren = SubmitPublicBookingRequestSchema.safeParse(
+      {
+        idempotencyKey: "req-token-demographics-2",
+        roomId: ROOM_ID,
+        scope: "WHOLE_ROOM",
+        checkInDateManila: "2026-11-15",
+        checkOutDateManila: "2026-11-18",
+        partySize: 3,
+        adultsCount: 1,
+        childrenCount: 1,
+        guestName: "Elena Cruz",
+        guestAge: 29,
+        guestSex: "FEMALE",
+        guestAddress: "Baguio City",
+        guestPhone: "09171234567",
+        privacyConsentAccepted: true,
+      },
+    );
+    expect(mismatchedAdultsChildren.success).toBe(false);
+
+    const partialAdultsOnly = SubmitPublicBookingRequestSchema.safeParse({
+      idempotencyKey: "req-token-demographics-3",
+      roomId: ROOM_ID,
+      scope: "WHOLE_ROOM",
+      checkInDateManila: "2026-11-15",
+      checkOutDateManila: "2026-11-18",
+      partySize: 2,
+      adultsCount: 2,
+      guestName: "Elena Cruz",
+      guestPhone: "09171234567",
+      privacyConsentAccepted: true,
+    });
+    expect(partialAdultsOnly.success).toBe(false);
   });
 
   it("produces deterministic sync fingerprints across payload key ordering", () => {

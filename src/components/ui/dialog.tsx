@@ -10,13 +10,15 @@ type DialogProps = {
   title: string;
   description?: ReactNode;
   dismissDisabled?: boolean;
+  closeOnBackdrop?: boolean;
   maxWidthClassName?: string;
   children: ReactNode;
 };
 
 /**
- * Protected-focus accessible dialog surface with Escape and backdrop dismissal
- * designed to preserve form drafts across validation or conflict recovery.
+ * Protected-focus accessible dialog surface with Escape and explicit button
+ * dismissal. Background clicks do not dismiss by default so active crops, form
+ * drafts, and explicit confirmations stay intact across accidental taps.
  */
 export function Dialog({
   open,
@@ -24,6 +26,7 @@ export function Dialog({
   title,
   description,
   dismissDisabled = false,
+  closeOnBackdrop = false,
   maxWidthClassName = "max-w-lg",
   children,
 }: DialogProps) {
@@ -41,16 +44,43 @@ export function Dialog({
     return () => window.removeEventListener("keydown", handleKeyDown);
   }, [open, dismissDisabled, onClose]);
 
+  useEffect(() => {
+    if (!open) return;
+    const body = document.body;
+    const count = Number(body.dataset.daisyScrollLocks ?? "0");
+    if (count === 0) {
+      body.dataset.daisyPreviousOverflow = body.style.overflow;
+      body.style.overflow = "hidden";
+    }
+    body.dataset.daisyScrollLocks = String(count + 1);
+
+    return () => {
+      const current = Number(body.dataset.daisyScrollLocks ?? "1");
+      const next = Math.max(0, current - 1);
+      if (next === 0) {
+        body.style.overflow = body.dataset.daisyPreviousOverflow ?? "";
+        delete body.dataset.daisyScrollLocks;
+        delete body.dataset.daisyPreviousOverflow;
+      } else {
+        body.dataset.daisyScrollLocks = String(next);
+      }
+    };
+  }, [open]);
+
   if (!open) return null;
 
   return (
     <div
-      className="fixed inset-0 z-50 flex items-center justify-center bg-foreground/35 p-3 sm:p-5"
-      onMouseDown={(event) => {
-        if (event.target === event.currentTarget && !dismissDisabled) {
-          onClose();
-        }
-      }}
+      className="fixed inset-0 z-50 flex items-center justify-center overscroll-contain bg-foreground/35 p-3 sm:p-5"
+      onMouseDown={
+        closeOnBackdrop
+          ? (event) => {
+              if (event.target === event.currentTarget && !dismissDisabled) {
+                onClose();
+              }
+            }
+          : undefined
+      }
     >
       <div
         role="dialog"
@@ -102,7 +132,7 @@ export function Dialog({
 
         <div
           data-form-density="filter"
-          className="group/dialog overflow-y-auto px-4 py-4 sm:px-6 sm:py-5"
+          className="group/dialog overflow-y-auto overscroll-contain px-4 py-4 sm:px-6 sm:py-5"
         >
           <FormDensityProvider density="filter">{children}</FormDensityProvider>
         </div>

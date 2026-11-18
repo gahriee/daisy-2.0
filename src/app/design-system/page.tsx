@@ -345,23 +345,23 @@ export default function DesignSystemPage() {
           </h2>
           <div className="flex flex-wrap gap-2">
             <Badge>Neutral</Badge>
-            <Badge tone="success">Synced</Badge>
+            <Badge tone="success">Up to date</Badge>
             <Badge tone="warning">Pending</Badge>
             <Badge tone="danger">Needs attention</Badge>
             <Badge tone="info">Information</Badge>
           </div>
           <Alert role="note">
-            Information example. Connection state and sync state use separate
-            messages.
+            Information example. Internet connection and saved status use
+            separate messages.
           </Alert>
           <Alert role="note" tone="success">
-            Success example. Confirmed state follows server acknowledgement.
+            Success example. Confirmed status means changes are saved online.
           </Alert>
           <Alert role="note" tone="warning">
-            Pending example. A local draft is waiting to sync.
+            Pending example. A change on this device is waiting to save online.
           </Alert>
           <Alert role="note" tone="danger">
-            Error example. Preserve the draft and explain the next step.
+            Error example. Keep the draft and explain the next step.
           </Alert>
         </section>
         <section aria-labelledby="surfaces-title" className="grid gap-5">

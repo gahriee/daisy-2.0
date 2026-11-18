@@ -119,9 +119,9 @@ export function CreateTenantDialog({
               createdAt: nowIso,
               updatedAt: nowIso,
             },
-            syncedMessage: "Tenant added and synced.",
+            syncedMessage: "Tenant added.",
             queuedMessage:
-              "Tenant saved on this device (pending server confirmation).",
+              "Tenant saved on this device (waiting to go online).",
           });
           if (res.delivery === "needs_attention") {
             onClose();
@@ -351,9 +351,9 @@ export function EditTenantDialog({
               ...updatePayload,
               updatedAt: nowIso,
             },
-            syncedMessage: "Tenant details updated and synced.",
+            syncedMessage: "Tenant details updated.",
             queuedMessage:
-              "Changes saved on this device (pending server confirmation).",
+              "Changes saved on this device (waiting to go online).",
           });
           onClose();
           if (res.delivery === "needs_attention") {
@@ -706,7 +706,7 @@ export function AssignBedDialog({
       open={Boolean(tenant)}
       onClose={onClose}
       title={tenant ? `Assign room for ${tenant.fullName}` : "Assign room"}
-      description="Creates an overlap-protected room allocation and transitions room status on move-in."
+      description="Reserves the room for the move-in date so it cannot be double-booked, then marks the room occupied."
     >
       {tenant && (
         <AssignBedForm
@@ -836,10 +836,10 @@ export function MoveOutAssignmentDialog({
       onClose={onClose}
       title={
         assignment
-          ? `Move out — Room ${assignment.roomNumber}`
+          ? `Move out: Room ${assignment.roomNumber}`
           : "Record move-out"
       }
-      description={`Closes ${tenantName}'s assignment, truncates or cancels the allocation, and frees the room.`}
+      description={`Ends ${tenantName}'s stay and frees up the room.`}
     >
       {assignment && (
         <MoveOutForm
@@ -1099,7 +1099,7 @@ export function TenantNotesDialog({
         onClose();
       }}
       dismissDisabled={confirmOpen}
-      title={tenant ? `Notes — ${tenant.fullName}` : "Tenant notes"}
+      title={tenant ? `Notes: ${tenant.fullName}` : "Tenant notes"}
       description="Add and review separate timestamped notes for this tenant."
     >
       {tenant && (

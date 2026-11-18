@@ -57,6 +57,8 @@ import { POST as registerDeviceRoute } from "../../../src/app/api/devices/regist
 import { POST as revokeDeviceRoute } from "../../../src/app/api/devices/[deviceId]/revoke/route";
 import { GET as getNotificationsRoute } from "../../../src/app/api/notifications/route";
 import { POST as readNotificationsRoute } from "../../../src/app/api/notifications/read/route";
+import { POST as unreadNotificationsRoute } from "../../../src/app/api/notifications/unread/route";
+import { POST as deleteNotificationsRoute } from "../../../src/app/api/notifications/delete/route";
 
 const prefix = `settings-test-${randomUUID()}`;
 let seq = 0;
@@ -81,6 +83,9 @@ afterAll(async () => {
   const db = state.db;
   if (!db) return;
   try {
+    await db.notificationDismissal.deleteMany({
+      where: { ownerUserId: { startsWith: prefix } },
+    });
     await db.notificationRead.deleteMany({
       where: { ownerUserId: { startsWith: prefix } },
     });
@@ -408,5 +413,46 @@ describe("settings, devices, notifications and auth limits integration", () => {
       notifications: Array<{ key: string; read: boolean }>;
     };
     expect(json2.notifications.every((n) => n.read)).toBe(true);
+
+    const unreadTargetKey = keys[0]!;
+    const unreadRes = await unreadNotificationsRoute(
+      new Request("http://localhost:3000/api/notifications/unread", {
+        method: "POST",
+        headers: {
+          origin: "http://localhost:3000",
+          "content-type": "application/json",
+        },
+        body: JSON.stringify({ keys: [unreadTargetKey] }),
+      }),
+    );
+    expect(unreadRes.status).toBe(200);
+
+    const res3 = await getNotificationsRoute();
+    const json3 = (await res3.json()) as {
+      notifications: Array<{ key: string; read: boolean }>;
+    };
+    expect(
+      json3.notifications.find((n) => n.key === unreadTargetKey)?.read,
+    ).toBe(false);
+
+    const deleteRes = await deleteNotificationsRoute(
+      new Request("http://localhost:3000/api/notifications/delete", {
+        method: "POST",
+        headers: {
+          origin: "http://localhost:3000",
+          "content-type": "application/json",
+        },
+        body: JSON.stringify({ keys: [unreadTargetKey] }),
+      }),
+    );
+    expect(deleteRes.status).toBe(200);
+
+    const res4 = await getNotificationsRoute();
+    const json4 = (await res4.json()) as {
+      notifications: Array<{ key: string; read: boolean }>;
+    };
+    expect(json4.notifications.some((n) => n.key === unreadTargetKey)).toBe(
+      false,
+    );
   });
 });

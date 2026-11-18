@@ -4,6 +4,7 @@ import type { Prisma } from "@/generated/prisma/client";
 import {
   ConflictError,
   NotFoundError,
+  PreconditionError,
   RateLimitedError,
   ValidationError,
 } from "@/lib/errors";
@@ -30,7 +31,8 @@ import {
 
 const DEFAULT_MAX_PHOTO_BYTES = 5 * 1024 * 1024;
 const PHOTO_INTENT_TTL_SECONDS = 300;
-const PHOTO_UPLOAD_RATE_LIMIT = { maximum: 30, seconds: 600 } as const;
+const PHOTO_UPLOAD_RATE_LIMIT = { maximum: 400, seconds: 600 } as const;
+const PHOTO_HEAD_CHECK_CONCURRENCY = 8;
 
 export const roomPhotoSelect = {
   id: true,
@@ -239,10 +241,15 @@ export async function createRoomPhotoIntent(params: {
   if (input.roomId) {
     const room = await db.room.findFirst({
       where: { id: input.roomId, ownerUserId: params.ownerUserId },
-      select: { id: true },
+      select: { id: true, building: true },
     });
     if (!room) {
       throw new NotFoundError("The selected room was not found.");
+    }
+    if (room.building !== "TRANSIENT") {
+      throw new PreconditionError(
+        "Only Transient Building rooms support public room photos.",
+      );
     }
   }
 
@@ -483,20 +490,35 @@ export async function verifyRoomPhotoManifestForWrite(params: {
           `Photo ${intent.fileName} has not finished uploading yet.`,
         );
       }
-      const head = await headPrivateObject(intent.objectKey);
-      if (!head || head.contentLength !== intent.byteSize) {
-        throw new ValidationError(
-          `Photo ${intent.fileName} could not be verified in storage.`,
-        );
-      }
-      intentsById.set(intent.id, {
-        intentId: intent.id,
-        objectKey: intent.objectKey,
-        fileName: intent.fileName,
-        mimeType: intent.mimeType as RoomPhotoAllowedMimeType,
-        byteSize: intent.byteSize,
-        sha256: intent.sha256,
-      });
+    }
+
+    for (
+      let offset = 0;
+      offset < intents.length;
+      offset += PHOTO_HEAD_CHECK_CONCURRENCY
+    ) {
+      const batch = intents.slice(
+        offset,
+        offset + PHOTO_HEAD_CHECK_CONCURRENCY,
+      );
+      await Promise.all(
+        batch.map(async (intent) => {
+          const head = await headPrivateObject(intent.objectKey);
+          if (!head || head.contentLength !== intent.byteSize) {
+            throw new ValidationError(
+              `Photo ${intent.fileName} could not be verified in storage.`,
+            );
+          }
+          intentsById.set(intent.id, {
+            intentId: intent.id,
+            objectKey: intent.objectKey,
+            fileName: intent.fileName,
+            mimeType: intent.mimeType as RoomPhotoAllowedMimeType,
+            byteSize: intent.byteSize,
+            sha256: intent.sha256,
+          });
+        }),
+      );
     }
   }
 

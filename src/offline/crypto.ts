@@ -9,6 +9,36 @@ export const DEFAULT_INACTIVITY_LOCK_MS = 15 * 60 * 1000; // 15 minutes
 export const MAX_OFFLINE_UNLOCK_DAYS = 30;
 const VERIFIER_PLAINTEXT = "daisy-vault-verifier-v1";
 const DAY_MS = 24 * 60 * 60 * 1000;
+const PASSPHRASE_ALPHABET =
+  "ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz23456789";
+
+/**
+ * Generates a high-entropy, unambiguous local vault passphrase grouped into
+ * 4x5 characters (`xxxxx-xxxxx-xxxxx-xxxxx`) using unbiased rejection sampling.
+ */
+export function generateVaultPassphrase(): string {
+  const cryptoApi = getWebCrypto();
+  const groupCount = 4;
+  const groupLength = 5;
+  const totalChars = groupCount * groupLength;
+  const alphabetLen = PASSPHRASE_ALPHABET.length;
+  const maxUnbiased = 256 - (256 % alphabetLen);
+  const chars: string[] = [];
+
+  while (chars.length < totalChars) {
+    const buf = cryptoApi.getRandomValues(new Uint8Array(totalChars * 2));
+    for (const byte of buf) {
+      if (byte < maxUnbiased) {
+        chars.push(PASSPHRASE_ALPHABET[byte % alphabetLen]!);
+        if (chars.length === totalChars) break;
+      }
+    }
+  }
+
+  return Array.from({ length: groupCount }, (_, i) =>
+    chars.slice(i * groupLength, (i + 1) * groupLength).join(""),
+  ).join("-");
+}
 
 export type EncryptedPayloadRecord = {
   v: typeof VAULT_CRYPTO_VERSION;
@@ -345,4 +375,3 @@ export class VaultKeyCustody {
     this.clearTimer();
   }
 }
-

@@ -1,5 +1,6 @@
 import "server-only";
 import { createHash, createHmac, randomBytes, randomUUID } from "node:crypto";
+import { z } from "zod";
 import { roomPhotoSelect, splitRoomPhotoDtos } from "@/features/rooms/photos";
 import { lockAllocationResources } from "@/features/allocations/service";
 import { hasCompleteStaySchedule } from "@/features/settings/schemas";
@@ -28,6 +29,7 @@ import {
   PublicAvailabilityQuerySchema,
   SubmitPublicBookingRequestSchema,
   type AllocationScopeValue,
+  type GuestSexValue,
   type PublicAvailabilityDto,
   type PublicAvailabilityQueryInput,
   type PublicBookingAckDto,
@@ -127,7 +129,12 @@ function computeBookingRequestFingerprint(input: {
   checkInDateManila: string;
   checkOutDateManila: string;
   partySize: number;
+  adultsCount: number | null;
+  childrenCount: number | null;
   guestName: string;
+  guestAge: number | null;
+  guestSex: GuestSexValue | null;
+  guestAddress: string | null;
   guestPhone: string | null;
   guestEmail: string | null;
   notes: string | null;
@@ -138,7 +145,12 @@ function computeBookingRequestFingerprint(input: {
     checkInDateManila: input.checkInDateManila,
     checkOutDateManila: input.checkOutDateManila,
     partySize: input.partySize,
+    adultsCount: input.adultsCount,
+    childrenCount: input.childrenCount,
     guestName: input.guestName,
+    guestAge: input.guestAge,
+    guestSex: input.guestSex,
+    guestAddress: input.guestAddress,
     guestPhone: input.guestPhone,
     guestEmail: input.guestEmail,
     notes: input.notes,
@@ -338,6 +350,35 @@ export async function getPublicPublishedAvailability(
   };
 }
 
+const PublicRoomIdSchema = z.string().uuid();
+
+/**
+ * Resolves live public availability scoped to one published transient room,
+ * returning `null` for invalid UUIDs or unpublished/archived rooms.
+ */
+export async function getPublicPublishedRoomAvailability(
+  ownerUserId: string,
+  roomId: string,
+  rawQuery: PublicAvailabilityQueryInput,
+): Promise<{
+  availability: PublicAvailabilityDto;
+  room: PublicPublishedRoomDto;
+} | null> {
+  const parsedId = PublicRoomIdSchema.safeParse(roomId);
+  if (!parsedId.success) {
+    return null;
+  }
+  const availability = await getPublicPublishedAvailability(
+    ownerUserId,
+    rawQuery,
+  );
+  const room = availability.rooms.find((r) => r.roomId === parsedId.data);
+  if (!room) {
+    return null;
+  }
+  return { availability, room };
+}
+
 /**
  * Records a public booking inquiry (`PENDING` review by Owner). Never locks beds
  * until Owner approval, enforces SHA-256 idempotency, writes identifier-only
@@ -368,7 +409,12 @@ export async function submitPublicBookingRequest(
     checkInDateManila: input.checkInDateManila,
     checkOutDateManila: input.checkOutDateManila,
     partySize: input.partySize,
+    adultsCount: input.adultsCount,
+    childrenCount: input.childrenCount,
     guestName: input.guestName,
+    guestAge: input.guestAge,
+    guestSex: input.guestSex,
+    guestAddress: input.guestAddress,
     guestPhone: input.guestPhone,
     guestEmail: input.guestEmail,
     notes: input.notes,
@@ -390,10 +436,17 @@ export async function submitPublicBookingRequest(
           requestFingerprint: true,
           status: true,
           scope: true,
+          guestName: true,
+          guestAge: true,
+          guestSex: true,
+          guestAddress: true,
+          guestPhone: true,
           checkInDateManila: true,
           checkOutDateManila: true,
           nights: true,
           partySize: true,
+          adultsCount: true,
+          childrenCount: true,
           quotedDailyRate: true,
           quotedTotalAmount: true,
           createdAt: true,
@@ -403,7 +456,7 @@ export async function submitPublicBookingRequest(
       if (existing) {
         if (existing.requestFingerprint !== fingerprint) {
           throw new ConflictError(
-            "This request key was already used with different booking details.",
+            "This submission reference was already used with different booking details.",
           );
         }
         return {
@@ -418,6 +471,16 @@ export async function submitPublicBookingRequest(
           checkOutDateManila: existing.checkOutDateManila,
           nights: existing.nights,
           partySize: existing.partySize,
+          adultsCount: existing.adultsCount,
+          childrenCount: existing.childrenCount,
+          guestName: existing.guestName,
+          guestAge: existing.guestAge,
+          guestSex:
+            existing.guestSex === "MALE" || existing.guestSex === "FEMALE"
+              ? existing.guestSex
+              : null,
+          guestAddress: existing.guestAddress,
+          guestPhone: existing.guestPhone,
           quotedDailyRate: formatMoneyDecimal(
             BigInt(
               Math.round(Number(existing.quotedDailyRate.toString()) * 100),
@@ -558,6 +621,9 @@ export async function submitPublicBookingRequest(
               roomId: room.id,
               scope: allowedScope,
               guestName: input.guestName,
+              guestAge: input.guestAge,
+              guestSex: input.guestSex,
+              guestAddress: input.guestAddress,
               guestPhone: input.guestPhone,
               guestEmail: input.guestEmail,
               notes: input.notes,
@@ -565,6 +631,8 @@ export async function submitPublicBookingRequest(
               checkOutDateManila: input.checkOutDateManila,
               nights,
               partySize: input.partySize,
+              adultsCount: input.adultsCount,
+              childrenCount: input.childrenCount,
               quotedDailyRate: quotedDailyRateStr,
               quotedTotalAmount: quotedTotalAmountStr,
               privacyConsentAccepted: true,
@@ -633,6 +701,10 @@ export async function submitPublicBookingRequest(
           checkOutDateManila: dto.checkOutDateManila,
           nights: dto.nights,
           partySize: dto.partySize,
+          ...(dto.adultsCount !== null ? { adultsCount: dto.adultsCount } : {}),
+          ...(dto.childrenCount !== null
+            ? { childrenCount: dto.childrenCount }
+            : {}),
         },
       });
 
@@ -646,6 +718,13 @@ export async function submitPublicBookingRequest(
         checkOutDateManila: dto.checkOutDateManila,
         nights: dto.nights,
         partySize: dto.partySize,
+        adultsCount: dto.adultsCount,
+        childrenCount: dto.childrenCount,
+        guestName: dto.guestName,
+        guestAge: dto.guestAge,
+        guestSex: dto.guestSex,
+        guestAddress: dto.guestAddress,
+        guestPhone: dto.guestPhone,
         quotedDailyRate: dto.quotedDailyRate,
         quotedTotalAmount: dto.quotedTotalAmount,
         submittedAt: dto.createdAt,

@@ -57,7 +57,7 @@ export default async function AuditPage({
   ]);
 
   return (
-    <WorkspaceShell title="Audit log" profile={profile}>
+    <WorkspaceShell title="Activity history" profile={profile}>
       <AuditLogExplorer initialEntries={entries} initialFilters={filters} />
     </WorkspaceShell>
   );

@@ -20,17 +20,17 @@ const SECTION_HEADERS: Record<
   policies: {
     title: "Billing & policies",
     description:
-      "Explicit Owner rules for monthly rent runs, grace periods, proration, deposits, and document prefixes.",
+      "Your rules for monthly rent bills, grace periods, partial months, deposits, and receipt numbers.",
   },
   operations: {
     title: "Stays & limits",
     description:
-      "Standard check-in/out schedule, offline unlock window, and attachment size limits.",
+      "Standard check-in/out times, how long offline access stays active, and photo upload limits.",
   },
   devices: {
     title: "Trusted devices",
     description:
-      "Authorized Owner browsers allowed to sync records and upload payment proofs offline.",
+      "Allowed phones and computers that can save updates offline and upload payment photos.",
   },
 };
 

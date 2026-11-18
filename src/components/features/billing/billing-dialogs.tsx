@@ -72,7 +72,7 @@ export function GeneratePeriodInvoicesDialog({
       onClose={onClose}
       dismissDisabled={pending}
       title="Generate monthly invoices"
-      description="Creates one period invoice per active or overlapping tenant assignment using your configured proration, deposit, and grace policies. Existing non-voided period invoices are skipped."
+      description="Creates one monthly bill for each active stay using your partial-month, deposit, and grace rules. Existing active bills are skipped."
     >
       <form action={submitAction} className="grid gap-4" noValidate>
         {!policiesComplete && (
@@ -173,7 +173,7 @@ export function AddAdjustmentDialog({
   );
 
   const description = invoice
-    ? `Record an audited credit or charge on ${invoice.invoiceNumber ?? "this invoice"} without modifying posted line items.`
+    ? `Add a saved credit or extra charge to ${invoice.invoiceNumber ?? "this bill"} without changing existing charges.`
     : undefined;
 
   return (
@@ -264,7 +264,7 @@ export function AddAdjustmentDialog({
                 {...fieldProps}
                 name="reason"
                 rows={2}
-                placeholder="e.g. Meter correction or prorated fee waiver"
+                placeholder="e.g. Meter correction or partial-month fee waiver"
               />
             )}
           </Field>
@@ -324,7 +324,7 @@ export function VoidInvoiceDialog({
       onClose={onClose}
       dismissDisabled={pending}
       title="Void invoice"
-      description="Voiding preserves the invoice in audit history and stops collection on it."
+      description="Voiding keeps this bill in your history and stops collection on it."
     >
       {invoice && (
         <form action={submitAction} className="grid gap-4" noValidate>
@@ -337,8 +337,8 @@ export function VoidInvoiceDialog({
 
           {hasPayments && (
             <Alert tone="warning" role="status">
-              This invoice has recorded payments. Reverse all allocated payments
-              before voiding.
+              This bill already has payments applied to it. Reverse those
+              payments before voiding it.
             </Alert>
           )}
 

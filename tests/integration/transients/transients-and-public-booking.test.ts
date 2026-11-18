@@ -62,7 +62,10 @@ import {
   getPaymentsOverview,
   recordPayment,
 } from "../../../src/features/payments/service";
-import { derivePublicClientBucketKey } from "../../../src/features/transients/public-service";
+import {
+  derivePublicClientBucketKey,
+  getPublicPublishedRoomAvailability,
+} from "../../../src/features/transients/public-service";
 import {
   approveBookingRequest,
   checkInTransientReservation,
@@ -814,4 +817,174 @@ describe("transients, public booking, billing bridge & sync integration", () => 
     expect(longOwnerStay.nights).toBe(90);
     expect(longOwnerStay.totalAmount).toBe("58500.00");
   });
+
+  it("persists guest demographics, adults/children breakdown, and scopes single-room availability safely", async () => {
+    await configureOwnerSettings(state.ownerId);
+    const { publishedRoom, unpublishedRoom, roomType } = await seedInventory(
+      state.ownerId,
+    );
+
+    const familyRoom = await createRoom(state.ownerId, {
+      building: "TRANSIENT",
+      number: "T-205",
+      floor: "2F",
+      roomTypeId: roomType.id,
+      capacity: 4,
+      transientDailyRate: "1800.00",
+    });
+    await createBed(state.ownerId, {
+      roomId: familyRoom.id,
+      number: "F1",
+      label: "Main Bed",
+      dailyRate: "1800.00",
+    });
+    await updateRoomTransientPublish(state.ownerId, {
+      roomId: familyRoom.id,
+      expectedVersion: familyRoom.version,
+      isTransientPublished: true,
+      transientTitle: "Family Suite 205",
+      transientDescription: "Spacious room with balcony",
+      transientScope: "WHOLE_ROOM",
+      transientDailyRate: "1800.00",
+    });
+
+    const singleRoomMatch = await getPublicPublishedRoomAvailability(
+      state.ownerId,
+      familyRoom.id,
+      {
+        checkInDateManila: "2027-02-10",
+        checkOutDateManila: "2027-02-12",
+        guests: 3,
+      },
+    );
+    expect(singleRoomMatch).not.toBeNull();
+    expect(singleRoomMatch?.room.roomId).toBe(familyRoom.id);
+    expect(singleRoomMatch?.room.title).toBe("Family Suite 205");
+    expect(singleRoomMatch?.room.isAvailableForRequestedStay).toBe(true);
+
+    expect(
+      await getPublicPublishedRoomAvailability(
+        state.ownerId,
+        unpublishedRoom.id,
+        {
+          checkInDateManila: "2027-02-10",
+          checkOutDateManila: "2027-02-12",
+          guests: 1,
+        },
+      ),
+    ).toBeNull();
+
+    expect(
+      await getPublicPublishedRoomAvailability(
+        state.ownerId,
+        "not-a-valid-uuid",
+        {
+          checkInDateManila: "2027-02-10",
+          checkOutDateManila: "2027-02-12",
+          guests: 1,
+        },
+      ),
+    ).toBeNull();
+
+    expect(publishedRoom.id).toBeTruthy();
+
+    const ip = `203.0.113.${seq + 95}`;
+    const demographicPayload = {
+      idempotencyKey: `pub-demo-${randomUUID()}`,
+      roomId: familyRoom.id,
+      scope: "WHOLE_ROOM",
+      checkInDateManila: "2027-02-10",
+      checkOutDateManila: "2027-02-12",
+      partySize: 3,
+      adultsCount: 2,
+      childrenCount: 1,
+      guestName: "Elena Mendoza",
+      guestAge: 34,
+      guestSex: "FEMALE",
+      guestAddress: "Session Road, Baguio City",
+      guestPhone: "+63 917 444 5566",
+      guestEmail: "elena@example.com",
+      notes: "Arriving late afternoon",
+      privacyConsentAccepted: true,
+    };
+
+    const submitRes = await postPublicBookingRequestRoute(
+      new Request("http://localhost:3000/api/public/booking-requests", {
+        method: "POST",
+        headers: trackPublicHeaders(ip, {
+          origin: "http://localhost:3000",
+          "content-type": "application/json",
+        }),
+        body: JSON.stringify(demographicPayload),
+      }),
+    );
+    expect(submitRes.status).toBe(201);
+    const ack = (await submitRes.json()) as {
+      id: string;
+      guestAge: number | null;
+      guestSex: string | null;
+      guestAddress: string | null;
+      adultsCount: number | null;
+      childrenCount: number | null;
+    };
+    expect(ack.guestAge).toBe(34);
+    expect(ack.guestSex).toBe("FEMALE");
+    expect(ack.guestAddress).toBe("Session Road, Baguio City");
+    expect(ack.adultsCount).toBe(2);
+    expect(ack.childrenCount).toBe(1);
+
+    const conflictAddressRes = await postPublicBookingRequestRoute(
+      new Request("http://localhost:3000/api/public/booking-requests", {
+        method: "POST",
+        headers: trackPublicHeaders(ip, {
+          origin: "http://localhost:3000",
+          "content-type": "application/json",
+        }),
+        body: JSON.stringify({
+          ...demographicPayload,
+          guestAddress: "Burnham Park, Baguio City",
+        }),
+      }),
+    );
+    expect(conflictAddressRes.status).toBe(409);
+
+    const overviewBeforeApprove = await getTransientsOverview(state.ownerId);
+    const storedRequest = overviewBeforeApprove.requests.find(
+      (r) => r.id === ack.id,
+    );
+    expect(storedRequest).toMatchObject({
+      guestAge: 34,
+      guestSex: "FEMALE",
+      guestAddress: "Session Road, Baguio City",
+      adultsCount: 2,
+      childrenCount: 1,
+      partySize: 3,
+    });
+
+    const audits = await listAuditLogs(state.ownerId, { area: "transients" });
+    const entry = audits.entries.find(
+      (a) => a.action === "booking_request.submitted" && a.entityId === ack.id,
+    );
+    expect(entry).toBeDefined();
+    const serializedEntry = JSON.stringify(entry);
+    expect(serializedEntry).not.toContain("Elena Mendoza");
+    expect(serializedEntry).not.toContain("Session Road, Baguio City");
+    expect(serializedEntry).not.toContain("guestAge");
+    expect(serializedEntry).not.toContain("guestSex");
+    expect(serializedEntry).not.toContain("guestAddress");
+
+    const approved = await approveBookingRequest(state.ownerId, {
+      requestId: ack.id,
+      expectedVersion: 1,
+      confirmRateChange: false,
+      issueInvoiceImmediately: false,
+    });
+    const overviewAfterApprove = await getTransientsOverview(state.ownerId);
+    const createdGuest = overviewAfterApprove.guests.find(
+      (g) => g.id === approved.reservation.guestId,
+    );
+    expect(createdGuest?.notes).toContain("Age: 34");
+    expect(createdGuest?.notes).toContain("Sex: Female");
+    expect(createdGuest?.notes).toContain("Address: Session Road, Baguio City");
+  }, 60_000);
 });

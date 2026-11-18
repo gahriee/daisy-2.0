@@ -24,10 +24,10 @@ export type DepositPolicyValue = (typeof DEPOSIT_POLICIES)[number];
 export type OverpaymentPolicyValue = (typeof OVERPAYMENT_POLICIES)[number];
 
 export const PRORATION_POLICY_LABELS: Record<ProrationPolicyValue, string> = {
-  DAILY_EXACT: "Daily exact (actual days in month)",
-  DAILY_30: "Daily 30-day month basis",
-  HALF_MONTH: "Half-month tiers",
-  NONE: "No proration (full period rate)",
+  DAILY_EXACT: "Charge per day (exact days in month)",
+  DAILY_30: "Charge per day (30-day month)",
+  HALF_MONTH: "Half-month rate (15 days or less)",
+  NONE: "Full month charge (no partial rate)",
 };
 
 export const DEPOSIT_POLICY_LABELS: Record<DepositPolicyValue, string> = {
@@ -38,8 +38,8 @@ export const DEPOSIT_POLICY_LABELS: Record<DepositPolicyValue, string> = {
 
 export const OVERPAYMENT_POLICY_LABELS: Record<OverpaymentPolicyValue, string> =
   {
-    REJECT_OVERPAYMENT: "Reject overpayment above open balance",
-    CREDIT_NEXT_INVOICE: "Carry excess as unallocated credit",
+    REJECT_OVERPAYMENT: "Do not accept more than amount due",
+    CREDIT_NEXT_INVOICE: "Keep extra payment as tenant credit",
   };
 
 const prefixSchema = z

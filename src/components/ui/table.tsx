@@ -64,7 +64,7 @@ export function Table({ className, containerClassName, ...props }: TableProps) {
   return (
     <div
       className={cn(
-        "w-full overflow-x-auto rounded-panel border border-border bg-surface",
+        "w-full overflow-x-auto overscroll-x-contain rounded-panel border border-border bg-surface",
         containerClassName,
       )}
     >

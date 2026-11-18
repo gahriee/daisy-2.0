@@ -14,9 +14,12 @@ describe("Service Worker cache policy", () => {
       "/api/reports/export?reportType=occupancy",
       "/auth/sign-in",
       "/book",
+      "/book/11111111-1111-4111-8111-111111111111",
+      "/book/11111111-1111-4111-8111-111111111111/request",
       "/settings/devices",
       "/audit",
       "/reports",
+      "/notifications",
     ];
 
     for (const pathname of networkOnlyPaths) {

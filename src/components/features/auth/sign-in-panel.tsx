@@ -109,15 +109,15 @@ export function SignInPanel({ initialSession }: SignInPanelProps) {
       setSessionState(next);
       if (next === "authenticated") {
         clearFormState();
-        setNotice("Session confirmed. Opening your dashboard…");
+        setNotice("Signed in. Opening your dashboard…");
         router.replace("/");
         router.refresh();
         return;
       } else if (next === "unauthenticated") {
-        setNotice("No active session found. Sign in below.");
+        setNotice("You are not signed in yet. Sign in below.");
       } else {
         setError(
-          "Session check could not be completed. Try signing in or wait a moment.",
+          "We could not check if you are signed in. Try signing in or wait a moment.",
         );
       }
       focusFeedback();
@@ -125,8 +125,8 @@ export function SignInPanel({ initialSession }: SignInPanelProps) {
       setSessionState("unavailable");
       setError(
         !getOnlineSnapshot()
-          ? "You appear to be offline. Connect to the internet to check your session."
-          : "Session check could not be completed right now. Wait a moment and try again.",
+          ? "You appear to be offline. Connect to the internet before signing in."
+          : "We could not finish checking your sign-in status. Wait a moment and try again.",
       );
       focusFeedback();
     } finally {
@@ -186,15 +186,15 @@ export function SignInPanel({ initialSession }: SignInPanelProps) {
           setError("Too many sign-in attempts.");
         } else if (response.status === 403) {
           setError(
-            "Sign-in was rejected by origin verification. Reload this page and try again.",
+            "Sign-in could not be completed on this page. Reload and try again.",
           );
         } else if (response.status >= 500) {
           setError(
-            "Sign-in is temporarily unavailable. Check service connectivity and try again shortly.",
+            "Sign-in is not available right now. Wait a moment and try again.",
           );
         } else {
           setError(
-            "Email or password was not recognized, or this account is not authorized for Owner access.",
+            "Email or password was not recognized, or this account cannot open the workspace.",
           );
         }
         focusFeedback();
@@ -228,13 +228,13 @@ export function SignInPanel({ initialSession }: SignInPanelProps) {
         setSessionState("unauthenticated");
         setError(
           cleanupFailed
-            ? "Owner authorization could not be confirmed, and clearing the temporary session failed. Reload and try again."
-            : "Email or password was not recognized, or this account is not authorized for Owner access.",
+            ? "Account access could not be confirmed. Please reload the page and try again."
+            : "Email or password was not recognized, or this account cannot open the workspace.",
         );
       } else {
         setSessionState("unavailable");
         setError(
-          "Sign-in completed, but Owner session verification could not be confirmed right now.",
+          "Sign-in finished, but we could not verify your access right now.",
         );
       }
       focusFeedback();
@@ -242,7 +242,7 @@ export function SignInPanel({ initialSession }: SignInPanelProps) {
       setError(
         !getOnlineSnapshot()
           ? "You appear to be offline. Connect to the internet and try signing in again."
-          : "The connection was interrupted before sign-in could be confirmed. Your entries remain in this form and were not queued offline.",
+          : "The connection was interrupted before sign-in could finish. Your entries are still here, so please try again.",
       );
       focusFeedback();
     } finally {
@@ -267,22 +267,22 @@ export function SignInPanel({ initialSession }: SignInPanelProps) {
       if (!response.ok) {
         setError(
           response.status >= 500
-            ? "Sign-out could not reach the auth service. Your session may still be active."
-            : "Sign-out could not be confirmed. Reload and verify your session before leaving this device.",
+            ? "Could not finish signing out. You may still be signed in on this browser."
+            : "Sign-out could not be confirmed. Reload and check that you are signed out before leaving.",
         );
         focusFeedback();
         return;
       }
       clearFormState();
       setSessionState("unauthenticated");
-      setNotice("Signed out. Enter your credentials to start a new session.");
+      setNotice("Signed out. Enter your email and password to sign back in.");
       router.refresh();
       focusFeedback();
     } catch {
       setError(
         !getOnlineSnapshot()
-          ? "You appear to be offline. Sign-out requires an internet connection to revoke the server session."
-          : "The connection was interrupted before sign-out could be confirmed. Try again before leaving this device.",
+          ? "You appear to be offline. Connect to the internet to finish signing out."
+          : "The connection was interrupted before sign-out finished. Please try again before leaving.",
       );
       focusFeedback();
     } finally {
@@ -298,7 +298,7 @@ export function SignInPanel({ initialSession }: SignInPanelProps) {
         </h1>
         <p className="text-sm leading-6 text-muted-foreground">
           {sessionState === "authenticated"
-            ? "Your session is active on this browser."
+            ? "You are signed in on this browser."
             : "Enter your email and password to open Daisy."}
         </p>
       </div>
@@ -325,15 +325,15 @@ export function SignInPanel({ initialSession }: SignInPanelProps) {
         </div>
         {!isOnline && (
           <Alert tone="warning" role="status">
-            You appear to be offline. Sign-in and sign-out require an internet
-            connection and cannot be queued locally.
+            You appear to be offline. Connect to the internet to sign in or sign
+            out.
           </Alert>
         )}
         {sessionState === "unavailable" && !error && (
           <Alert tone="warning" role="status" className="grid gap-3">
             <span>
-              Could not verify an existing session right now. You can retry the
-              session check or sign in below.
+              We could not check if you are already signed in. Try checking
+              again or sign in below.
             </span>
             <div>
               <Button
@@ -380,7 +380,7 @@ export function SignInPanel({ initialSession }: SignInPanelProps) {
             }}
             onConfirm={() => void handleSignOut()}
             title="Sign out of Daisy?"
-            description="Your active session on this browser will end and you will be returned to the sign-in form."
+            description="You will be signed out on this browser and returned to the sign-in screen."
             errorMessage={error || null}
             confirmLabel="Sign out"
             confirmVariant="danger"

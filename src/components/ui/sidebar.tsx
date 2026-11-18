@@ -152,7 +152,7 @@ export function SidebarContent({ className, ...props }: ComponentProps<"div">) {
     <div
       {...props}
       className={cn(
-        "flex flex-1 flex-col gap-5 overflow-y-auto px-3 py-4",
+        "flex flex-1 flex-col gap-5 overflow-y-auto overscroll-contain px-3 py-4",
         collapsed && "lg:px-2.5",
         className,
       )}

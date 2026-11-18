@@ -785,7 +785,7 @@ export function BillingWorkspace({
         }}
         onConfirm={handleConfirmIssue}
         title="Issue draft invoice?"
-        description="Issuing locks this draft statement, assigns an official invoice number, and opens it for payment collection."
+        description="Issuing finalizes this draft bill, gives it an official number, and opens it for payment."
         details={
           issuingInvoice ? (
             <>

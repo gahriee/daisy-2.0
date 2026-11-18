@@ -597,9 +597,59 @@ describe("rooms, beds, soft archival, and Owner isolation integration", () => {
       return { intentId: intent.intentId, bytes };
     }
 
+    // Boarding House rooms reject photo upload intents and photo manifest attachments.
+    const boardingType = await createRoomType(state.ownerId, {
+      building: "BOARDING",
+      name: "Boarding Solo",
+      monthlyRate: "4500",
+    });
+    const boardingRoom = await createRoom(state.ownerId, {
+      building: "BOARDING",
+      number: "B-101",
+      roomTypeId: boardingType.id,
+      capacity: 1,
+    });
+    const samplePngBytes = new Uint8Array([
+      0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 99,
+    ]);
+    await expect(
+      createRoomPhotoIntent({
+        ownerUserId: state.ownerId,
+        rawInput: {
+          roomId: boardingRoom.id,
+          fileName: "boarding-forbidden.png",
+          mimeType: "image/png",
+          byteSize: samplePngBytes.byteLength,
+          sha256: createHash("sha256").update(samplePngBytes).digest("hex"),
+        },
+      }),
+    ).rejects.toBeInstanceOf(PreconditionError);
+
+    const unboundIntent = await uploadSamplePng("unbound.png", 90);
+    await expect(
+      updateRoom(state.ownerId, {
+        roomId: boardingRoom.id,
+        expectedVersion: boardingRoom.version,
+        number: "B-101",
+        roomTypeId: boardingType.id,
+        capacity: 1,
+        photos: {
+          preview: {
+            kind: "intent",
+            intentId: unboundIntent.intentId,
+            caption: null,
+          },
+          gallery: [],
+        },
+      }),
+    ).rejects.toBeInstanceOf(PreconditionError);
+
     const preview1 = await uploadSamplePng("preview-1.png", 10);
-    const shot1 = await uploadSamplePng("shot-1.png", 20);
-    const shot2 = await uploadSamplePng("shot-2.png", 30);
+    const galleryUploads = await Promise.all(
+      Array.from({ length: 10 }, (_, idx) =>
+        uploadSamplePng(`shot-${idx + 1}.png`, 20 + idx),
+      ),
+    );
 
     const created = await createRoom(state.ownerId, {
       building: "TRANSIENT",
@@ -613,25 +663,24 @@ describe("rooms, beds, soft archival, and Owner isolation integration", () => {
           intentId: preview1.intentId,
           caption: null,
         },
-        gallery: [
-          {
-            kind: "intent",
-            intentId: shot1.intentId,
-            caption: "Morning light from balcony",
-          },
-          {
-            kind: "intent",
-            intentId: shot2.intentId,
-            caption: "Private study desk",
-          },
-        ],
+        gallery: galleryUploads.map((upload, idx) => ({
+          kind: "intent" as const,
+          intentId: upload.intentId,
+          caption:
+            idx === 0
+              ? "Morning light from balcony"
+              : idx === 1
+                ? "Private study desk"
+                : `Gallery shot ${idx + 1}`,
+        })),
       },
     });
 
     expect(created.baseMonthlyRate).toBeNull();
     expect(created.transientDailyRate).toBe("550.00");
     expect(created.previewPhoto?.fileName).toBe("preview-1.png");
-    expect(created.galleryPhotos.map((p) => p.caption)).toEqual([
+    expect(created.galleryPhotos).toHaveLength(10);
+    expect(created.galleryPhotos.slice(0, 2).map((p) => p.caption)).toEqual([
       "Morning light from balcony",
       "Private study desk",
     ]);
@@ -765,7 +814,7 @@ describe("rooms, beds, soft archival, and Owner isolation integration", () => {
     expect(new Uint8Array(await publishedPhotoRes.arrayBuffer())).toEqual(
       preview2.bytes,
     );
-  }, 30_000);
+  }, 45_000);
 
   it("loads room create-context and owner-scoped room detail cleanly", async () => {
     const roomType = await createRoomType(state.ownerId, {

@@ -5,6 +5,7 @@ import {
   decryptJsonPayload,
   encryptBinaryBlob,
   encryptJsonPayload,
+  generateVaultPassphrase,
   initializeVaultKeyMetadata,
   VaultKeyCustody,
   verifyAndUnlockVaultKey,
@@ -79,5 +80,16 @@ describe("offline AES-GCM vault crypto and key custody", () => {
       }),
     ).toThrow(/clock/i);
   });
-});
 
+  it("generates distinct high-entropy vault passphrases accepted by key derivation", async () => {
+    const first = generateVaultPassphrase();
+    const second = generateVaultPassphrase();
+    expect(first).toMatch(/^[A-Za-z0-9]{5}(-[A-Za-z0-9]{5}){3}$/);
+    expect(second).toMatch(/^[A-Za-z0-9]{5}(-[A-Za-z0-9]{5}){3}$/);
+    expect(first).not.toBe(second);
+
+    const { metadata } = await initializeVaultKeyMetadata(first, 10_000);
+    const unlocked = await verifyAndUnlockVaultKey(first, metadata);
+    expect(unlocked).toBeTruthy();
+  });
+});

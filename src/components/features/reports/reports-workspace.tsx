@@ -277,8 +277,8 @@ export function ReportsWorkspace({
             Reports &amp; analytics
           </h1>
           <p className="max-w-prose text-sm text-muted-foreground">
-            Compare occupancy, rent roll, aging, collections, transient yield,
-            and repair root causes across dates and buildings.
+            Review room occupancy, monthly rent, overdue bills, collections,
+            short-stay income, and repair trends across dates and buildings.
           </p>
         </div>
 
@@ -306,7 +306,7 @@ export function ReportsWorkspace({
             <span>
               {exporting
                 ? "Exporting..."
-                : `Export ${REPORT_LABELS[activeTab]} CSV`}
+                : `Download ${REPORT_LABELS[activeTab]} spreadsheet`}
             </span>
           </Button>
         </div>

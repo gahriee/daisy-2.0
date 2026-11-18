@@ -1014,6 +1014,15 @@ export async function updateRoom(
           "Transient Building rooms cannot set a monthly boarding rate.",
         );
       }
+      if (
+        existing.building === "BOARDING" &&
+        photoPlan &&
+        (photoPlan.preview !== null || photoPlan.gallery.length > 0)
+      ) {
+        throw new PreconditionError(
+          "Boarding House rooms do not support public room photos.",
+        );
+      }
 
       const roomType = await tx.roomType.findFirst({
         where: { id: input.roomTypeId, ownerUserId },

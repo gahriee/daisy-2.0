@@ -185,6 +185,7 @@ model Owner {
   syncOutcomes               SyncOperationOutcome[]
   auditLogs                  AuditLog[]
   notifReads                 NotificationRead[]
+  notifDismissals            NotificationDismissal[]
   roomTypes                  RoomType[]
   rooms                      Room[]
   roomPhotoIntents           RoomPhotoIntent[]
@@ -320,6 +321,15 @@ model NotificationRead {
   owner           Owner    @relation(fields: [ownerUserId], references: [id], onDelete: Restrict)
   notificationKey String
   readAt          DateTime @default(now()) @db.Timestamptz(3)
+
+  @@id([ownerUserId, notificationKey])
+}
+
+model NotificationDismissal {
+  ownerUserId     String
+  owner           Owner    @relation(fields: [ownerUserId], references: [id], onDelete: Restrict)
+  notificationKey String
+  dismissedAt     DateTime @default(now()) @db.Timestamptz(3)
 
   @@id([ownerUserId, notificationKey])
 }
@@ -878,6 +888,9 @@ model BookingRequest {
   room                   Room                  @relation(fields: [roomId], references: [id], onDelete: Restrict)
   scope                  AllocationScope
   guestName              String
+  guestAge               Int?
+  guestSex               String?
+  guestAddress           String?
   guestPhone             String?
   guestEmail             String?
   notes                  String?
@@ -885,6 +898,8 @@ model BookingRequest {
   checkOutDateManila     String
   nights                 Int
   partySize              Int                   @default(1)
+  adultsCount            Int?
+  childrenCount          Int?
   quotedDailyRate        Decimal               @db.Decimal(12, 2)
   quotedTotalAmount      Decimal               @db.Decimal(12, 2)
   privacyConsentAccepted Boolean               @default(true)

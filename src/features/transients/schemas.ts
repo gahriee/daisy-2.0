@@ -61,6 +61,14 @@ export const ALLOCATION_SCOPE_LABELS: Record<AllocationScopeValue, string> = {
   WHOLE_ROOM: "Whole room",
 };
 
+export const GUEST_SEX_OPTIONS = ["MALE", "FEMALE"] as const;
+export type GuestSexValue = (typeof GUEST_SEX_OPTIONS)[number];
+
+export const GUEST_SEX_LABELS: Record<GuestSexValue, string> = {
+  MALE: "Male",
+  FEMALE: "Female",
+};
+
 const manilaDateSchema = z
   .string()
   .trim()
@@ -304,14 +312,58 @@ export const PublicAvailabilityQuerySchema = z
     path: ["checkOutDateManila"],
   });
 
+const optionalGuestAgeSchema = z
+  .union([
+    z.literal(""),
+    z.null(),
+    z.coerce
+      .number()
+      .int("Enter a whole number for age.")
+      .min(1, "Enter an age between 1 and 120.")
+      .max(120, "Enter an age between 1 and 120."),
+  ])
+  .optional()
+  .transform((val) => (val === "" || val == null ? null : val));
+
+const optionalGuestSexSchema = z
+  .union([z.enum(GUEST_SEX_OPTIONS), z.literal(""), z.null()])
+  .optional()
+  .transform((val) => (val === "" || val == null ? null : val));
+
+const optionalAdultsCountSchema = z
+  .union([
+    z.literal(""),
+    z.null(),
+    z.coerce
+      .number()
+      .int("Enter a whole number of adults.")
+      .min(1, "At least 1 adult is required.")
+      .max(20, "Maximum 20 adults."),
+  ])
+  .optional()
+  .transform((val) => (val === "" || val == null ? null : val));
+
+const optionalChildrenCountSchema = z
+  .union([
+    z.literal(""),
+    z.null(),
+    z.coerce
+      .number()
+      .int("Enter a whole number of children.")
+      .min(0, "Children count cannot be negative.")
+      .max(20, "Maximum 20 children."),
+  ])
+  .optional()
+  .transform((val) => (val === "" || val == null ? null : val));
+
 export const SubmitPublicBookingRequestSchema = z
   .object({
     idempotencyKey: z
       .string()
       .trim()
-      .min(16, "Missing idempotency token.")
-      .max(120, "Invalid idempotency token.")
-      .regex(/^[A-Za-z0-9_-]+$/, "Invalid idempotency token."),
+      .min(16, "Missing submission reference.")
+      .max(120, "Invalid submission reference.")
+      .regex(/^[A-Za-z0-9_-]+$/, "Invalid submission reference."),
     roomId: z.string().uuid("Select a room option."),
     scope: z.enum(ALLOCATION_SCOPES),
     checkInDateManila: manilaDateSchema,
@@ -320,18 +372,29 @@ export const SubmitPublicBookingRequestSchema = z
       .number()
       .int("Enter a whole guest count.")
       .min(1, "At least 1 guest is required.")
-      .max(20, "Party size cannot exceed 20 guests."),
+      .max(20, "Maximum guest count is 20 guests."),
+    adultsCount: optionalAdultsCountSchema,
+    childrenCount: optionalChildrenCountSchema,
     guestName: z
       .string()
       .trim()
       .min(2, "Enter your full name.")
       .max(120, "Keep your name under 120 characters."),
-    guestPhone: optionalShortText(40, "Keep phone number under 40 characters."),
+    guestAge: optionalGuestAgeSchema,
+    guestSex: optionalGuestSexSchema,
+    guestAddress: optionalShortText(
+      250,
+      "Keep home address under 250 characters.",
+    ),
+    guestPhone: optionalShortText(
+      40,
+      "Keep contact number under 40 characters.",
+    ),
     guestEmail: optionalEmailSchema,
     notes: optionalShortText(500, "Keep your note under 500 characters."),
     privacyConsentAccepted: z.literal(true, {
       message:
-        "Acknowledge the privacy notice before submitting your booking request.",
+        "Please confirm that we may use these details to review your booking request.",
     }),
   })
   .superRefine((val, ctx) => {
@@ -345,8 +408,26 @@ export const SubmitPublicBookingRequestSchema = z
     if (!val.guestPhone && !val.guestEmail) {
       ctx.addIssue({
         code: z.ZodIssueCode.custom,
-        message: "Provide a phone number or email address so we can reply.",
+        message: "Provide a contact number or email address so we can reply.",
         path: ["guestPhone"],
+      });
+    }
+    if ((val.adultsCount === null) !== (val.childrenCount === null)) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "Provide both adult and child guest counts.",
+        path: ["adultsCount"],
+      });
+    }
+    if (
+      val.adultsCount !== null &&
+      val.childrenCount !== null &&
+      val.adultsCount + val.childrenCount !== val.partySize
+    ) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "Total guests must equal adults plus children.",
+        path: ["adultsCount"],
       });
     }
   });
@@ -482,6 +563,9 @@ export type BookingRequestDto = {
   roomTypeName: string;
   scope: AllocationScopeValue;
   guestName: string;
+  guestAge: number | null;
+  guestSex: GuestSexValue | null;
+  guestAddress: string | null;
   guestPhone: string | null;
   guestEmail: string | null;
   notes: string | null;
@@ -489,6 +573,8 @@ export type BookingRequestDto = {
   checkOutDateManila: string;
   nights: number;
   partySize: number;
+  adultsCount: number | null;
+  childrenCount: number | null;
   quotedDailyRate: string;
   quotedTotalAmount: string;
   currentDailyRate: string | null;
@@ -598,6 +684,13 @@ export type PublicBookingAckDto = {
   checkOutDateManila: string;
   nights: number;
   partySize: number;
+  adultsCount: number | null;
+  childrenCount: number | null;
+  guestName: string;
+  guestAge: number | null;
+  guestSex: GuestSexValue | null;
+  guestAddress: string | null;
+  guestPhone: string | null;
   quotedDailyRate: string;
   quotedTotalAmount: string;
   submittedAt: string;

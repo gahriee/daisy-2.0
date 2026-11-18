@@ -325,8 +325,8 @@ export function TransientRevenueReportPanel({
             <TableEmptyState
               illustration="document-search"
               illustrationSize="xs"
-              title="No transient stays in period"
-              description="Adjust the check-in period or building scope to analyze transient yield."
+              title="No short stays in period"
+              description="Adjust the check-in period or building filter to review short-stay income."
             />
           ) : (
             <ApexChart
@@ -341,7 +341,7 @@ export function TransientRevenueReportPanel({
 
         <ChartCard
           title="Booking outcome distribution"
-          description="Share of stays checked in, checked out, pending, or lost to cancellations."
+          description="Share of stays checked in, checked out, pending, or cancelled."
           summary={`${summary.staysCount} total stays`}
         >
           {activeStatuses.length === 0 ? (
@@ -349,7 +349,7 @@ export function TransientRevenueReportPanel({
               illustration="document-search"
               illustrationSize="xs"
               title="No stay status mix"
-              description="Transient reservations matching this window will appear here."
+              description="Short-stay bookings matching this date range will appear here."
             />
           ) : (
             <ApexChart
@@ -357,7 +357,7 @@ export function TransientRevenueReportPanel({
               height={265}
               series={statusSeries}
               options={statusOptions}
-              ariaLabel="Donut chart showing distribution of transient reservations by status"
+              ariaLabel="Donut chart showing short-stay bookings by status"
             />
           )}
         </ChartCard>
@@ -365,23 +365,23 @@ export function TransientRevenueReportPanel({
 
       <Card className="overflow-hidden p-0 sm:p-0">
         <TableCardHeader
-          title="Transient yield comparison by room type"
+          title="Short-stay income by room type"
           count={`${sortedRoomTypes.length} ${sortedRoomTypes.length === 1 ? "tier" : "tiers"}`}
-          description={`Aggregated nights, stay revenue, invoicing, and collections across ${periodLabel}.`}
+          description={`Total nights, billed amounts, and collections across ${periodLabel}.`}
           actions={
             <Link
               href="/transients"
               className={buttonClasses({ variant: "secondary", size: "sm" })}
             >
-              Open transients
+              Open short stays
             </Link>
           }
         />
         {sortedRoomTypes.length === 0 ? (
           <TableEmptyState
             illustration="document-search"
-            title="No transient stays in this period"
-            description="Adjust the check-in period or building scope to compare transient room performance."
+            title="No short stays in this period"
+            description="Adjust the check-in period or building filter to compare room performance."
           />
         ) : (
           <>

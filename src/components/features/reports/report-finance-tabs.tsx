@@ -267,22 +267,22 @@ export function ReceivablesAgingReportPanel({
               height={265}
               series={agingBarSeries}
               options={agingBarOptions}
-              ariaLabel="Bar chart showing open invoice balances across five aging buckets"
+              ariaLabel="Bar chart showing unpaid bill amounts by how long they have been overdue"
             />
           )}
         </ChartCard>
 
         <ChartCard
-          title="Receivables by building scope"
-          description="Share of unpaid balances originating from boarding vs. transient stays."
+          title="Unpaid bills by building"
+          description="Share of unpaid balances from boarding rooms versus short stays."
           summary={`${formatPhpCurrency(summary.overdueAmount)} overdue`}
         >
           {!hasScopeReceivables ? (
             <TableEmptyState
               illustration="document-search"
               illustrationSize="xs"
-              title="No scope breakdown"
-              description="Open balances across Boarding House and Transient Building will appear here."
+              title="No building breakdown yet"
+              description="Unpaid balances across Boarding House and Transient Building will appear here."
             />
           ) : (
             <ApexChart
@@ -290,7 +290,7 @@ export function ReceivablesAgingReportPanel({
               height={265}
               series={scopeChartValues}
               options={scopeDonutOptions}
-              ariaLabel="Donut chart comparing open receivables between Boarding House and Transient Building"
+              ariaLabel="Donut chart comparing unpaid balances between Boarding House and Transient Building"
             />
           )}
         </ChartCard>
@@ -298,9 +298,9 @@ export function ReceivablesAgingReportPanel({
 
       <Card className="overflow-hidden p-0 sm:p-0">
         <TableCardHeader
-          title="Aging bucket computation"
-          count={`${buckets.length} buckets`}
-          description={`Historical balances as of ${asOfLabel}, including invoice adjustments and payment reversals.`}
+          title="Overdue balance summary"
+          count={`${buckets.length} groups`}
+          description={`Balances as of ${asOfLabel}, including bill adjustments and payment reversals.`}
           actions={
             <Link
               href="/billing"
@@ -342,7 +342,7 @@ export function ReceivablesAgingReportPanel({
           <Table containerClassName="rounded-none border-0">
             <TableHeader>
               <TableRow>
-                <TableHead>Aging bucket</TableHead>
+                <TableHead>How overdue</TableHead>
                 <TableHead numeric>Open invoices</TableHead>
                 <TableHead numeric>Invoice share</TableHead>
                 <TableHead numeric>Outstanding</TableHead>
@@ -551,9 +551,9 @@ export function CollectionsReportPanel({
           tone={summary.reversalCount > 0 ? "warning" : "neutral"}
         />
         <MetricCard
-          label="Unallocated credits"
+          label="Extra tenant credits"
           value={formatPhpCurrency(summary.unallocatedCreditTotal)}
-          description={`${summary.entryCount} ledger entries in period`}
+          description={`${summary.entryCount} payments in period`}
           icon={<MetricLedgerIcon />}
         />
       </div>
@@ -720,9 +720,9 @@ export function CollectionsReportPanel({
 
         <Card className="overflow-hidden p-0 sm:p-0">
           <TableCardHeader
-            title="Scope comparison"
+            title="Building comparison"
             count={`${byScope.length} ${byScope.length === 1 ? "building" : "buildings"}`}
-            description="Boarding versus transient net receipts."
+            description="Boarding versus short-stay payments collected."
           />
           <div className="grid divide-y divide-border">
             {byScope.map((item) => (
@@ -736,7 +736,7 @@ export function CollectionsReportPanel({
                   </span>
                 </div>
                 <div className="flex items-center justify-between gap-2 text-xs text-muted-foreground tabular-nums">
-                  <span>{item.entryCount} ledger entries</span>
+                  <span>{item.entryCount} payments</span>
                   <span>Posted {formatPhpCurrency(item.postedAmount)}</span>
                 </div>
               </div>

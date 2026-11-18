@@ -179,8 +179,8 @@ export function TransientListingForm({
                   Public gallery &amp; preview image
                 </h2>
                 <p className="text-xs text-muted-foreground">
-                  Choose one preview card image and up to 8 captioned photos for
-                  /book visitors.
+                  Choose one preview card image and captioned gallery photos
+                  cropped to match /book.
                 </p>
               </div>
 
