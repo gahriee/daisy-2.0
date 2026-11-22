@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import Image from "next/image";
+import { TableCardSkeleton } from "@/components/common/page-skeletons";
 import { Alert } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -85,7 +86,7 @@ const AREA_BADGE_TONE: Record<
 };
 
 function formatActivityLabel(value: string): string {
-  const cleaned = value.trim().replaceAll(".", " · ").replaceAll("_", " ");
+  const cleaned = value.trim().replaceAll(".", " ").replaceAll("_", " ");
   return cleaned ? cleaned.charAt(0).toUpperCase() + cleaned.slice(1) : value;
 }
 
@@ -356,7 +357,9 @@ export function AuditLogExplorer({
         )}
       </SearchFilterBar>
 
-      {entries.length === 0 ? (
+      {updating ? (
+        <TableCardSkeleton rows={6} columns={4} />
+      ) : entries.length === 0 ? (
         <EmptyState
           aria-labelledby="audit-empty-title"
           className="items-center justify-items-center py-12 text-center"

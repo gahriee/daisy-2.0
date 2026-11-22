@@ -4,6 +4,7 @@ import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 
 import { useActionState, useState } from "react";
 import { Alert } from "@/components/ui/alert";
+import { CountPill } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Dialog } from "@/components/ui/dialog";
 import { TableEmptyState } from "@/components/ui/empty-state";
@@ -986,9 +987,12 @@ function TenantNotesForm({
       )}
 
       <div className="grid gap-2">
-        <span className="text-xs font-medium text-muted-foreground">
-          Recorded notes ({items.length})
-        </span>
+        <div className="flex items-center gap-2">
+          <span className="text-xs font-medium text-muted-foreground">
+            Recorded notes
+          </span>
+          <CountPill>{items.length}</CountPill>
+        </div>
         {items.length === 0 ? (
           <div className="border-t border-border">
             <TableEmptyState

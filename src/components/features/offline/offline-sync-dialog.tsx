@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useState, useTransition } from "react";
 import Link from "next/link";
 import { Alert } from "@/components/ui/alert";
-import { Badge } from "@/components/ui/badge";
+import { Badge, CountPill } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import { Dialog } from "@/components/ui/dialog";
@@ -355,8 +355,11 @@ export function OfflineSyncDialog({
             {needsAttention.length > 0 && (
               <div className="grid gap-2 border-b border-border pb-4">
                 <div className="grid gap-0.5">
-                  <h3 className="text-sm font-semibold text-foreground">
-                    Needs attention ({needsAttention.length})
+                  <h3 className="flex items-center gap-2 text-sm font-semibold text-foreground">
+                    <span>Needs attention</span>
+                    <CountPill tone="warning">
+                      {needsAttention.length}
+                    </CountPill>
                   </h3>
                   <p className="text-xs text-muted-foreground">
                     Review offline changes that could not be saved before

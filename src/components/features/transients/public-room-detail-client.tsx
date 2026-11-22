@@ -26,7 +26,7 @@ import {
   ROOM_PHOTO_OUTPUT_WIDTH,
 } from "@/features/rooms/schemas";
 import { Alert } from "@/components/ui/alert";
-import { Badge } from "@/components/ui/badge";
+import { Badge, CountPill } from "@/components/ui/badge";
 import { Button, buttonClasses } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Field } from "@/components/ui/field";
@@ -410,8 +410,9 @@ export function PublicRoomDetailClient({
             {slides.length > 0 && (
               <section id="photos" className="space-y-4">
                 <div className="flex flex-wrap items-baseline justify-between gap-2 border-b border-border pb-3">
-                  <h2 className="text-xl font-semibold text-foreground">
-                    All room photos ({slides.length})
+                  <h2 className="flex items-center gap-2.5 text-xl font-semibold text-foreground">
+                    <span>All room photos</span>
+                    <CountPill>{slides.length}</CountPill>
                   </h2>
                   <p className="text-xs text-muted-foreground">
                     Every photo attached by the host with its caption.

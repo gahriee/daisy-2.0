@@ -224,7 +224,7 @@ export function MaintenanceWorkspace({
   const [needsAttentionCount, setNeedsAttentionCount] = useState(0);
   const [unlockPromptOpen, setUnlockPromptOpen] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
-  const [statusFilter, setStatusFilter] = useState("ACTIVE_QUEUE");
+  const [statusFilter, setStatusFilter] = useState("ACTIVE");
   const [priorityFilter, setPriorityFilter] = useState("ALL");
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [refreshing, startRefresh] = useTransition();
@@ -356,8 +356,15 @@ export function MaintenanceWorkspace({
 
   const normalizedQuery = searchQuery.trim().toLowerCase();
   const filteredRequests = overview.requests.filter((req) => {
-    if (statusFilter === "ACTIVE_QUEUE") {
-      if (req.archivedAt !== null) return false;
+    if (statusFilter === "ACTIVE") {
+      if (
+        req.archivedAt !== null ||
+        (req.status !== "OPEN" &&
+          req.status !== "IN_PROGRESS" &&
+          req.status !== "WAITING_PARTS")
+      ) {
+        return false;
+      }
     } else if (statusFilter === "ARCHIVED") {
       if (req.archivedAt === null) return false;
     } else if (statusFilter !== "ALL") {
@@ -383,7 +390,7 @@ export function MaintenanceWorkspace({
 
   const hasActiveFilters =
     normalizedQuery !== "" ||
-    statusFilter !== "ACTIVE_QUEUE" ||
+    statusFilter !== "ACTIVE" ||
     priorityFilter !== "ALL";
 
   const {
@@ -497,7 +504,7 @@ export function MaintenanceWorkspace({
         hasActiveFilters={hasActiveFilters}
         onClearAll={() => {
           setSearchQuery("");
-          setStatusFilter("ACTIVE_QUEUE");
+          setStatusFilter("ACTIVE");
           setPriorityFilter("ALL");
         }}
       >
@@ -523,16 +530,14 @@ export function MaintenanceWorkspace({
                 value={statusFilter}
                 onChange={(e) => setStatusFilter(e.target.value)}
               >
-                <option value="ACTIVE_QUEUE">
-                  Active &amp; recent (unarchived)
-                </option>
-                <option value="ALL">All requests</option>
+                <option value="ACTIVE">Active</option>
                 {MAINTENANCE_STATUSES.map((status) => (
                   <option key={status} value={status}>
                     {MAINTENANCE_STATUS_LABELS[status]}
                   </option>
                 ))}
                 <option value="ARCHIVED">Archived</option>
+                <option value="ALL">All requests</option>
               </Select>
             )}
           </Field>
@@ -582,7 +587,7 @@ export function MaintenanceWorkspace({
                 variant="secondary"
                 onClick={() => {
                   setSearchQuery("");
-                  setStatusFilter("ACTIVE_QUEUE");
+                  setStatusFilter("ACTIVE");
                   setPriorityFilter("ALL");
                 }}
               >

@@ -1,6 +1,7 @@
 "use client";
 
 import { useRef, useState, useTransition } from "react";
+import { ReportsContentSkeleton } from "@/components/common/page-skeletons";
 import { Alert } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { Field } from "@/components/ui/field";
@@ -378,41 +379,47 @@ export function ReportsWorkspace({
           ))}
         </TabsList>
 
-        <TabsContent value="occupancy">
-          <OccupancyReportPanel overview={overview} asOfLabel={asOfLabel} />
-        </TabsContent>
+        {loadingReport ? (
+          <ReportsContentSkeleton />
+        ) : (
+          <>
+            <TabsContent value="occupancy">
+              <OccupancyReportPanel overview={overview} asOfLabel={asOfLabel} />
+            </TabsContent>
 
-        <TabsContent value="rent-roll">
-          <RentRollReportPanel overview={overview} asOfLabel={asOfLabel} />
-        </TabsContent>
+            <TabsContent value="rent-roll">
+              <RentRollReportPanel overview={overview} asOfLabel={asOfLabel} />
+            </TabsContent>
 
-        <TabsContent value="receivables-aging">
-          <ReceivablesAgingReportPanel
-            overview={overview}
-            asOfLabel={asOfLabel}
-          />
-        </TabsContent>
+            <TabsContent value="receivables-aging">
+              <ReceivablesAgingReportPanel
+                overview={overview}
+                asOfLabel={asOfLabel}
+              />
+            </TabsContent>
 
-        <TabsContent value="collections">
-          <CollectionsReportPanel
-            overview={overview}
-            periodLabel={periodLabel}
-          />
-        </TabsContent>
+            <TabsContent value="collections">
+              <CollectionsReportPanel
+                overview={overview}
+                periodLabel={periodLabel}
+              />
+            </TabsContent>
 
-        <TabsContent value="transient-revenue">
-          <TransientRevenueReportPanel
-            overview={overview}
-            periodLabel={periodLabel}
-          />
-        </TabsContent>
+            <TabsContent value="transient-revenue">
+              <TransientRevenueReportPanel
+                overview={overview}
+                periodLabel={periodLabel}
+              />
+            </TabsContent>
 
-        <TabsContent value="maintenance">
-          <MaintenanceReportPanel
-            overview={overview}
-            periodLabel={periodLabel}
-          />
-        </TabsContent>
+            <TabsContent value="maintenance">
+              <MaintenanceReportPanel
+                overview={overview}
+                periodLabel={periodLabel}
+              />
+            </TabsContent>
+          </>
+        )}
       </Tabs>
     </div>
   );

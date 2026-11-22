@@ -1312,21 +1312,32 @@ export function TransientsWorkspace({
                   {confirmStayAction.stay.guestName}
                 </span>
               </div>
-              <div className="flex items-center justify-between gap-2">
+              <div className="flex items-start justify-between gap-2">
                 <span className="text-muted-foreground">Room &amp; dates</span>
-                <span className="text-foreground">
-                  Room {confirmStayAction.stay.roomNumber} ·{" "}
-                  {formatManilaDate(confirmStayAction.stay.checkInDateManila)}{" "}
-                  &rarr;{" "}
-                  {formatManilaDate(confirmStayAction.stay.checkOutDateManila)}
-                </span>
+                <div className="grid justify-items-end gap-0.5 text-right text-foreground">
+                  <span className="font-medium">
+                    Room {confirmStayAction.stay.roomNumber}
+                  </span>
+                  <span className="text-xs text-muted-foreground tabular-nums">
+                    {formatManilaDate(confirmStayAction.stay.checkInDateManila)}{" "}
+                    &rarr;{" "}
+                    {formatManilaDate(
+                      confirmStayAction.stay.checkOutDateManila,
+                    )}
+                  </span>
+                </div>
               </div>
               <div className="flex items-center justify-between gap-2">
                 <span className="text-muted-foreground">Stay total</span>
-                <span className="font-semibold text-foreground">
-                  {formatPhpCurrency(confirmStayAction.stay.totalAmount)} (
-                  {confirmStayAction.stay.nights}n)
-                </span>
+                <div className="flex items-center gap-2">
+                  <span className="font-semibold text-foreground tabular-nums">
+                    {formatPhpCurrency(confirmStayAction.stay.totalAmount)}
+                  </span>
+                  <Badge tone="neutral">
+                    {confirmStayAction.stay.nights}{" "}
+                    {confirmStayAction.stay.nights === 1 ? "night" : "nights"}
+                  </Badge>
+                </div>
               </div>
             </>
           ) : null

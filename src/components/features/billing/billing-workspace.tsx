@@ -10,7 +10,7 @@ import {
   useOfflineSnapshotState,
 } from "@/components/features/offline/offline-vault-unlock";
 import { Alert } from "@/components/ui/alert";
-import { Badge } from "@/components/ui/badge";
+import { Badge, CountPill } from "@/components/ui/badge";
 import { Button, buttonClasses } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import {
@@ -474,7 +474,8 @@ export function BillingWorkspace({
                 setSmsBatchConfirmOpen(true);
               }}
             >
-              Send overdue SMS ({overdueBoardingCount})
+              <span>Send overdue SMS</span>
+              <CountPill tone="warning">{overdueBoardingCount}</CountPill>
             </Button>
           )}
           {!isOfflineView && (

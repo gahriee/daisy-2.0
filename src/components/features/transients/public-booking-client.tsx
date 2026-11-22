@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { useEffect, useMemo, useRef, useState } from "react";
+import { PublicBookingCardsSkeleton } from "@/components/common/page-skeletons";
 import {
   GuestCountStepperRow,
   PublicBookingFooter,
@@ -490,7 +491,9 @@ export function PublicBookingClient({
             </p>
           </div>
 
-          {visibleRooms.length === 0 ? (
+          {loadingAvailability ? (
+            <PublicBookingCardsSkeleton count={4} />
+          ) : visibleRooms.length === 0 ? (
             <EmptyState className="my-6 bg-surface">
               <EmptyStateTitle>No rooms listed right now</EmptyStateTitle>
               <EmptyStateDescription>

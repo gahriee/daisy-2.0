@@ -300,7 +300,7 @@ export function NoticeFormDialog({
                 {smsPreviewText}
               </p>
               <p className="text-muted-foreground tabular-nums">
-                {smsEstimate.length} characters · {smsEstimate.segments}{" "}
+                {smsEstimate.length} characters, {smsEstimate.segments}{" "}
                 {smsEstimate.segments === 1 ? "text credit" : "text credits"}{" "}
                 per recipient
               </p>

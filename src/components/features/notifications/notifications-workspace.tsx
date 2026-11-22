@@ -2,6 +2,7 @@
 
 import { useMemo, useState } from "react";
 import { Alert } from "@/components/ui/alert";
+import { CountPill } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Checkbox } from "@/components/ui/checkbox";
@@ -672,9 +673,14 @@ export function NotificationsWorkspace({
                   disabled={mutating}
                   onChange={togglePageSelection}
                   label={
-                    effectiveSelectedKeys.length > 0
-                      ? `${effectiveSelectedKeys.length} selected`
-                      : `Select all on page (${pagination.paginatedRows.length})`
+                    effectiveSelectedKeys.length > 0 ? (
+                      `${effectiveSelectedKeys.length} selected`
+                    ) : (
+                      <span className="inline-flex items-center gap-2">
+                        <span>Select all on page</span>
+                        <CountPill>{pagination.paginatedRows.length}</CountPill>
+                      </span>
+                    )
                   }
                   className="text-xs font-medium text-foreground sm:text-sm"
                 />

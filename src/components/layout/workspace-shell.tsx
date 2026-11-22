@@ -3,6 +3,8 @@
 import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 
 import {
+  createContext,
+  useContext,
   useEffect,
   useRef,
   useState,
@@ -17,6 +19,7 @@ import { OfflineStatusBar } from "@/components/features/offline/offline-status-b
 import { Alert } from "@/components/ui/alert";
 import { Button, buttonClasses } from "@/components/ui/button";
 import { Separator } from "@/components/ui/separator";
+import { Skeleton } from "@/components/ui/skeleton";
 import {
   Sidebar,
   SidebarContent,
@@ -671,7 +674,22 @@ function TopbarOwnerControls({ profile }: { profile: OwnerWorkspaceProfile }) {
             </div>
 
             <div className="mt-1 grid max-h-[min(65dvh,30rem)] divide-y divide-border overflow-y-auto overscroll-contain">
-              {!notifLoaded || previewNotifications.length === 0 ? (
+              {!notifLoaded ? (
+                <div
+                  className="grid gap-3 py-3"
+                  role="status"
+                  aria-busy="true"
+                  aria-label="Loading notifications"
+                >
+                  <span className="sr-only">Loading notifications…</span>
+                  {Array.from({ length: 3 }).map((_, idx) => (
+                    <div key={idx} className="grid gap-1.5 px-1">
+                      <Skeleton className="h-3.5 w-3/4" />
+                      <Skeleton className="h-3 w-full" />
+                    </div>
+                  ))}
+                </div>
+              ) : previewNotifications.length === 0 ? (
                 <p className="py-5 text-center text-xs text-muted-foreground">
                   No active alerts right now.
                 </p>
@@ -873,8 +891,77 @@ function ManilaDateTime() {
   );
 }
 
-type WorkspaceShellProps = {
+type WorkspaceTitleOverride = {
+  pathname: string;
   title: string;
+} | null;
+
+const WorkspaceTitleContext = createContext<
+  ((override: WorkspaceTitleOverride) => void) | null
+>(null);
+
+function resolveWorkspaceTitle(pathname: string): string {
+  if (pathname === "/") return "Dashboard";
+  if (pathname === "/reports") return "Reports";
+  if (pathname === "/rooms") return "Rooms";
+  if (pathname === "/rooms/new") return "Add room";
+  if (pathname === "/rooms/types") return "Room types";
+  if (pathname.startsWith("/rooms/")) return "Room details";
+  if (pathname === "/tenants") return "Tenants";
+  if (pathname.endsWith("/contracts/new")) return "Add signed contract";
+  if (pathname.includes("/contracts/")) return "Signed contract";
+  if (pathname.startsWith("/tenants/")) return "Tenant profile";
+  if (pathname === "/transients" || pathname === "/transients/stays") {
+    return "Stays & reservations";
+  }
+  if (pathname === "/transients/requests") return "Booking requests";
+  if (pathname.startsWith("/transients/requests/")) return "Booking request";
+  if (pathname === "/transients/rooms") return "Transient rooms";
+  if (pathname === "/transients/rooms/new") return "Add transient room";
+  if (pathname === "/transients/rooms/types") return "Transient room types";
+  if (pathname.startsWith("/transients/rooms/")) return "Transient room";
+  if (pathname === "/billing") return "Billing";
+  if (pathname === "/billing/new") return "Create invoice";
+  if (pathname.startsWith("/billing/")) return "Invoice details";
+  if (pathname === "/payments") return "Payments";
+  if (pathname === "/payments/new") return "Record payment";
+  if (pathname.startsWith("/payments/")) return "Payment details";
+  if (pathname === "/maintenance") return "Maintenance";
+  if (pathname === "/maintenance/new") return "Log maintenance request";
+  if (pathname.startsWith("/maintenance/")) return "Maintenance request";
+  if (pathname === "/notices") return "Notices";
+  if (pathname === "/notifications") return "Notifications";
+  if (pathname === "/audit") return "Activity history";
+  if (pathname === "/settings/profile") return "Property profile";
+  if (pathname === "/settings/policies") return "Billing & policies";
+  if (pathname === "/settings/operations") return "Stays & limits";
+  if (pathname === "/settings/sms") return "Overdue SMS";
+  if (pathname === "/settings/devices") return "Trusted devices";
+  if (pathname.startsWith("/settings")) return "Settings";
+  return "Daisy Workspace";
+}
+
+/**
+ * Sets a record-specific topbar title (e.g., room number, invoice number)
+ * inside the persistent WorkspaceShell without remounting the sidebar/topbar.
+ */
+export function WorkspacePageTitle({ title }: { title: string }) {
+  const pathname = usePathname();
+  const setOverride = useContext(WorkspaceTitleContext);
+
+  useEffect(() => {
+    if (!setOverride) return;
+    setOverride({ pathname, title });
+    return () => {
+      setOverride(null);
+    };
+  }, [pathname, setOverride, title]);
+
+  return null;
+}
+
+type WorkspaceShellProps = {
+  title?: string;
   profile?: OwnerWorkspaceProfile;
   primaryAction?: {
     label: string;
@@ -897,6 +984,12 @@ export function WorkspaceShell({
   children,
 }: WorkspaceShellProps) {
   const pathname = usePathname();
+  const [titleOverride, setTitleOverride] =
+    useState<WorkspaceTitleOverride>(null);
+  const resolvedTitle =
+    title ??
+    (titleOverride?.pathname === pathname ? titleOverride.title : null) ??
+    resolveWorkspaceTitle(pathname);
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const defaultRoomsExpanded = pathname.startsWith("/rooms");
   const defaultTransientsExpanded =
@@ -1212,7 +1305,7 @@ export function WorkspaceShell({
               controls="workspace-sidebar"
               onClick={() => setSidebarOpen((open) => !open)}
             />
-            <TopbarBreadcrumb title={title} />
+            <TopbarBreadcrumb title={resolvedTitle} />
           </TopbarLeft>
 
           <TopbarActions>
@@ -1234,7 +1327,11 @@ export function WorkspaceShell({
           tabIndex={-1}
           className="flex-1 px-4 py-5 outline-none sm:px-6 sm:py-6 lg:px-10 lg:py-8 xl:px-14"
         >
-          <div className="mx-auto grid w-full max-w-7xl gap-6">{children}</div>
+          <WorkspaceTitleContext.Provider value={setTitleOverride}>
+            <div className="mx-auto grid w-full max-w-7xl gap-6">
+              {children}
+            </div>
+          </WorkspaceTitleContext.Provider>
         </main>
       </div>
     </div>

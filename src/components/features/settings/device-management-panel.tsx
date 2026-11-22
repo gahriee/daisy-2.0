@@ -85,9 +85,9 @@ const DEVICE_STATUS_OPTIONS: readonly {
   value: DeviceStatusFilter;
   label: string;
 }[] = [
-  { value: "all", label: "All devices" },
   { value: "active", label: "Active" },
   { value: "revoked", label: "Removed" },
+  { value: "all", label: "All devices" },
 ];
 
 const manilaDateTimeFormatter = new Intl.DateTimeFormat("en-PH", {
@@ -118,7 +118,8 @@ export function DeviceManagementPanel({
   const [registering, setRegistering] = useState(false);
   const [revokingId, setRevokingId] = useState<string | null>(null);
   const [searchQuery, setSearchQuery] = useState("");
-  const [statusFilter, setStatusFilter] = useState<DeviceStatusFilter>("all");
+  const [statusFilter, setStatusFilter] =
+    useState<DeviceStatusFilter>("active");
 
   const currentDevice = devices.find((device) => device.isCurrent);
   const filteredDevices = devices.filter((device) => {
@@ -146,7 +147,7 @@ export function DeviceManagementPanel({
     resetKey: `${searchQuery.trim()}|${statusFilter}|${sort?.key ?? ""}|${sort?.direction ?? ""}`,
   });
 
-  const hasFilters = searchQuery.trim() !== "" || statusFilter !== "all";
+  const hasFilters = searchQuery.trim() !== "" || statusFilter !== "active";
 
   async function refreshDevices() {
     const res = await fetch("/api/devices", { cache: "no-store" });
@@ -303,7 +304,7 @@ export function DeviceManagementPanel({
           hasActiveFilters={hasFilters}
           onClearAll={() => {
             setSearchQuery("");
-            setStatusFilter("all");
+            setStatusFilter("active");
           }}
           aria-label="Find trusted devices"
         >
@@ -390,16 +391,26 @@ export function DeviceManagementPanel({
             </EmptyStateDescription>
           </div>
           <EmptyStateActions>
-            <Button
-              variant="secondary"
-              size="sm"
-              onClick={() => {
-                setSearchQuery("");
-                setStatusFilter("all");
-              }}
-            >
-              Clear
-            </Button>
+            {hasFilters ? (
+              <Button
+                variant="secondary"
+                size="sm"
+                onClick={() => {
+                  setSearchQuery("");
+                  setStatusFilter("active");
+                }}
+              >
+                Clear
+              </Button>
+            ) : (
+              <Button
+                variant="secondary"
+                size="sm"
+                onClick={() => setStatusFilter("all")}
+              >
+                Show all devices
+              </Button>
+            )}
           </EmptyStateActions>
         </EmptyState>
       ) : (

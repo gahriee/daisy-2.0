@@ -123,9 +123,12 @@ function CropperBody({
         <span className="min-w-0 truncate font-medium text-foreground">
           {task.fileName}
         </span>
-        <Badge tone="neutral">
-          {ROOM_PHOTO_OUTPUT_WIDTH} × {ROOM_PHOTO_OUTPUT_HEIGHT} px · 4:3
-        </Badge>
+        <div className="flex items-center gap-1.5">
+          <Badge tone="neutral">
+            {ROOM_PHOTO_OUTPUT_WIDTH} × {ROOM_PHOTO_OUTPUT_HEIGHT} px
+          </Badge>
+          <Badge tone="neutral">4:3</Badge>
+        </div>
       </div>
 
       <div className="relative h-64 w-full overflow-hidden rounded-panel border border-border bg-foreground sm:h-80">
@@ -300,7 +303,7 @@ export function RoomPhotoCropperDialog({
     : task.target === "preview"
       ? "Crop preview image"
       : task.batchTotal > 1
-        ? `Crop room photo (${task.batchIndex} of ${task.batchTotal})`
+        ? `Crop room photo ${task.batchIndex} of ${task.batchTotal}`
         : "Crop room photo";
 
   return (

@@ -212,7 +212,7 @@ export function NoticesWorkspace({
     },
   });
   const [searchQuery, setSearchQuery] = useState("");
-  const [statusFilter, setStatusFilter] = useState("CURRENT");
+  const [statusFilter, setStatusFilter] = useState("ACTIVE");
   const [audienceFilter, setAudienceFilter] = useState("ALL");
   const [dialogOpen, setDialogOpen] = useState(false);
   const [editingNotice, setEditingNotice] = useState<NoticeDto | null>(null);
@@ -301,9 +301,7 @@ export function NoticesWorkspace({
 
   const normalizedQuery = searchQuery.trim().toLowerCase();
   const filteredNotices = overview.notices.filter((notice) => {
-    if (statusFilter === "CURRENT") {
-      if (notice.archivedAt !== null) return false;
-    } else if (statusFilter !== "ALL") {
+    if (statusFilter !== "ALL") {
       if (notice.lifecycleStatus !== statusFilter) return false;
     }
 
@@ -342,7 +340,7 @@ export function NoticesWorkspace({
 
   const hasActiveFilters =
     normalizedQuery !== "" ||
-    statusFilter !== "CURRENT" ||
+    statusFilter !== "ACTIVE" ||
     audienceFilter !== "ALL";
 
   function getNoticeRowActions(notice: NoticeDto): RowActionItem[] {
@@ -509,7 +507,7 @@ export function NoticesWorkspace({
         hasActiveFilters={hasActiveFilters}
         onClearAll={() => {
           setSearchQuery("");
-          setStatusFilter("CURRENT");
+          setStatusFilter("ACTIVE");
           setAudienceFilter("ALL");
         }}
       >
@@ -535,15 +533,12 @@ export function NoticesWorkspace({
                 value={statusFilter}
                 onChange={(e) => setStatusFilter(e.target.value)}
               >
-                <option value="CURRENT">
-                  Unarchived (active, scheduled, expired)
-                </option>
-                <option value="ALL">All notices</option>
                 {NOTICE_LIFECYCLE_STATUSES.map((status) => (
                   <option key={status} value={status}>
                     {NOTICE_LIFECYCLE_LABELS[status]}
                   </option>
                 ))}
+                <option value="ALL">All notices</option>
               </Select>
             )}
           </Field>
@@ -593,7 +588,7 @@ export function NoticesWorkspace({
                 variant="secondary"
                 onClick={() => {
                   setSearchQuery("");
-                  setStatusFilter("CURRENT");
+                  setStatusFilter("ACTIVE");
                   setAudienceFilter("ALL");
                 }}
               >
@@ -792,7 +787,7 @@ export function NoticesWorkspace({
           });
           const est = estimateSmsSegments(preview);
           const audienceText = formatAudienceTarget(smsTargetNotice);
-          return `Audience: ${audienceText}. Preview (${est.length} characters · ${est.segments} ${est.segments === 1 ? "text credit" : "text credits"} per recipient): "${preview}"`;
+          return `Audience: ${audienceText}. ${est.length} characters, ${est.segments} ${est.segments === 1 ? "text credit" : "text credits"} per recipient. Preview: "${preview}"`;
         })()}
         errorMessage={smsConfirmError}
         confirmLabel="Send text"

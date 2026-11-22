@@ -258,9 +258,12 @@ forced-color mode restores native checkbox appearance and system highlights.
 - **Checkbox:** custom animated hairline SVG tick (`150 ms`) layered cleanly
   over a native `<input type="checkbox">` inside a `44 px` wrapping touch
   target. Do not nest its label inside another label.
-- **Badge:** neutral, success, warning, danger and info tones with hairline
-  borders and `tabular-nums`, without status dots. Neutral badges remain crisp
-  on both white and muted surfaces.
+- **Badge & CountPill (`src/components/ui/badge.tsx`):** `Badge` renders
+  neutral, success, warning, danger and info tones with hairline borders and
+  `tabular-nums`, without status dots. `CountPill` renders compact right-aligned
+  or inline `tabular-nums` count pills inside `RowActionMenu` items (`badge`
+  prop), buttons, and section headings—never wrap counts in parentheses like
+  `Notes (1)` or join label and count with middots.
 - **Alert:** info, success, warning and danger tones with subtle tone-matched
   borders and a fixed left-rail geometric glyph so custom child layouts stay
   aligned. Uses `role="status"` by default. Reserved for inline errors, form
@@ -417,7 +420,8 @@ forced-color mode restores native checkbox appearance and system highlights.
   `/book` renders outside the management sidebar as a full-width, edge-to-edge commercial booking storefront (`w-full px-4 sm:px-6 lg:px-10`, 1–5 column card grid) modeled after commercial travel storefronts in `Rausch and charcoal` without modal dialogs for viewing rooms or submitting requests. `PublicBookingHeader` and `PublicBookingFooter` stay dedicated to guests (property brand lockup on the left, optional front-desk phone link on the right, subtle hero photo attribution line in the `/book` footer, zero staff sign-in or boxy back buttons in the navbar), while `PublicBookingBackLink` sits cleanly as an understated inline text link directly above subpage headings on `/book/[roomId]` and `/book/[roomId]/request`. Main `/book` opens with a plain full-bleed-edge sunlit room hero photograph (`public/images/hero/stay-hero-*.jpg`, no text overlays or scrims), followed by a centered `When` (check-in/check-out dates), `Who` (`44 px` Adults/Children steppers), and Rausch `Search` pill straddling its bottom edge (`sm+`), the `Rooms for short stays` section heading positioned below the search bar, and 1–5 column listing cards with `44 px` sibling carousel controls, plain everyday language (`Private room`, `Shared room (1 guest per bed)`, `Up to date` / `Saved on this device`, senior-friendly labels without technical or `"Owner"` jargon across the workspace), exact PHP totals, and links to dedicated `/book/[roomId]` and `/book/[roomId]/request` pages. Dedicated `/book/[roomId]` pairs a `4:3` arrow-key photo viewer, `4:3` thumbnails, and full `#photos` `4:3` captioned gallery with a sticky right-hand stay calculator. Dedicated `/book/[roomId]/request` aligns editable stay fields with a proportional 12-column guest form (`Full name` `6`, `Age` `2`, compact `Male`/`Female` `radiogroup` matched to `Input` height `4`, `Address` `12`, `Contact no.` `6`, `Email (optional)` `6`, `Note for the host (optional)` `12`), field-level focus validation, payload-keyed retries, and an inline copyable confirmation screen (`Waiting for host confirmation`). Boarding House `/rooms/new` and `/rooms/[roomId]` omit public listing fields and room photos, while Transient `/transients/rooms/new` and `/transients/rooms/[roomId]` integrate the `Public /book listing` settings (`isTransientPublished`, optional public title and summary) alongside cropped cover + unlimited captioned gallery shots (`react-easy-crop`, `1200 × 900` px `4:3` matching `/book` and `/book/[roomId]`), with `/transients/rooms` displaying public status (`Published` / `Hidden`) directly in the room directory. The expandable sidebar `Stays & requests` group separates `/transients/stays` (with a `View` row action opening a flat read-only modal for full guest, stay, room, and billing details) and `/transients/requests` (with `/transients` and `/transients/guests` redirecting to `/transients/stays`, and `/transients/listings/*` redirecting to `/transients/rooms/*`), each pairing focused KPI cards, scoped `SearchFilter`, and 360 px mobile lists + desktop tables, while `/transients/requests/[requestId]` displays all submitted guest fields alongside rate-change review and bed/guest assignment before approval (`Approve & reserve room`).
 - **Tenants directory & separate notes (`/tenants`, `/tenants/[tenantId]`):**
   `/tenants` opens separate timestamped `TenantNote` management from the row
-  `•••` menu and mobile card actions (`Notes` / `Notes (N)`) via `TenantNotesDialog`
+  `•••` menu and mobile card actions (`Notes` with a right-aligned `CountPill`
+  badge when notes exist) via `TenantNotesDialog`
   (add, newest-first timestamped list, and per-note delete while preserving drafts
   on validation/archive errors), and `/tenants/[tenantId]` renders a dedicated
   `Notes` card and modal trigger; Add tenant, Edit tenant, Assign room, and
@@ -464,7 +468,7 @@ the shared `cn` helper so consumer classes override conflicting recipe utilities
 - Don't add business rules, database calls or authorization to primitives.
 - Don't use color alone to identify status or error.
 - Don't add decorative indicator dots to badges or status pills; let tonal fill, border and text carry status.
-- Don't join multiple data fields on one line with middots (`·`); stack separate fields vertically on their own lines using crisp `gap-0.5` stacks.
+- Don't format counts or paired metadata with parentheses (`Notes (1)`, `Send overdue SMS (3)`) or middots (`Text · Text`); use `CountPill` / `Badge` for counts and stack or space separate metadata fields cleanly with `gap-0.5` or flex gaps.
 - Don't use tab or chip/pill buttons as `SearchFilter` filters; always use labeled `Select` controls.
 - Don't add shadows, rings or hover styles to text inputs, or scale/translate transforms to buttons.
 - Don't remove a loading action's label or rely on a spinner alone.

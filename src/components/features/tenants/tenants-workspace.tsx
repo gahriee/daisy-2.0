@@ -522,10 +522,10 @@ export function TenantsWorkspace({
       },
       {
         id: "notes",
-        label:
-          tenant.tenantNotes.length > 0
-            ? `Notes (${tenant.tenantNotes.length})`
-            : "Notes",
+        label: "Notes",
+        ...(tenant.tenantNotes.length > 0
+          ? { badge: tenant.tenantNotes.length }
+          : {}),
         disabled: isOfflineView,
         onSelect: () => setNotesTenantId(tenant.id),
       },

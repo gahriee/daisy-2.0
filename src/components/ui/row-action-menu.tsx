@@ -9,12 +9,14 @@ import {
 } from "react";
 import { createPortal } from "react-dom";
 import Link from "next/link";
+import { CountPill } from "@/components/ui/badge";
 import { Button, buttonClasses } from "@/components/ui/button";
 import { cn } from "@/lib/cn";
 
 export type RowActionItem = {
   id: string;
   label: string;
+  badge?: string | number | undefined;
   href?: string;
   onSelect?: () => void;
   disabled?: boolean;
@@ -143,7 +145,8 @@ export function RowActionMenu({ items, label }: RowActionMenuProps) {
             className: singleDangerClass,
           })}
         >
-          {single.label}
+          <span>{single.label}</span>
+          {single.badge !== undefined && <CountPill>{single.badge}</CountPill>}
         </Link>
       );
     }
@@ -158,7 +161,8 @@ export function RowActionMenu({ items, label }: RowActionMenuProps) {
         disabled={Boolean(single.disabled)}
         onClick={single.onSelect}
       >
-        {single.label}
+        <span>{single.label}</span>
+        {single.badge !== undefined && <CountPill>{single.badge}</CountPill>}
       </Button>
     );
   }
@@ -273,7 +277,7 @@ export function RowActionMenu({ items, label }: RowActionMenuProps) {
               {items.map((item) => {
                 const isDanger = item.tone === "danger";
                 const itemClasses = cn(
-                  "flex min-h-9 w-full items-center rounded-control px-3 py-1.5 text-left text-sm leading-5 transition-colors duration-(--duration-control) ease-(--ease-control) hover:bg-surface-muted focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-focus",
+                  "flex min-h-9 w-full items-center justify-between gap-3 rounded-control px-3 py-1.5 text-left text-sm leading-5 transition-colors duration-(--duration-control) ease-(--ease-control) hover:bg-surface-muted focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-focus",
                   isDanger ? "text-danger" : "text-foreground",
                 );
 
@@ -286,7 +290,10 @@ export function RowActionMenu({ items, label }: RowActionMenuProps) {
                       onClick={() => setOpen(false)}
                       className={itemClasses}
                     >
-                      {item.label}
+                      <span>{item.label}</span>
+                      {item.badge !== undefined && (
+                        <CountPill>{item.badge}</CountPill>
+                      )}
                     </Link>
                   );
                 }
@@ -306,7 +313,10 @@ export function RowActionMenu({ items, label }: RowActionMenuProps) {
                       "cursor-pointer disabled:cursor-not-allowed disabled:opacity-45 disabled:hover:bg-transparent",
                     )}
                   >
-                    {item.label}
+                    <span>{item.label}</span>
+                    {item.badge !== undefined && (
+                      <CountPill>{item.badge}</CountPill>
+                    )}
                   </button>
                 );
               })}

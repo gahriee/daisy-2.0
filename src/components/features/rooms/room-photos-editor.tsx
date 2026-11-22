@@ -4,6 +4,7 @@ import { useEffect, useMemo, useRef, useState, type ChangeEvent } from "react";
 import dynamic from "next/dynamic";
 import Image from "next/image";
 import { Alert } from "@/components/ui/alert";
+import { CountPill } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import {
@@ -679,7 +680,13 @@ export function RoomPhotosEditor({
                   ? "Uploading cropped photo…"
                   : previewItem.status === "error"
                     ? previewItem.errorMessage || "Upload failed"
-                    : `${formatByteSize(previewItem.byteSize)}${previewItem.dimensionsLabel ? ` · ${previewItem.dimensionsLabel}` : ""} · Card preview`}
+                    : [
+                        formatByteSize(previewItem.byteSize),
+                        previewItem.dimensionsLabel,
+                        "Card preview",
+                      ]
+                        .filter(Boolean)
+                        .join(", ")}
               </span>
             </div>
 
@@ -734,8 +741,9 @@ export function RoomPhotosEditor({
       <div className="grid gap-2 border-t border-border pt-2.5">
         <div className="flex flex-wrap items-center justify-between gap-2">
           <div className="grid gap-0.5">
-            <span className="text-[13px] font-medium leading-4 text-foreground tabular-nums">
-              Room shots ({galleryItems.length})
+            <span className="inline-flex items-center gap-2 text-[13px] font-medium leading-4 text-foreground tabular-nums">
+              <span>Room shots</span>
+              <CountPill>{galleryItems.length}</CountPill>
             </span>
             <span className="text-xs leading-4 text-muted-foreground">
               Add as many captioned shots as needed. Each image crops to{" "}
@@ -795,7 +803,13 @@ export function RoomPhotosEditor({
                         ? "Uploading…"
                         : item.status === "error"
                           ? item.errorMessage || "Upload failed"
-                          : `${item.fileName} (${formatByteSize(item.byteSize)}${item.dimensionsLabel ? ` · ${item.dimensionsLabel}` : ""})`}
+                          : [
+                              item.fileName,
+                              formatByteSize(item.byteSize),
+                              item.dimensionsLabel,
+                            ]
+                              .filter(Boolean)
+                              .join(", ")}
                     </span>
 
                     <div className="flex shrink-0 flex-wrap items-center gap-1">
