@@ -239,8 +239,8 @@ export function OfflineSyncDialog({
       onClose={handleClose}
       dismissDisabled={busy || discardTarget !== null}
       maxWidthClassName="max-w-xl"
-      title="Offline copy & updates"
-      description="Private offline copy saved on this device. Any changes you make offline stay safe here until your internet reconnects."
+      title="Offline sync"
+      description="Keep a private copy on this device when offline."
     >
       <div className="grid gap-4">
         <dl className="grid grid-cols-2 gap-x-6 gap-y-3 border-b border-border pb-4">
@@ -299,7 +299,7 @@ export function OfflineSyncDialog({
             </dd>
             <dd className="text-[11px] text-muted-foreground">
               {vaultConfigured === false
-                ? "Offline password not set yet"
+                ? "Sync password not set"
                 : unlocked
                   ? "Unlocked"
                   : "Locked"}
@@ -309,15 +309,15 @@ export function OfflineSyncDialog({
 
         {quota.persisted === false && (
           <Alert tone="warning" role="status">
-            Browser storage may be cleared by your device when space is low.
-            Update regularly while online so saved changes are not lost.
+            Sync regularly while online so saved changes are not cleared when
+            storage is low.
           </Alert>
         )}
 
         {quota.nearQuota && (
           <Alert tone="danger" role="alert">
-            Device storage is over 80% full. Update pending items while online
-            before taking large payment photos.
+            Device storage is over 80% full. Sync pending changes before adding
+            large photos.
           </Alert>
         )}
 
@@ -331,21 +331,17 @@ export function OfflineSyncDialog({
           <VaultPassphraseForm
             showCancel
             onCancel={handleClose}
-            submitSetupLabel={
-              online ? "Save password & update" : "Save offline password"
-            }
-            submitUnlockLabel={
-              online ? "Unlock & update" : "Unlock offline copy"
-            }
+            submitSetupLabel={online ? "Save & sync" : "Save password"}
+            submitUnlockLabel={online ? "Unlock & sync" : "Unlock"}
             onUnlocked={async ({ initializedNew }) => {
               await reloadModalState();
               toast.success(
                 initializedNew
                   ? online
-                    ? "Offline password saved and records updated."
-                    : "Offline password saved on this browser."
+                    ? "Sync enabled and records updated."
+                    : "Sync password saved on this browser."
                   : online
-                    ? "Offline copy unlocked and updated."
+                    ? "Unlocked and synced."
                     : "Offline copy unlocked.",
               );
             }}

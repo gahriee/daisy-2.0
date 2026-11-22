@@ -1201,7 +1201,7 @@ export function PaymentCreateForm({
               </div>
             </dl>
 
-            <div className="grid gap-2.5 border-t border-border pt-3">
+            <div className="hidden gap-2.5 border-t border-border pt-3 lg:grid">
               <Button
                 type="submit"
                 size="md"
@@ -1223,6 +1223,33 @@ export function PaymentCreateForm({
               </Link>
             </div>
           </Card>
+
+          <div className="sticky bottom-0 z-10 -mx-4 grid gap-2 border-t border-border bg-surface px-4 pt-3 pb-[calc(0.75rem+env(safe-area-inset-bottom))] shadow-[0_-8px_20px_-14px_rgb(34_34_34/0.16)] sm:-mx-6 sm:px-6 lg:hidden">
+            <Button
+              type="submit"
+              size="md"
+              loading={pending}
+              disabled={
+                !policiesComplete ||
+                !hasAnyPayers ||
+                hasUploadingProofs ||
+                (previewDistribution !== null && !previewDistribution.ok)
+              }
+              className="w-full"
+            >
+              {hasUploadingProofs ? "Uploading proofs…" : "Post payment"}
+            </Button>
+            <Link
+              href="/payments"
+              className={buttonClasses({
+                variant: "secondary",
+                size: "md",
+                className: "w-full",
+              })}
+            >
+              Cancel
+            </Link>
+          </div>
         </form>
       </CompactFormScope>
 

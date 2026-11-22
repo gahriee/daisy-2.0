@@ -495,7 +495,7 @@ export function MaintenanceCreateForm({
               assignments and transient stays while repairs are underway.
             </p>
 
-            <div className="grid gap-2">
+            <div className="hidden gap-2 xl:grid">
               <Button
                 type="submit"
                 loading={pending}
@@ -513,6 +513,29 @@ export function MaintenanceCreateForm({
               </Link>
             </div>
           </Card>
+
+          <div className="sticky bottom-0 z-10 -mx-4 grid gap-2 border-t border-border bg-surface px-4 pt-3 pb-[calc(0.75rem+env(safe-area-inset-bottom))] shadow-[0_-8px_20px_-14px_rgb(34_34_34/0.16)] sm:-mx-6 sm:px-6 xl:hidden">
+            <Button
+              type="submit"
+              loading={pending}
+              disabled={uploader.uploading || rooms.length === 0}
+              className="w-full"
+            >
+              {uploader.uploading
+                ? "Uploading attachments…"
+                : "Save maintenance request"}
+            </Button>
+            <Link
+              href="/maintenance"
+              className={buttonClasses({
+                variant: "secondary",
+                size: "md",
+                className: "w-full",
+              })}
+            >
+              Cancel
+            </Link>
+          </div>
         </form>
       </CompactFormScope>
 

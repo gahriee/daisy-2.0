@@ -2,6 +2,7 @@ import { config } from "dotenv";
 
 config({ path: ".env.local", quiet: true });
 
+import { createHash, randomUUID } from "node:crypto";
 import { addManilaDays, toManilaDate } from "../src/lib/dates";
 import {
   addInvoiceAdjustment,
@@ -38,6 +39,43 @@ import {
 } from "../src/features/transients/service";
 import { getDatabase } from "../src/server/db/client";
 import { ensureOwnerRecord } from "../src/server/db/owner-record";
+import { putPrivateObject } from "../src/server/storage/client";
+
+type SeedPhotoSpec = {
+  role: "PREVIEW" | "GALLERY";
+  sortOrder: number;
+  fileName: string;
+  caption: string | null;
+  url: string;
+};
+
+const SEED_TRANSIENT_PHOTOS = {
+  bed1: "https://images.unsplash.com/photo-1618773928121-c32242e63f39?w=1200&h=900&fit=crop&q=85&fm=jpg",
+  bed2: "https://images.unsplash.com/photo-1590490360182-c33d57733427?w=1200&h=900&fit=crop&q=85&fm=jpg",
+  bed3: "https://images.unsplash.com/photo-1566665797739-1674de7a421a?w=1200&h=900&fit=crop&q=85&fm=jpg",
+  bed4: "https://images.unsplash.com/photo-1582719478250-c89cae4dc85b?w=1200&h=900&fit=crop&q=85&fm=jpg",
+  living1:
+    "https://images.unsplash.com/photo-1560185127-6ed189bf02f4?w=1200&h=900&fit=crop&q=85&fm=jpg",
+  living2:
+    "https://images.unsplash.com/photo-1755311905567-b7068d2cbacd?w=1200&h=900&fit=crop&q=85&fm=jpg",
+  balcony1:
+    "https://images.unsplash.com/photo-1722649948198-2a7166e4cab1?w=1200&h=900&fit=crop&q=85&fm=jpg",
+  bath1:
+    "https://images.unsplash.com/photo-1771929662486-f793e08f0f16?w=1200&h=900&fit=crop&q=85&fm=jpg",
+  bath2:
+    "https://images.unsplash.com/photo-1744869524920-f0efc925b82f?w=1200&h=900&fit=crop&q=85&fm=jpg",
+  kitchen1:
+    "https://images.unsplash.com/photo-1783334418754-77b9f4fe2837?w=1200&h=900&fit=crop&q=85&fm=jpg",
+} as const;
+
+function hasStorageCredentials(): boolean {
+  return Boolean(
+    process.env.AWS_ENDPOINT_URL_S3?.startsWith("https://") &&
+    process.env.AWS_REGION &&
+    process.env.AWS_ACCESS_KEY_ID &&
+    process.env.AWS_SECRET_ACCESS_KEY,
+  );
+}
 
 async function main(): Promise<void> {
   const rawOwnerUserId = process.env.OWNER_USER_ID?.trim();
@@ -189,6 +227,14 @@ async function main(): Promise<void> {
       description:
         "Private studio suite with queen bed, en-suite bath, and work desk for short stays.",
     });
+    const loftType = await ensureRoomType({
+      building: "TRANSIENT",
+      name: "Family & Barkada Loft",
+      monthlyRate: null,
+      dailyRate: "2200.00",
+      description:
+        "Spacious group loft with lounge seating, kitchenette, private bath, and garden balcony.",
+    });
 
     // 3. Rooms (each with 1 synced backing unit; separated into Boarding & Transient buildings)
     async function ensureRoomWithUnit(input: {
@@ -199,6 +245,7 @@ async function main(): Promise<void> {
       baseMonthlyRate: string | null;
       transientDailyRate: string | null;
       notes: string;
+      capacity?: number;
     }) {
       let existing = await db.room.findFirst({
         where: {
@@ -217,7 +264,7 @@ async function main(): Promise<void> {
       if (!existing) {
         const created = await createRoom(ownerUserId, {
           ...input,
-          capacity: 1,
+          capacity: input.capacity ?? 1,
         });
         existing = {
           id: created.id,
@@ -231,6 +278,90 @@ async function main(): Promise<void> {
         throw new Error(`Failed to sync room unit for Room ${input.number}`);
       }
       return { ...existing, unitBedId };
+    }
+
+    const storageReady = hasStorageCredentials();
+    const downloadedPhotoCache = new Map<
+      string,
+      { body: Uint8Array; sha256: string }
+    >();
+
+    async function fetchSeedPhotoBytes(
+      url: string,
+    ): Promise<{ body: Uint8Array; sha256: string }> {
+      const cached = downloadedPhotoCache.get(url);
+      if (cached) return cached;
+      const res = await fetch(url, { signal: AbortSignal.timeout(20_000) });
+      if (!res.ok) {
+        throw new Error(
+          `Failed to download seed photo (${res.status}): ${url}`,
+        );
+      }
+      const body = new Uint8Array(await res.arrayBuffer());
+      const sha256 = createHash("sha256").update(body).digest("hex");
+      const entry = { body, sha256 };
+      downloadedPhotoCache.set(url, entry);
+      return entry;
+    }
+
+    async function ensureTransientRoomPhotos(
+      roomId: string,
+      roomNumber: string,
+      photos: readonly SeedPhotoSpec[],
+    ): Promise<void> {
+      if (!storageReady) return;
+      const existingCount = await db.roomPhoto.count({
+        where: { ownerUserId, roomId },
+      });
+      if (existingCount > 0) return;
+
+      for (const spec of photos) {
+        const { body, sha256 } = await fetchSeedPhotoBytes(spec.url);
+        const intentId = randomUUID();
+        const objectKey = `owners/${ownerUserId}/rooms/photos/${intentId}/${spec.fileName}`;
+        await putPrivateObject({
+          key: objectKey,
+          contentType: "image/jpeg",
+          body,
+        });
+
+        const now = new Date();
+        await db.$transaction(async (tx) => {
+          await tx.roomPhotoIntent.create({
+            data: {
+              id: intentId,
+              ownerUserId,
+              roomId,
+              objectKey,
+              fileName: spec.fileName,
+              mimeType: "image/jpeg",
+              byteSize: body.byteLength,
+              sha256,
+              status: "ATTACHED",
+              expiresAt: now,
+              uploadedAt: now,
+            },
+          });
+          await tx.roomPhoto.create({
+            data: {
+              ownerUserId,
+              roomId,
+              intentId,
+              objectKey,
+              role: spec.role,
+              caption: spec.caption,
+              sortOrder: spec.sortOrder,
+              fileName: spec.fileName,
+              mimeType: "image/jpeg",
+              byteSize: body.byteLength,
+              sha256,
+            },
+          });
+        });
+      }
+      console.log(
+        `Seeded ${photos.length} photos for Transient Room ${roomNumber}.`,
+      );
     }
 
     const room101 = await ensureRoomWithUnit({
@@ -287,6 +418,7 @@ async function main(): Promise<void> {
       roomTypeId: suiteType.id,
       baseMonthlyRate: null,
       transientDailyRate: "1250.00",
+      capacity: 2,
       notes: "Private transient studio overlooking courtyard.",
     });
     if (!room202.isTransientPublished) {
@@ -307,6 +439,36 @@ async function main(): Promise<void> {
         });
       }
     }
+    await ensureTransientRoomPhotos(room202.id, room202.number, [
+      {
+        role: "PREVIEW",
+        sortOrder: 0,
+        fileName: "room-202-bedroom-cover.jpg",
+        caption: null,
+        url: SEED_TRANSIENT_PHOTOS.bed2,
+      },
+      {
+        role: "GALLERY",
+        sortOrder: 0,
+        fileName: "room-202-living-area.jpg",
+        caption: "Bright living area with sofa and natural light",
+        url: SEED_TRANSIENT_PHOTOS.living1,
+      },
+      {
+        role: "GALLERY",
+        sortOrder: 1,
+        fileName: "room-202-bathroom.jpg",
+        caption: "Private walk-in marble and glass shower",
+        url: SEED_TRANSIENT_PHOTOS.bath1,
+      },
+      {
+        role: "GALLERY",
+        sortOrder: 2,
+        fileName: "room-202-kitchenette.jpg",
+        caption: "Compact kitchenette and dining counter",
+        url: SEED_TRANSIENT_PHOTOS.kitchen1,
+      },
+    ]);
 
     const room203 = await ensureRoomWithUnit({
       building: "TRANSIENT",
@@ -315,6 +477,7 @@ async function main(): Promise<void> {
       roomTypeId: suiteType.id,
       baseMonthlyRate: null,
       transientDailyRate: "1350.00",
+      capacity: 2,
       notes: "Corner transient studio with balcony access.",
     });
     if (!room203.isTransientPublished) {
@@ -335,6 +498,162 @@ async function main(): Promise<void> {
         });
       }
     }
+    await ensureTransientRoomPhotos(room203.id, room203.number, [
+      {
+        role: "PREVIEW",
+        sortOrder: 0,
+        fileName: "room-203-bedroom-cover.jpg",
+        caption: null,
+        url: SEED_TRANSIENT_PHOTOS.bed1,
+      },
+      {
+        role: "GALLERY",
+        sortOrder: 0,
+        fileName: "room-203-balcony.jpg",
+        caption: "Private balcony lounge with seating and table",
+        url: SEED_TRANSIENT_PHOTOS.balcony1,
+      },
+      {
+        role: "GALLERY",
+        sortOrder: 1,
+        fileName: "room-203-bathroom.jpg",
+        caption: "En-suite bathroom with glass shower enclosure",
+        url: SEED_TRANSIENT_PHOTOS.bath2,
+      },
+      {
+        role: "GALLERY",
+        sortOrder: 2,
+        fileName: "room-203-living-lounge.jpg",
+        caption: "Lounge corner with reading lamp and balcony view",
+        url: SEED_TRANSIENT_PHOTOS.living2,
+      },
+    ]);
+
+    const room301 = await ensureRoomWithUnit({
+      building: "TRANSIENT",
+      number: "301",
+      floor: "3rd Floor",
+      roomTypeId: loftType.id,
+      baseMonthlyRate: null,
+      transientDailyRate: "2200.00",
+      capacity: 4,
+      notes:
+        "Spacious family loft with full living area, kitchenette, and balcony.",
+    });
+    if (!room301.isTransientPublished) {
+      const fresh301 = await db.room.findUniqueOrThrow({
+        where: { id: room301.id },
+        select: { version: true, isTransientPublished: true },
+      });
+      if (!fresh301.isTransientPublished) {
+        await updateRoomTransientPublish(ownerUserId, {
+          roomId: room301.id,
+          expectedVersion: fresh301.version,
+          isTransientPublished: true,
+          transientTitle: "Room 301 — Garden View Family Loft",
+          transientDescription:
+            "Open-plan loft for up to 4 guests with living room, dining kitchenette, en-suite bath, and garden balcony.",
+          transientScope: "WHOLE_ROOM",
+          transientDailyRate: "2200.00",
+        });
+      }
+    }
+    await ensureTransientRoomPhotos(room301.id, room301.number, [
+      {
+        role: "PREVIEW",
+        sortOrder: 0,
+        fileName: "room-301-bedroom-cover.jpg",
+        caption: null,
+        url: SEED_TRANSIENT_PHOTOS.bed4,
+      },
+      {
+        role: "GALLERY",
+        sortOrder: 0,
+        fileName: "room-301-living-room.jpg",
+        caption: "Open living room with full sofa and lounge seating",
+        url: SEED_TRANSIENT_PHOTOS.living2,
+      },
+      {
+        role: "GALLERY",
+        sortOrder: 1,
+        fileName: "room-301-kitchenette.jpg",
+        caption: "Full kitchenette and dining table for group stays",
+        url: SEED_TRANSIENT_PHOTOS.kitchen1,
+      },
+      {
+        role: "GALLERY",
+        sortOrder: 2,
+        fileName: "room-301-bathroom.jpg",
+        caption: "Modern en-suite bathroom with walk-in shower",
+        url: SEED_TRANSIENT_PHOTOS.bath1,
+      },
+      {
+        role: "GALLERY",
+        sortOrder: 3,
+        fileName: "room-301-balcony.jpg",
+        caption: "Covered balcony overlooking the garden",
+        url: SEED_TRANSIENT_PHOTOS.balcony1,
+      },
+    ]);
+
+    const room302 = await ensureRoomWithUnit({
+      building: "TRANSIENT",
+      number: "302",
+      floor: "3rd Floor",
+      roomTypeId: suiteType.id,
+      baseMonthlyRate: null,
+      transientDailyRate: "1550.00",
+      capacity: 2,
+      notes: "Top-floor executive corner suite with soft lighting and lounge.",
+    });
+    if (!room302.isTransientPublished) {
+      const fresh302 = await db.room.findUniqueOrThrow({
+        where: { id: room302.id },
+        select: { version: true, isTransientPublished: true },
+      });
+      if (!fresh302.isTransientPublished) {
+        await updateRoomTransientPublish(ownerUserId, {
+          roomId: room302.id,
+          expectedVersion: fresh302.version,
+          isTransientPublished: true,
+          transientTitle: "Room 302 — Executive Corner Suite",
+          transientDescription:
+            "Quiet top-floor suite featuring a plush queen bed, sitting lounge, private shower, and balcony.",
+          transientScope: "WHOLE_ROOM",
+          transientDailyRate: "1550.00",
+        });
+      }
+    }
+    await ensureTransientRoomPhotos(room302.id, room302.number, [
+      {
+        role: "PREVIEW",
+        sortOrder: 0,
+        fileName: "room-302-bedroom-cover.jpg",
+        caption: null,
+        url: SEED_TRANSIENT_PHOTOS.bed3,
+      },
+      {
+        role: "GALLERY",
+        sortOrder: 0,
+        fileName: "room-302-living-space.jpg",
+        caption: "Minimalist living space with work and lounge seating",
+        url: SEED_TRANSIENT_PHOTOS.living1,
+      },
+      {
+        role: "GALLERY",
+        sortOrder: 1,
+        fileName: "room-302-bathroom.jpg",
+        caption: "Contemporary glass shower and bath",
+        url: SEED_TRANSIENT_PHOTOS.bath2,
+      },
+      {
+        role: "GALLERY",
+        sortOrder: 2,
+        fileName: "room-302-balcony.jpg",
+        caption: "Private balcony seating area",
+        url: SEED_TRANSIENT_PHOTOS.balcony1,
+      },
+    ]);
 
     // 4. Tenants & Active Room Assignments
     async function ensureTenant(input: {
@@ -823,6 +1142,7 @@ async function main(): Promise<void> {
     const [
       roomTypesCount,
       roomsCount,
+      roomPhotosCount,
       tenantsCount,
       assignmentsCount,
       invoicesCount,
@@ -835,6 +1155,7 @@ async function main(): Promise<void> {
     ] = await Promise.all([
       db.roomType.count({ where: { ownerUserId } }),
       db.room.count({ where: { ownerUserId } }),
+      db.roomPhoto.count({ where: { ownerUserId } }),
       db.tenant.count({ where: { ownerUserId } }),
       db.tenantAssignment.count({ where: { ownerUserId } }),
       db.invoice.count({ where: { ownerUserId } }),
@@ -849,9 +1170,11 @@ async function main(): Promise<void> {
     console.log(
       JSON.stringify({
         seeded: true,
+        storagePhotosEnabled: storageReady,
         counts: {
           roomTypes: roomTypesCount,
           rooms: roomsCount,
+          roomPhotos: roomPhotosCount,
           tenants: tenantsCount,
           assignments: assignmentsCount,
           invoices: invoicesCount,

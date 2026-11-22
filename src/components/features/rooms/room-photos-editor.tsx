@@ -6,7 +6,10 @@ import Image from "next/image";
 import { Alert } from "@/components/ui/alert";
 import { CountPill } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { ConfirmDialog } from "@/components/ui/confirm-dialog";
+import { Dialog } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
+import { cn } from "@/lib/cn";
 import {
   ROOM_PHOTO_ALLOWED_MIME_TYPES,
   ROOM_PHOTO_MAX_CAPTION_LENGTH,
@@ -196,6 +199,14 @@ export function RoomPhotosEditor({
   );
   const [cropQueue, setCropQueue] = useState<RoomPhotoCropTask[]>([]);
   const [pickerError, setPickerError] = useState<string | null>(null);
+  const [draggedIndex, setDraggedIndex] = useState<number | null>(null);
+  const [dragOverIndex, setDragOverIndex] = useState<number | null>(null);
+  const [confirmRemove, setConfirmRemove] = useState<
+    | { kind: "preview"; fileName: string }
+    | { kind: "gallery"; localId: string; fileName: string; caption: string }
+    | null
+  >(null);
+  const [inspectPhotoId, setInspectPhotoId] = useState<string | null>(null);
 
   const previewInputRef = useRef<HTMLInputElement | null>(null);
   const galleryInputRef = useRef<HTMLInputElement | null>(null);
@@ -574,13 +585,24 @@ export function RoomPhotosEditor({
   }
 
   function moveGalleryItem(index: number, direction: -1 | 1) {
+    reorderGalleryItem(index, index + direction);
+  }
+
+  function reorderGalleryItem(fromIndex: number, toIndex: number) {
+    if (fromIndex === toIndex) return;
     setGalleryItems((prev) => {
-      const targetIndex = index + direction;
-      if (targetIndex < 0 || targetIndex >= prev.length) return prev;
+      if (
+        fromIndex < 0 ||
+        toIndex < 0 ||
+        fromIndex >= prev.length ||
+        toIndex >= prev.length
+      ) {
+        return prev;
+      }
       const next = [...prev];
-      const [moved] = next.splice(index, 1);
+      const [moved] = next.splice(fromIndex, 1);
       if (!moved) return prev;
-      next.splice(targetIndex, 0, moved);
+      next.splice(toIndex, 0, moved);
       return next;
     });
   }
@@ -660,16 +682,21 @@ export function RoomPhotosEditor({
 
         {previewItem && (
           <div className="flex flex-wrap items-center gap-3 pt-1">
-            <div className="relative aspect-[4/3] w-24 shrink-0 overflow-hidden rounded-control bg-surface-muted">
+            <button
+              type="button"
+              onClick={() => setInspectPhotoId(previewItem.localId)}
+              aria-label={`View preview photo ${previewItem.fileName}`}
+              className="group relative aspect-[4/3] w-24 shrink-0 cursor-pointer overflow-hidden rounded-control bg-surface-muted focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus"
+            >
               <Image
                 src={previewItem.previewUrl}
                 alt="Room card preview"
                 fill
                 unoptimized
                 sizes="96px"
-                className="object-cover"
+                className="object-cover transition-transform duration-(--duration-control) ease-(--ease-control) group-hover:scale-105 motion-reduce:transform-none"
               />
-            </div>
+            </button>
 
             <div className="grid min-w-0 flex-1 gap-0.5">
               <span className="truncate text-xs font-medium text-foreground">
@@ -728,7 +755,12 @@ export function RoomPhotosEditor({
                 className="text-danger"
                 size="sm"
                 disabled={disabled}
-                onClick={handleRemovePreview}
+                onClick={() =>
+                  setConfirmRemove({
+                    kind: "preview",
+                    fileName: previewItem.fileName,
+                  })
+                }
               >
                 Remove
               </Button>
@@ -747,8 +779,11 @@ export function RoomPhotosEditor({
             </span>
             <span className="text-xs leading-4 text-muted-foreground">
               Add as many captioned shots as needed. Each image crops to{" "}
-              {ROOM_PHOTO_OUTPUT_WIDTH} × {ROOM_PHOTO_OUTPUT_HEIGHT} px (4:3)
-              for /book.
+              {ROOM_PHOTO_OUTPUT_WIDTH} × {ROOM_PHOTO_OUTPUT_HEIGHT} px for
+              /book.{" "}
+              {galleryItems.length > 1
+                ? "Drag rows to reorder or use Up and Down."
+                : ""}
             </span>
           </div>
           <Button
@@ -764,120 +799,205 @@ export function RoomPhotosEditor({
 
         {galleryItems.length > 0 && (
           <div className="divide-y divide-border border-t border-border">
-            {galleryItems.map((item, index) => (
-              <div
-                key={item.localId}
-                className="flex flex-col gap-2.5 py-3 last:pb-0 sm:flex-row sm:items-start"
-              >
-                <div className="relative aspect-[4/3] w-24 shrink-0 overflow-hidden rounded-control bg-surface-muted">
-                  <Image
-                    src={item.previewUrl}
-                    alt={
-                      item.caption.trim()
-                        ? item.caption.trim()
-                        : `Room shot ${index + 1}`
+            {galleryItems.map((item, index) => {
+              const canDrag = galleryItems.length > 1 && !disabled;
+              const isDragging = draggedIndex === index;
+              const isDropTarget =
+                dragOverIndex === index &&
+                draggedIndex !== null &&
+                draggedIndex !== index;
+
+              return (
+                <div
+                  key={item.localId}
+                  draggable={canDrag}
+                  onDragStart={(event) => {
+                    const target = event.target as HTMLElement | null;
+                    if (target?.closest("input, textarea, button")) {
+                      event.preventDefault();
+                      return;
                     }
-                    fill
-                    unoptimized
-                    sizes="96px"
-                    className="object-cover"
-                  />
-                </div>
-
-                <div className="grid min-w-0 flex-1 gap-1.5">
-                  <Input
-                    variant="filter"
-                    value={item.caption}
-                    onChange={(event) =>
-                      updateGalleryCaption(item.localId, event.target.value)
+                    event.dataTransfer.effectAllowed = "move";
+                    event.dataTransfer.setData("text/plain", String(index));
+                    setDraggedIndex(index);
+                  }}
+                  onDragOver={(event) => {
+                    if (!canDrag || draggedIndex === null) return;
+                    event.preventDefault();
+                    event.dataTransfer.dropEffect = "move";
+                    if (dragOverIndex !== index) {
+                      setDragOverIndex(index);
                     }
-                    maxLength={ROOM_PHOTO_MAX_CAPTION_LENGTH}
-                    disabled={disabled || item.status === "error"}
-                    placeholder={`Caption for shot ${index + 1} (optional)`}
-                    aria-label={`Caption for room shot ${index + 1}`}
-                  />
+                  }}
+                  onDragLeave={() => {
+                    if (dragOverIndex === index) {
+                      setDragOverIndex(null);
+                    }
+                  }}
+                  onDrop={(event) => {
+                    if (!canDrag) return;
+                    event.preventDefault();
+                    if (draggedIndex !== null) {
+                      reorderGalleryItem(draggedIndex, index);
+                    }
+                    setDraggedIndex(null);
+                    setDragOverIndex(null);
+                  }}
+                  onDragEnd={() => {
+                    setDraggedIndex(null);
+                    setDragOverIndex(null);
+                  }}
+                  className={cn(
+                    "flex flex-col gap-2.5 py-3 transition-colors last:pb-0 sm:flex-row sm:items-start",
+                    canDrag && "cursor-grab active:cursor-grabbing",
+                    isDragging && "opacity-45",
+                    isDropTarget && "bg-accent/40 ring-2 ring-primary/40",
+                  )}
+                >
+                  <div className="flex items-center gap-2.5">
+                    {galleryItems.length > 1 && (
+                      <span
+                        aria-hidden="true"
+                        title="Drag to reorder"
+                        className="inline-flex h-10 w-6 shrink-0 items-center justify-center rounded-control text-muted-foreground transition-colors hover:bg-surface-muted hover:text-foreground"
+                      >
+                        <svg
+                          viewBox="0 0 16 16"
+                          fill="currentColor"
+                          className="size-4"
+                        >
+                          <circle cx="5.5" cy="3.5" r="1.15" />
+                          <circle cx="10.5" cy="3.5" r="1.15" />
+                          <circle cx="5.5" cy="8" r="1.15" />
+                          <circle cx="10.5" cy="8" r="1.15" />
+                          <circle cx="5.5" cy="12.5" r="1.15" />
+                          <circle cx="10.5" cy="12.5" r="1.15" />
+                        </svg>
+                      </span>
+                    )}
+                    <button
+                      type="button"
+                      onClick={() => setInspectPhotoId(item.localId)}
+                      aria-label={`View full photo ${item.fileName}`}
+                      className="group relative aspect-[4/3] w-24 shrink-0 cursor-pointer overflow-hidden rounded-control bg-surface-muted focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus"
+                    >
+                      <Image
+                        src={item.previewUrl}
+                        alt={
+                          item.caption.trim()
+                            ? item.caption.trim()
+                            : `Room shot ${index + 1}`
+                        }
+                        fill
+                        unoptimized
+                        sizes="96px"
+                        className="pointer-events-none object-cover select-none transition-transform duration-(--duration-control) ease-(--ease-control) group-hover:scale-105 motion-reduce:transform-none"
+                      />
+                    </button>
+                  </div>
 
-                  <div className="flex flex-wrap items-center justify-between gap-2">
-                    <span className="truncate text-xs text-muted-foreground tabular-nums">
-                      {item.status === "uploading"
-                        ? "Uploading…"
-                        : item.status === "error"
-                          ? item.errorMessage || "Upload failed"
-                          : [
-                              item.fileName,
-                              formatByteSize(item.byteSize),
-                              item.dimensionsLabel,
-                            ]
-                              .filter(Boolean)
-                              .join(", ")}
-                    </span>
+                  <div className="grid min-w-0 flex-1 gap-1.5">
+                    <Input
+                      variant="filter"
+                      value={item.caption}
+                      onChange={(event) =>
+                        updateGalleryCaption(item.localId, event.target.value)
+                      }
+                      maxLength={ROOM_PHOTO_MAX_CAPTION_LENGTH}
+                      disabled={disabled || item.status === "error"}
+                      placeholder={`Caption for shot ${index + 1} (optional)`}
+                      aria-label={`Caption for room shot ${index + 1}`}
+                    />
 
-                    <div className="flex shrink-0 flex-wrap items-center gap-1">
-                      {item.status === "error" && item.croppedFile && (
+                    <div className="flex flex-wrap items-center justify-between gap-2">
+                      <span className="truncate text-xs text-muted-foreground tabular-nums">
+                        {item.status === "uploading"
+                          ? "Uploading…"
+                          : item.status === "error"
+                            ? item.errorMessage || "Upload failed"
+                            : [
+                                item.fileName,
+                                formatByteSize(item.byteSize),
+                                item.dimensionsLabel,
+                              ]
+                                .filter(Boolean)
+                                .join(", ")}
+                      </span>
+
+                      <div className="flex shrink-0 flex-wrap items-center gap-1">
+                        {item.status === "error" && item.croppedFile && (
+                          <Button
+                            type="button"
+                            variant="secondary"
+                            size="sm"
+                            disabled={disabled}
+                            onClick={() => handleRetryGalleryUpload(item)}
+                          >
+                            Retry
+                          </Button>
+                        )}
+                        {item.sourceFile && (
+                          <Button
+                            type="button"
+                            variant="ghost"
+                            size="sm"
+                            disabled={disabled || item.status === "uploading"}
+                            onClick={() => handleRecropGalleryItem(item)}
+                            aria-label={`Re-crop room shot ${index + 1}`}
+                          >
+                            Re-crop
+                          </Button>
+                        )}
+                        {galleryItems.length > 1 && (
+                          <>
+                            <Button
+                              type="button"
+                              variant="ghost"
+                              size="sm"
+                              disabled={disabled || index === 0}
+                              onClick={() => moveGalleryItem(index, -1)}
+                              aria-label={`Move room shot ${index + 1} earlier`}
+                            >
+                              Up
+                            </Button>
+                            <Button
+                              type="button"
+                              variant="ghost"
+                              size="sm"
+                              disabled={
+                                disabled || index === galleryItems.length - 1
+                              }
+                              onClick={() => moveGalleryItem(index, 1)}
+                              aria-label={`Move room shot ${index + 1} later`}
+                            >
+                              Down
+                            </Button>
+                          </>
+                        )}
                         <Button
                           type="button"
                           variant="secondary"
+                          className="text-danger"
                           size="sm"
                           disabled={disabled}
-                          onClick={() => handleRetryGalleryUpload(item)}
+                          onClick={() =>
+                            setConfirmRemove({
+                              kind: "gallery",
+                              localId: item.localId,
+                              fileName: item.fileName,
+                              caption: item.caption.trim(),
+                            })
+                          }
+                          aria-label={`Remove room shot ${index + 1}`}
                         >
-                          Retry
+                          Remove
                         </Button>
-                      )}
-                      {item.sourceFile && (
-                        <Button
-                          type="button"
-                          variant="ghost"
-                          size="sm"
-                          disabled={disabled || item.status === "uploading"}
-                          onClick={() => handleRecropGalleryItem(item)}
-                          aria-label={`Re-crop room shot ${index + 1}`}
-                        >
-                          Re-crop
-                        </Button>
-                      )}
-                      {galleryItems.length > 1 && (
-                        <>
-                          <Button
-                            type="button"
-                            variant="ghost"
-                            size="sm"
-                            disabled={disabled || index === 0}
-                            onClick={() => moveGalleryItem(index, -1)}
-                            aria-label={`Move room shot ${index + 1} earlier`}
-                          >
-                            Up
-                          </Button>
-                          <Button
-                            type="button"
-                            variant="ghost"
-                            size="sm"
-                            disabled={
-                              disabled || index === galleryItems.length - 1
-                            }
-                            onClick={() => moveGalleryItem(index, 1)}
-                            aria-label={`Move room shot ${index + 1} later`}
-                          >
-                            Down
-                          </Button>
-                        </>
-                      )}
-                      <Button
-                        type="button"
-                        variant="secondary"
-                        className="text-danger"
-                        size="sm"
-                        disabled={disabled}
-                        onClick={() => removeGalleryItem(item.localId)}
-                        aria-label={`Remove room shot ${index + 1}`}
-                      >
-                        Remove
-                      </Button>
+                      </div>
                     </div>
                   </div>
                 </div>
-              </div>
-            ))}
+              );
+            })}
           </div>
         )}
       </div>
@@ -891,6 +1011,163 @@ export function RoomPhotosEditor({
           onConfirm={handleCropConfirm}
         />
       )}
+
+      {(() => {
+        const allInspectable = [
+          ...(previewItem
+            ? [{ item: previewItem, roleLabel: "Card preview" }]
+            : []),
+          ...galleryItems.map((item, idx) => ({
+            item,
+            roleLabel: `Room shot ${idx + 1}`,
+          })),
+        ];
+        const currentIndex = inspectPhotoId
+          ? allInspectable.findIndex(
+              (entry) => entry.item.localId === inspectPhotoId,
+            )
+          : -1;
+        const activeEntry =
+          currentIndex >= 0 ? (allInspectable[currentIndex] ?? null) : null;
+
+        return (
+          <Dialog
+            open={activeEntry !== null}
+            onClose={() => setInspectPhotoId(null)}
+            closeOnBackdrop
+            maxWidthClassName="max-w-3xl"
+            title={activeEntry?.roleLabel ?? "Room photo"}
+            description={
+              activeEntry
+                ? [
+                    activeEntry.item.fileName,
+                    formatByteSize(activeEntry.item.byteSize),
+                    activeEntry.item.dimensionsLabel,
+                  ]
+                    .filter(Boolean)
+                    .join(", ")
+                : undefined
+            }
+          >
+            {activeEntry && (
+              <div className="grid gap-4">
+                <div className="relative aspect-[4/3] w-full overflow-hidden rounded-panel border border-border bg-surface-muted">
+                  <Image
+                    src={activeEntry.item.previewUrl}
+                    alt={
+                      activeEntry.item.caption.trim() || activeEntry.roleLabel
+                    }
+                    fill
+                    unoptimized
+                    sizes="(max-width: 768px) 100vw, 720px"
+                    className="object-cover"
+                  />
+                </div>
+
+                {activeEntry.item.caption.trim() && (
+                  <p className="text-sm leading-6 text-foreground">
+                    {activeEntry.item.caption.trim()}
+                  </p>
+                )}
+
+                <div className="flex flex-wrap items-center justify-between gap-2 border-t border-border pt-3">
+                  {allInspectable.length > 1 ? (
+                    <div className="flex items-center gap-2">
+                      <Button
+                        type="button"
+                        variant="secondary"
+                        size="sm"
+                        onClick={() => {
+                          const prevIdx =
+                            (currentIndex - 1 + allInspectable.length) %
+                            allInspectable.length;
+                          const prev = allInspectable[prevIdx];
+                          if (prev) setInspectPhotoId(prev.item.localId);
+                        }}
+                      >
+                        Previous
+                      </Button>
+                      <Button
+                        type="button"
+                        variant="secondary"
+                        size="sm"
+                        onClick={() => {
+                          const nextIdx =
+                            (currentIndex + 1) % allInspectable.length;
+                          const next = allInspectable[nextIdx];
+                          if (next) setInspectPhotoId(next.item.localId);
+                        }}
+                      >
+                        Next
+                      </Button>
+                      <span className="text-xs text-muted-foreground tabular-nums">
+                        {currentIndex + 1} of {allInspectable.length}
+                      </span>
+                    </div>
+                  ) : (
+                    <span />
+                  )}
+
+                  <Button
+                    type="button"
+                    variant="secondary"
+                    size="sm"
+                    onClick={() => setInspectPhotoId(null)}
+                  >
+                    Close
+                  </Button>
+                </div>
+              </div>
+            )}
+          </Dialog>
+        );
+      })()}
+
+      <ConfirmDialog
+        open={confirmRemove !== null}
+        onClose={() => setConfirmRemove(null)}
+        onConfirm={() => {
+          if (!confirmRemove) return;
+          if (confirmRemove.kind === "preview") {
+            handleRemovePreview();
+          } else {
+            removeGalleryItem(confirmRemove.localId);
+          }
+          setConfirmRemove(null);
+        }}
+        title={
+          confirmRemove?.kind === "preview"
+            ? "Remove preview image?"
+            : "Remove room photo?"
+        }
+        description={
+          confirmRemove?.kind === "preview"
+            ? "This removes the cover photo from this room. Save the room to apply the change."
+            : "This removes the shot from the room gallery. Save the room to apply the change."
+        }
+        details={
+          confirmRemove ? (
+            <>
+              <div className="flex items-center justify-between gap-2">
+                <span className="text-muted-foreground">File</span>
+                <span className="truncate font-medium text-foreground">
+                  {confirmRemove.fileName}
+                </span>
+              </div>
+              {confirmRemove.kind === "gallery" && confirmRemove.caption && (
+                <div className="flex items-start justify-between gap-2">
+                  <span className="text-muted-foreground">Caption</span>
+                  <span className="text-right text-foreground">
+                    {confirmRemove.caption}
+                  </span>
+                </div>
+              )}
+            </>
+          ) : null
+        }
+        confirmLabel="Remove photo"
+        confirmVariant="danger"
+      />
     </div>
   );
 }

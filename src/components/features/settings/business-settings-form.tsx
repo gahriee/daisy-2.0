@@ -320,19 +320,24 @@ function SettingsModulePanel({
         </Alert>
       )}
 
-      <div className="overflow-hidden rounded-panel border border-border bg-surface">
+      <div className="overflow-clip rounded-panel border border-border bg-surface">
         <section className="divide-y divide-border">
           {children(fieldErrors)}
         </section>
 
-        <div className="flex flex-wrap items-center justify-between gap-3 border-t border-border bg-background/60 px-5 py-4 sm:px-6">
+        <div className="sticky bottom-0 z-10 flex flex-col gap-3 border-t border-border bg-surface px-4 pt-3.5 pb-[calc(0.875rem+env(safe-area-inset-bottom))] shadow-[0_-8px_20px_-14px_rgb(34_34_34/0.16)] sm:static sm:flex-row sm:flex-wrap sm:items-center sm:justify-between sm:bg-background/60 sm:px-6 sm:py-4 sm:shadow-none">
           <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
             <Badge tone={dirty ? "warning" : "neutral"}>
               {dirty ? meta.dirtyLabel : meta.cleanLabel}
             </Badge>
             <span>{meta.footerHint}</span>
           </div>
-          <Button type="submit" loading={pending} disabled={pending}>
+          <Button
+            type="submit"
+            loading={pending}
+            disabled={pending}
+            className="w-full sm:w-auto"
+          >
             {pending ? meta.pendingLabel : meta.submitLabel}
           </Button>
         </div>
@@ -1113,8 +1118,8 @@ export function BusinessSettingsForm({
                       Preview
                     </span>
                     <span className="text-xs text-muted-foreground tabular-nums">
-                      {smsMetrics.length} chars ({smsMetrics.segments}{" "}
-                      {smsMetrics.segments === 1 ? "credit" : "credits"})
+                      {smsMetrics.length} chars, {smsMetrics.segments}{" "}
+                      {smsMetrics.segments === 1 ? "credit" : "credits"}
                     </span>
                   </div>
                   <p className="whitespace-pre-wrap text-sm leading-6 text-foreground">

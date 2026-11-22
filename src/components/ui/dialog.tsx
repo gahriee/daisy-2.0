@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useId, type ReactNode } from "react";
+import { createPortal } from "react-dom";
 import { cn } from "@/lib/cn";
 import { FormDensityProvider } from "./form-density";
 
@@ -67,9 +68,9 @@ export function Dialog({
     };
   }, [open]);
 
-  if (!open) return null;
+  if (!open || typeof document === "undefined") return null;
 
-  return (
+  return createPortal(
     <div
       className="fixed inset-0 z-50 flex items-center justify-center overscroll-contain bg-foreground/35 p-3 sm:p-5"
       onMouseDown={
@@ -137,6 +138,7 @@ export function Dialog({
           <FormDensityProvider density="filter">{children}</FormDensityProvider>
         </div>
       </div>
-    </div>
+    </div>,
+    document.body,
   );
 }

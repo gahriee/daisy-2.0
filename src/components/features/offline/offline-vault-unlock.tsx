@@ -28,7 +28,36 @@ import {
 } from "@/offline/workspace-bridge";
 import { useBrowserOnline } from "./offline-status-bar";
 
-const VAULT_ACCOUNT_IDENTIFIER = "Daisy Offline Copy";
+const VAULT_ACCOUNT_IDENTIFIER = "Daisy Offline Sync";
+
+type BrowserPasswordCredentialCtor = new (data: {
+  id: string;
+  name?: string;
+  password: string;
+}) => Credential;
+
+async function promptPasswordManagerSave(password: string): Promise<void> {
+  if (typeof window === "undefined") return;
+  try {
+    const win = window as Window & {
+      PasswordCredential?: BrowserPasswordCredentialCtor;
+    };
+    if (
+      typeof win.PasswordCredential === "function" &&
+      navigator.credentials &&
+      typeof navigator.credentials.store === "function"
+    ) {
+      const cred = new win.PasswordCredential({
+        id: VAULT_ACCOUNT_IDENTIFIER,
+        name: VAULT_ACCOUNT_IDENTIFIER,
+        password,
+      });
+      await navigator.credentials.store(cred);
+    }
+  } catch {
+    // Password manager save prompt is optional and browser-dependent.
+  }
+}
 
 const OFFLINE_OPERATION_LABELS: Record<string, string> = {
   "tenant.create": "New tenant",
@@ -72,6 +101,7 @@ export function VaultPassphraseForm({
   const passwordInputRef = useRef<HTMLInputElement>(null);
   const [vaultConfigured, setVaultConfigured] = useState<boolean | null>(null);
   const [generatedPassphrase, setGeneratedPassphrase] = useState<string>("");
+  const [setupModalOpen, setSetupModalOpen] = useState(false);
   const [passphrase, setPassphrase] = useState("");
   const [showPassphrase, setShowPassphrase] = useState(false);
   const [copied, setCopied] = useState(false);
@@ -85,9 +115,6 @@ export function VaultPassphraseForm({
         const state = await getOfflineVaultClientState();
         if (!active) return;
         setVaultConfigured(state.vaultConfigured);
-        if (!state.vaultConfigured) {
-          setGeneratedPassphrase((prev) => prev || generateVaultPassphrase());
-        }
         onConfiguredChange?.(state.vaultConfigured);
       } catch {
         if (active) setVaultConfigured(true);
@@ -106,18 +133,55 @@ export function VaultPassphraseForm({
 
   const isFirstTimeSetup = vaultConfigured === false;
   const activePassphrase = isFirstTimeSetup ? generatedPassphrase : passphrase;
+  const canWebShare =
+    typeof navigator !== "undefined" && typeof navigator.share === "function";
+
+  function handleOpenGenerateModal() {
+    setErrorMessage(null);
+    setCopied(false);
+    setShowPassphrase(true);
+    setGeneratedPassphrase(generateVaultPassphrase());
+    setSetupModalOpen(true);
+  }
 
   async function handleCopyGenerated() {
     try {
       await navigator.clipboard.writeText(generatedPassphrase);
       setCopied(true);
-      toast.success("Offline password copied.");
+      toast.success("Sync password copied.");
       window.setTimeout(() => setCopied(false), 2000);
     } catch {
       setErrorMessage(
-        "Could not copy automatically. Select the code and copy manually.",
+        "Could not copy automatically. Select and copy manually.",
       );
     }
+  }
+
+  async function handleShareGenerated() {
+    const shareText = `Daisy Offline Sync Password\nAccount: ${VAULT_ACCOUNT_IDENTIFIER}\nPassword: ${generatedPassphrase}`;
+    if (canWebShare) {
+      try {
+        await navigator.share({
+          title: "Daisy Offline Sync Password",
+          text: shareText,
+        });
+        return;
+      } catch (error) {
+        if (error instanceof DOMException && error.name === "AbortError") {
+          return;
+        }
+      }
+    }
+    const blob = new Blob([`${shareText}\n`], {
+      type: "text/plain;charset=utf-8",
+    });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = "daisy-sync-password.txt";
+    link.click();
+    URL.revokeObjectURL(url);
+    toast.success("Saved backup file.");
   }
 
   function handleRegenerate() {
@@ -131,11 +195,11 @@ export function VaultPassphraseForm({
     setErrorMessage(null);
 
     if (activePassphrase.trim().length < 8) {
-      setErrorMessage("Use at least 8 characters for your offline password.");
+      setErrorMessage("Use at least 8 characters.");
       return;
     }
 
-    // Ensure browser and iOS password managers see a password input on submit.
+    // Ensure browser and iOS/Android password managers detect a password submit.
     if (passwordInputRef.current) {
       passwordInputRef.current.type = "password";
     }
@@ -151,7 +215,12 @@ export function VaultPassphraseForm({
           passphrase: activePassphrase,
           isOnline: navigator.onLine,
         });
+        if (result.initializedNew) {
+          await promptPasswordManagerSave(activePassphrase);
+        }
         setPassphrase("");
+        setGeneratedPassphrase("");
+        setSetupModalOpen(false);
         setVaultConfigured(true);
         onConfiguredChange?.(true);
         notifyOfflineVaultChanged();
@@ -161,12 +230,166 @@ export function VaultPassphraseForm({
         await onUnlocked?.({ initializedNew: result.initializedNew });
       } catch (error) {
         setErrorMessage(
-          error instanceof Error
-            ? error.message
-            : "Could not open your offline copy. Check your password and try again.",
+          error instanceof Error ? error.message : "Wrong password. Try again.",
         );
       }
     });
+  }
+
+  if (isFirstTimeSetup) {
+    return (
+      <>
+        <div className="grid gap-3">
+          <p className="text-sm text-muted-foreground">
+            Generate a sync password to protect offline data on this device.
+          </p>
+
+          <div className="flex flex-wrap items-center justify-end gap-2">
+            {showCancel && onCancel && (
+              <Button
+                type="button"
+                variant="secondary"
+                disabled={busy}
+                onClick={onCancel}
+              >
+                Cancel
+              </Button>
+            )}
+            <Button
+              type="button"
+              variant="primary"
+              disabled={busy}
+              onClick={handleOpenGenerateModal}
+            >
+              Generate password
+            </Button>
+          </div>
+        </div>
+
+        <Dialog
+          open={setupModalOpen}
+          onClose={() => {
+            if (!busy) {
+              setSetupModalOpen(false);
+              setGeneratedPassphrase("");
+              setErrorMessage(null);
+            }
+          }}
+          dismissDisabled={busy}
+          maxWidthClassName="max-w-md"
+          title="Your sync password"
+          description="Save this now. We do not store a copy online."
+        >
+          <form
+            onSubmit={handleSubmit}
+            action="/offline"
+            method="post"
+            className="grid gap-4"
+            noValidate
+          >
+            {errorMessage && (
+              <Alert tone="danger" role="alert">
+                {errorMessage}
+              </Alert>
+            )}
+
+            <input
+              type="text"
+              name="username"
+              autoComplete="username"
+              readOnly
+              tabIndex={-1}
+              aria-hidden="true"
+              value={VAULT_ACCOUNT_IDENTIFIER}
+              className="sr-only"
+            />
+
+            <Field
+              id={`${baseId}-generated-passphrase`}
+              label="Sync password"
+              required
+            >
+              {(props) => (
+                <div className="grid gap-2.5">
+                  <div className="relative">
+                    <Input
+                      {...props}
+                      ref={passwordInputRef}
+                      type={showPassphrase ? "text" : "password"}
+                      name="password"
+                      autoComplete="new-password"
+                      readOnly
+                      value={generatedPassphrase}
+                      className="pr-12 font-mono"
+                    />
+                    <PasswordVisibilityButton
+                      visible={showPassphrase}
+                      label={showPassphrase ? "Hide password" : "Show password"}
+                      onClick={() => setShowPassphrase((prev) => !prev)}
+                    />
+                  </div>
+
+                  <div className="flex flex-wrap items-center gap-2">
+                    <Button
+                      type="button"
+                      variant="secondary"
+                      size="sm"
+                      disabled={busy}
+                      onClick={() => void handleCopyGenerated()}
+                    >
+                      {copied ? "Copied" : "Copy"}
+                    </Button>
+                    <Button
+                      type="button"
+                      variant="secondary"
+                      size="sm"
+                      disabled={busy}
+                      onClick={() => void handleShareGenerated()}
+                    >
+                      {canWebShare ? "Save to app" : "Download .txt"}
+                    </Button>
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="sm"
+                      disabled={busy}
+                      onClick={handleRegenerate}
+                    >
+                      Regenerate
+                    </Button>
+                  </div>
+                </div>
+              )}
+            </Field>
+
+            <div className="flex flex-col-reverse gap-2 border-t border-border pt-3 sm:flex-row sm:justify-end">
+              <Button
+                type="button"
+                variant="secondary"
+                disabled={busy}
+                onClick={() => {
+                  setSetupModalOpen(false);
+                  setGeneratedPassphrase("");
+                  setErrorMessage(null);
+                }}
+                className="w-full sm:w-auto"
+              >
+                Cancel
+              </Button>
+              <Button
+                type="submit"
+                variant="primary"
+                loading={busy}
+                disabled={busy}
+                className="w-full sm:w-auto"
+              >
+                {submitSetupLabel}
+              </Button>
+            </div>
+          </form>
+        </Dialog>
+      </>
+    );
   }
 
   return (
@@ -183,137 +406,65 @@ export function VaultPassphraseForm({
         </Alert>
       )}
 
-      {isFirstTimeSetup ? (
-        <>
-          <p className="text-xs leading-5 text-muted-foreground">
-            We created an offline password for this browser. Copy it or let your
-            browser or phone save it when you continue, since we do not keep a
-            copy online.
-          </p>
+      <input
+        type="text"
+        name="username"
+        autoComplete="username"
+        readOnly
+        tabIndex={-1}
+        aria-hidden="true"
+        value={VAULT_ACCOUNT_IDENTIFIER}
+        className="sr-only"
+      />
 
-          <Field id={`${baseId}-account`} label="Saved password name">
-            {(props) => (
-              <Input
-                {...props}
-                type="text"
-                name="username"
-                autoComplete="username"
-                readOnly
-                value={VAULT_ACCOUNT_IDENTIFIER}
-              />
-            )}
-          </Field>
+      <Field
+        id={`${baseId}-passphrase`}
+        label="Sync password"
+        description="Locks after 15 minutes of inactivity."
+        required
+      >
+        {(props) => (
+          <div className="relative">
+            <Input
+              {...props}
+              ref={passwordInputRef}
+              type={showPassphrase ? "text" : "password"}
+              name="password"
+              autoComplete="current-password"
+              placeholder="Enter or autofill sync password"
+              value={passphrase}
+              onChange={(e) => setPassphrase(e.target.value)}
+              className="pr-12"
+            />
+            <PasswordVisibilityButton
+              visible={showPassphrase}
+              label={showPassphrase ? "Hide password" : "Show password"}
+              onClick={() => setShowPassphrase((prev) => !prev)}
+            />
+          </div>
+        )}
+      </Field>
 
-          <Field
-            id={`${baseId}-generated-passphrase`}
-            label="Generated offline password"
-            required
-          >
-            {(props) => (
-              <div className="grid gap-2">
-                <div className="relative">
-                  <Input
-                    {...props}
-                    ref={passwordInputRef}
-                    type={showPassphrase ? "text" : "password"}
-                    name="password"
-                    autoComplete="new-password"
-                    readOnly
-                    value={generatedPassphrase}
-                    className="pr-12 font-mono"
-                  />
-                  <PasswordVisibilityButton
-                    visible={showPassphrase}
-                    label={showPassphrase ? "Hide password" : "Show password"}
-                    onClick={() => setShowPassphrase((prev) => !prev)}
-                  />
-                </div>
-
-                <div className="flex flex-wrap items-center justify-between gap-2">
-                  <code className="font-mono text-xs font-medium text-foreground select-all">
-                    {generatedPassphrase}
-                  </code>
-                  <div className="flex flex-wrap items-center gap-1.5">
-                    <Button
-                      type="button"
-                      variant="secondary"
-                      size="sm"
-                      disabled={busy}
-                      onClick={() => void handleCopyGenerated()}
-                    >
-                      {copied ? "Copied" : "Copy"}
-                    </Button>
-                    <Button
-                      type="button"
-                      variant="ghost"
-                      size="sm"
-                      disabled={busy}
-                      onClick={handleRegenerate}
-                    >
-                      Create another
-                    </Button>
-                  </div>
-                </div>
-              </div>
-            )}
-          </Field>
-        </>
-      ) : (
-        <>
-          <input
-            type="text"
-            name="username"
-            autoComplete="username"
-            readOnly
-            tabIndex={-1}
-            aria-hidden="true"
-            value={VAULT_ACCOUNT_IDENTIFIER}
-            className="sr-only"
-          />
-
-          <Field
-            id={`${baseId}-passphrase`}
-            label="Offline password"
-            description="Enter or autofill your saved password. It closes automatically after 15 minutes with no activity."
-            required
-          >
-            {(props) => (
-              <div className="relative">
-                <Input
-                  {...props}
-                  ref={passwordInputRef}
-                  type={showPassphrase ? "text" : "password"}
-                  name="password"
-                  autoComplete="current-password"
-                  placeholder="Enter saved offline password"
-                  value={passphrase}
-                  onChange={(e) => setPassphrase(e.target.value)}
-                  className="pr-12"
-                />
-                <PasswordVisibilityButton
-                  visible={showPassphrase}
-                  label={showPassphrase ? "Hide password" : "Show password"}
-                  onClick={() => setShowPassphrase((prev) => !prev)}
-                />
-              </div>
-            )}
-          </Field>
-        </>
-      )}
-
-      <div className="flex flex-wrap items-center justify-end gap-2">
+      <div className="flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
         {showCancel && onCancel && (
           <Button
             type="button"
             variant="secondary"
             disabled={busy}
             onClick={onCancel}
+            className="w-full sm:w-auto"
           >
             Cancel
           </Button>
         )}
-        <Button type="submit" variant="primary" loading={busy} disabled={busy}>
-          {isFirstTimeSetup ? submitSetupLabel : submitUnlockLabel}
+        <Button
+          type="submit"
+          variant="primary"
+          loading={busy}
+          disabled={busy}
+          className="w-full sm:w-auto"
+        >
+          {submitUnlockLabel}
         </Button>
       </div>
     </form>

@@ -522,7 +522,7 @@ export function InvoiceCreateForm({
               </p>
             </div>
 
-            <div className="grid gap-2.5 pt-1">
+            <div className="hidden gap-2.5 pt-1 lg:grid">
               <Button
                 type="submit"
                 size="md"
@@ -539,6 +539,28 @@ export function InvoiceCreateForm({
               </Link>
             </div>
           </Card>
+
+          <div className="sticky bottom-0 z-10 -mx-4 grid gap-2 border-t border-border bg-surface px-4 pt-3 pb-[calc(0.75rem+env(safe-area-inset-bottom))] shadow-[0_-8px_20px_-14px_rgb(34_34_34/0.16)] sm:-mx-6 sm:px-6 lg:hidden">
+            <Button
+              type="submit"
+              size="md"
+              loading={pending}
+              disabled={tenants.length === 0}
+              className="w-full"
+            >
+              {issueImmediately ? "Create and issue" : "Save draft"}
+            </Button>
+            <Link
+              href="/billing"
+              className={buttonClasses({
+                variant: "secondary",
+                size: "md",
+                className: "w-full",
+              })}
+            >
+              Cancel
+            </Link>
+          </div>
         </form>
       </CompactFormScope>
     </div>
