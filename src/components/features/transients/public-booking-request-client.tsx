@@ -456,7 +456,7 @@ export function PublicBookingRequestClient({
 
         <main
           id="main-content"
-          className="w-full flex-1 px-4 py-6 sm:px-6 lg:px-10 lg:py-8"
+          className="mx-auto w-full max-w-7xl flex-1 px-4 py-6 sm:px-6 lg:px-10 lg:py-8"
         >
           <PublicBookingBackLink href={browseHref} label="All rooms" />
 
@@ -465,7 +465,7 @@ export function PublicBookingRequestClient({
               <div className="flex flex-wrap items-center gap-2">
                 <Badge tone="info">Waiting for host confirmation</Badge>
               </div>
-              <h1 className="text-2xl font-semibold tracking-tight text-foreground sm:text-3xl">
+              <h1 className="font-book-serif text-3xl font-normal tracking-[0.02em] text-foreground sm:text-4xl">
                 Booking request received
               </h1>
               <p className="text-sm text-muted-foreground">
@@ -628,12 +628,12 @@ export function PublicBookingRequestClient({
 
       <main
         id="main-content"
-        className="w-full flex-1 px-4 py-6 sm:px-6 lg:px-10 lg:py-8"
+        className="mx-auto w-full max-w-7xl flex-1 px-4 py-6 sm:px-6 lg:px-10 lg:py-8"
       >
         <PublicBookingBackLink href={roomHref} label={room.title} />
 
         <div className="mb-6 grid gap-1 border-b border-border pb-5">
-          <h1 className="text-2xl font-semibold tracking-tight text-foreground sm:text-3xl">
+          <h1 className="font-book-serif text-3xl font-normal tracking-[0.02em] text-foreground sm:text-4xl">
             Request to book {room.title}
           </h1>
           <p className="text-sm text-muted-foreground">
@@ -1034,7 +1034,7 @@ export function PublicBookingRequestClient({
           </div>
 
           <aside className="min-w-0">
-            <Card className="rounded-2xl border border-border bg-surface p-5 shadow-sm lg:sticky lg:top-24">
+            <Card className="rounded-2xl border border-border bg-surface p-5 lg:sticky lg:top-24">
               <div className="flex items-center gap-3 border-b border-border pb-4">
                 <div className="size-20 shrink-0 overflow-hidden rounded-xl bg-surface-muted">
                   {coverPhoto ? (

@@ -3,11 +3,13 @@
 import Link from "next/link";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { PublicBookingCardsSkeleton } from "@/components/common/page-skeletons";
+import { GuestCountStepperRow } from "@/components/features/transients/public-booking-chrome";
 import {
-  GuestCountStepperRow,
-  PublicBookingFooter,
-  PublicBookingHeader,
-} from "@/components/features/transients/public-booking-chrome";
+  EditorialBookingFooter,
+  HowItWorksScrollTrack,
+  StayAnywhereShowcase,
+} from "@/components/features/transients/public-booking-sections";
+import { DaisyBrand } from "@/components/layout/daisy-brand";
 import {
   buildPublicStayQueryString,
   buildRoomGallerySlides,
@@ -45,7 +47,8 @@ type PublicBookingClientProps = {
   initialChildren: number;
 };
 
-type SearchPopoverPanel = "WHEN" | "WHO" | null;
+type SearchPopoverPanel = "WHEN" | "WHO" | "FILTER" | null;
+type ScopeFilter = "ALL" | "WHOLE_ROOM" | "BED";
 
 const MAX_PUBLIC_GUESTS = 20;
 
@@ -77,6 +80,7 @@ export function PublicBookingClient({
   );
   const [draftAdults, setDraftAdults] = useState(safeInitialAdults);
   const [draftChildren, setDraftChildren] = useState(safeInitialChildren);
+  const [scopeFilter, setScopeFilter] = useState<ScopeFilter>("ALL");
 
   const [openPopover, setOpenPopover] = useState<SearchPopoverPanel>(null);
   const [loadingAvailability, setLoadingAvailability] = useState(false);
@@ -84,8 +88,10 @@ export function PublicBookingClient({
   const [slideIndexByRoomId, setSlideIndexByRoomId] = useState<
     Record<string, number>
   >({});
+  const [deckIndex, setDeckIndex] = useState(0);
 
   const searchBarRef = useRef<HTMLDivElement | null>(null);
+  const roomsSectionRef = useRef<HTMLElement | null>(null);
 
   useEffect(() => {
     if (!openPopover) return;
@@ -127,7 +133,7 @@ export function PublicBookingClient({
 
   const activeTotalGuests = activeSelection.adults + activeSelection.children;
 
-  const visibleRooms = useMemo(
+  const sortedRooms = useMemo(
     () =>
       filterAndSortPublicRooms(availability.rooms, {
         roomTypeFilter: "ALL",
@@ -138,16 +144,68 @@ export function PublicBookingClient({
     [availability.rooms, activeTotalGuests],
   );
 
+  const visibleRooms = useMemo(() => {
+    if (scopeFilter === "ALL") return sortedRooms;
+    return sortedRooms.filter((room) => room.scope === scopeFilter);
+  }, [sortedRooms, scopeFilter]);
+
   const currentStayQuery = useMemo(
     () => buildPublicStayQueryString(activeSelection),
     [activeSelection],
   );
+
+  const fallbackDeckItem = useMemo(
+    () => ({
+      id: "stand-in-1",
+      roomId: null as string | null,
+      title: availability.propertyName,
+      subtitle: "Short-stay guest rooms",
+      priceLabel: "Direct rates",
+      imageUrl: "/images/hero/stay-hero-960.jpg",
+      secondaryImageUrl: "/images/hero/stay-hero-500.jpg",
+    }),
+    [availability.propertyName],
+  );
+
+  // Featured preview deck items for the right-hand Video 1 hero column
+  const deckItems = useMemo(() => {
+    if (sortedRooms.length === 0) {
+      return [fallbackDeckItem];
+    }
+
+    return sortedRooms.map((room, idx) => {
+      const slides = buildRoomGallerySlides(room);
+      const nextRoom = sortedRooms[(idx + 1) % sortedRooms.length];
+      const nextSlide = nextRoom ? buildRoomGallerySlides(nextRoom)[0] : null;
+      return {
+        id: room.roomId,
+        roomId: room.roomId as string | null,
+        title: room.title,
+        subtitle: getScopeLabel(room.scope),
+        priceLabel: formatPhpCurrency(room.dailyRate),
+        imageUrl: slides[0]?.url ?? "/images/hero/stay-hero-960.jpg",
+        secondaryImageUrl:
+          slides[1]?.url ?? nextSlide?.url ?? "/images/hero/stay-hero-500.jpg",
+      };
+    });
+  }, [sortedRooms, fallbackDeckItem]);
+
+  const safeDeckIndex = deckItems.length > 0 ? deckIndex % deckItems.length : 0;
+  const activeDeckItem = deckItems[safeDeckIndex] ?? fallbackDeckItem;
+
+  function stepDeck(delta: number) {
+    if (deckItems.length <= 1) return;
+    setDeckIndex(
+      (prev) => (prev + delta + deckItems.length) % deckItems.length,
+    );
+  }
 
   async function applySearch(override?: {
     checkIn?: string;
     checkOut?: string;
     adults?: number;
     children?: number;
+    scrollToRooms?: boolean;
   }) {
     const nextCheckIn = override?.checkIn ?? draftCheckIn;
     const nextCheckOut = override?.checkOut ?? draftCheckOut;
@@ -210,6 +268,10 @@ export function PublicBookingClient({
 
       const urlQuery = buildPublicStayQueryString(nextSelection);
       window.history.replaceState(null, "", `/book?${urlQuery}`);
+
+      if (override?.scrollToRooms) {
+        roomsSectionRef.current?.scrollIntoView({ behavior: "smooth" });
+      }
     } catch {
       setSearchError(
         "Unable to reach the reservation desk right now. Check your connection and try again.",
@@ -228,314 +290,692 @@ export function PublicBookingClient({
     });
   }
 
-  const whenLabel =
-    draftNights > 0
-      ? `${formatManilaDate(draftCheckIn)} to ${formatManilaDate(draftCheckOut)}`
-      : "Add dates";
-  const whoLabel = formatGuestsSummary(draftAdults, draftChildren);
+  function jumpToHeroSearch() {
+    searchBarRef.current?.scrollIntoView({
+      behavior: "smooth",
+      block: "center",
+    });
+    setOpenPopover("WHEN");
+  }
+
+  const filterLabel =
+    scopeFilter === "ALL"
+      ? "All rooms"
+      : scopeFilter === "WHOLE_ROOM"
+        ? "Private rooms"
+        : "Shared rooms";
 
   const activeStaySummary = `${formatManilaDate(availability.checkInDateManila)} to ${formatManilaDate(availability.checkOutDateManila)}, ${availability.nights} ${availability.nights === 1 ? "night" : "nights"}, ${formatGuestsSummary(activeSelection.adults, activeSelection.children)}`;
 
   return (
-    <div className="flex min-h-screen flex-col bg-background text-foreground">
-      <PublicBookingHeader
-        propertyName={availability.propertyName}
-        propertyAddress={availability.propertyAddress}
-        contactPhone={availability.contactPhone}
-        homeHref={`/book?${currentStayQuery}`}
-      />
+    <div
+      id="top-hero"
+      className="flex min-h-screen flex-col bg-background text-foreground"
+    >
+      {/* Top editorial navigation bar aligned to the shared max-w-7xl rail */}
+      <header className="sticky top-0 z-40 border-b border-border bg-surface/95 backdrop-blur-md">
+        <div className="mx-auto flex w-full max-w-7xl items-center justify-between gap-4 px-4 py-3 sm:px-6 lg:grid lg:grid-cols-[1fr_auto_1fr] lg:px-10">
+          <Link
+            href={`/book?${currentStayQuery}`}
+            className="flex min-h-11 min-w-0 items-center gap-2.5 justify-self-start text-foreground transition-colors hover:text-primary"
+          >
+            <DaisyBrand asLink={false} show="icon" tone="light" />
+            <span className="truncate text-sm font-semibold tracking-[0.1em] uppercase">
+              {availability.propertyName}
+            </span>
+          </Link>
+
+          <p className="hidden text-center text-[11px] font-medium tracking-[0.18em] text-muted-foreground uppercase lg:block">
+            Direct short-stay booking
+          </p>
+
+          <nav
+            aria-label="Booking navigation"
+            className="flex shrink-0 items-center justify-self-end gap-2 sm:gap-5"
+          >
+            <a
+              href="#rooms"
+              className="hidden min-h-11 items-center text-xs font-medium tracking-wide text-muted-foreground transition-colors hover:text-foreground sm:inline-flex"
+            >
+              Rooms
+            </a>
+            <a
+              href="#how-it-works"
+              className="hidden min-h-11 items-center text-xs font-medium tracking-wide text-muted-foreground transition-colors hover:text-foreground md:inline-flex"
+            >
+              How it works
+            </a>
+            {availability.contactPhone && (
+              <a
+                href={`tel:${availability.contactPhone.replace(/[^+\d]/g, "")}`}
+                className="inline-flex min-h-11 items-center rounded-full border border-control-border bg-surface px-3.5 text-xs font-medium text-foreground transition-colors hover:bg-surface-muted"
+              >
+                {availability.contactPhone}
+              </a>
+            )}
+          </nav>
+        </div>
+      </header>
 
       <main id="main-content" className="w-full flex-1">
-        <div className="w-full px-4 pt-4 sm:px-6 lg:px-10 lg:pt-6">
-          <section
-            aria-label="Featured short-stay guest room"
-            className="overflow-hidden rounded-2xl border border-border bg-surface-muted"
-          >
-            <img
-              src="/images/hero/stay-hero-1280.jpg"
-              srcSet="/images/hero/stay-hero-500.jpg 500w, /images/hero/stay-hero-960.jpg 960w, /images/hero/stay-hero-1280.jpg 1280w"
-              sizes="(max-width: 639px) 100vw, (max-width: 1023px) calc(100vw - 3rem), calc(100vw - 5rem)"
-              width={1280}
-              height={853}
-              alt="Sunlit guest bedroom with crisp white linens, terracotta throw blanket, ceiling fan, and armchair beside a bright window"
-              fetchPriority="high"
-              decoding="async"
-              data-source="stand-in"
-              data-subject="stand-in"
-              className="h-52 w-full object-cover object-center sm:h-72 lg:h-[22rem] xl:h-[25rem]"
-            />
-          </section>
-        </div>
-
-        <div className="w-full px-4 py-6 sm:px-6 lg:px-10 lg:py-8">
-          <section
-            ref={searchBarRef}
-            aria-label="Search stay dates and guests"
-            className="relative z-20 mx-auto w-full max-w-2xl sm:-mt-14"
-          >
-            <div
-              className={cn(
-                "flex w-full flex-col gap-2 rounded-2xl border border-border bg-surface p-2 shadow-md sm:flex-row sm:items-center sm:gap-0 sm:rounded-full sm:p-1.5",
-                openPopover && "border-control-border",
-              )}
-            >
-              <button
-                type="button"
-                onClick={() =>
-                  setOpenPopover((prev) => (prev === "WHEN" ? null : "WHEN"))
-                }
-                aria-expanded={openPopover === "WHEN"}
-                className={cn(
-                  "flex min-h-12 flex-1 cursor-pointer flex-col items-start justify-center rounded-xl px-4 py-2 text-left transition-colors duration-(--duration-control) ease-(--ease-control) hover:bg-surface-muted sm:rounded-full sm:px-5",
-                  openPopover === "WHEN" && "bg-surface-muted",
-                )}
-              >
-                <span className="text-xs font-semibold text-foreground">
-                  When
-                </span>
-                <span className="w-full truncate text-xs text-muted-foreground">
-                  {whenLabel}
-                </span>
-              </button>
-
+        {/* Video 1 composition aligned to the shared max-w-7xl rail */}
+        <section
+          aria-label="Short-stay hero and search"
+          className="relative mx-auto w-full max-w-7xl px-4 pt-4 pb-8 sm:px-6 sm:pt-6 lg:px-10 lg:pb-12"
+        >
+          <div className="grid overflow-visible rounded-2xl border border-border bg-surface lg:min-h-[600px] lg:grid-cols-12 xl:min-h-[650px]">
+            {/* Left ~66%: Full-bleed sunlit room hero + uppercase headline + crisp 2x2 booking bar */}
+            <div className="relative flex flex-col justify-between gap-8 overflow-visible rounded-t-2xl p-6 sm:p-8 lg:col-span-8 lg:rounded-t-none lg:rounded-l-2xl lg:p-10 xl:p-12">
               <div
                 aria-hidden="true"
-                className="mx-2 h-px bg-border sm:mx-0 sm:h-7 sm:w-px sm:shrink-0"
-              />
-
-              <button
-                type="button"
-                onClick={() =>
-                  setOpenPopover((prev) => (prev === "WHO" ? null : "WHO"))
-                }
-                aria-expanded={openPopover === "WHO"}
-                className={cn(
-                  "flex min-h-12 flex-1 cursor-pointer flex-col items-start justify-center rounded-xl px-4 py-2 text-left transition-colors duration-(--duration-control) ease-(--ease-control) hover:bg-surface-muted sm:rounded-full sm:px-5",
-                  openPopover === "WHO" && "bg-surface-muted",
-                )}
+                className="pointer-events-none absolute inset-0 overflow-hidden rounded-t-2xl lg:rounded-t-none lg:rounded-l-2xl"
               >
-                <span className="text-xs font-semibold text-foreground">
-                  Who
-                </span>
-                <span className="w-full truncate text-xs text-muted-foreground">
-                  {whoLabel}
-                </span>
-              </button>
+                <img
+                  src="/images/hero/stay-hero-1280.jpg"
+                  srcSet="/images/hero/stay-hero-500.jpg 500w, /images/hero/stay-hero-960.jpg 960w, /images/hero/stay-hero-1280.jpg 1280w"
+                  sizes="(max-width: 1023px) 100vw, 66vw"
+                  width={1280}
+                  height={853}
+                  alt="Sunlit guest bedroom with crisp white linens, terracotta throw blanket, ceiling fan, and armchair beside a bright window"
+                  fetchPriority="high"
+                  decoding="async"
+                  data-source="stand-in"
+                  data-subject="stand-in"
+                  className="h-full w-full object-cover object-center"
+                />
+                <div className="absolute inset-0 bg-gradient-to-b from-foreground/70 via-foreground/35 to-foreground/80" />
+              </div>
 
-              <div className="sm:pl-2">
-                <Button
-                  type="button"
-                  variant="primary"
-                  loading={loadingAvailability}
-                  onClick={() => applySearch()}
-                  className="w-full rounded-xl px-5 sm:w-auto sm:rounded-full"
-                >
+              {/* Headline + asterisk editorial subtitle */}
+              <div className="relative z-10 max-w-2xl pt-2 sm:pt-4">
+                <h1 className="book-hero-reveal text-4xl leading-[0.94] font-semibold tracking-[-0.03em] text-surface uppercase sm:text-6xl xl:text-[4.5rem]">
+                  Explore
+                  <br />
+                  comfortable
+                  <br />
+                  short stays
+                </h1>
+
+                <div className="book-hero-reveal-delay mt-6 flex items-start gap-3 text-sm leading-6 text-surface/90 sm:max-w-md">
                   <svg
                     aria-hidden="true"
-                    viewBox="0 0 16 16"
+                    viewBox="0 0 20 20"
                     fill="none"
                     stroke="currentColor"
-                    strokeWidth="2"
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                    className="size-4 shrink-0"
+                    strokeWidth="1.5"
+                    className="mt-1 size-4 shrink-0 text-surface"
                   >
-                    <circle cx="7" cy="7" r="4.75" />
-                    <path d="m10.5 10.5 3.25 3.25" />
+                    <path d="M10 2v16M2 10h16M4.3 4.3l11.4 11.4M15.7 4.3 4.3 15.7" />
                   </svg>
-                  <span>Search</span>
-                </Button>
+                  <p>
+                    Clean private and shared rooms with upfront nightly rates
+                    and direct confirmation from the host.
+                  </p>
+                </div>
+              </div>
+
+              {/* Bottom-left frosted white 2x2 booking widget + Rausch primary Book now CTA */}
+              <div
+                ref={searchBarRef}
+                className="relative z-30 mt-auto w-full max-w-2xl"
+              >
+                <div className="grid gap-3 rounded-2xl border border-border/90 bg-surface/95 p-3 shadow-lg backdrop-blur-md sm:grid-cols-12 sm:items-stretch sm:p-3.5">
+                  <div className="grid grid-cols-1 gap-2 sm:col-span-8 sm:grid-cols-2">
+                    <button
+                      type="button"
+                      onClick={() =>
+                        setOpenPopover((prev) =>
+                          prev === "WHEN" ? null : "WHEN",
+                        )
+                      }
+                      aria-expanded={openPopover === "WHEN"}
+                      className={cn(
+                        "flex min-h-12 cursor-pointer items-center justify-between gap-2 rounded-xl border border-border bg-background px-3.5 py-2 text-left transition-colors hover:border-control-border hover:bg-surface-muted/70",
+                        openPopover === "WHEN" && "border-primary bg-accent/40",
+                      )}
+                    >
+                      <span className="grid min-w-0">
+                        <span className="text-[11px] text-muted-foreground">
+                          Check-in
+                        </span>
+                        <span className="truncate text-sm font-medium text-foreground tabular-nums">
+                          {formatManilaDate(draftCheckIn)}
+                        </span>
+                      </span>
+                      <CalendarIcon />
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={() =>
+                        setOpenPopover((prev) =>
+                          prev === "WHEN" ? null : "WHEN",
+                        )
+                      }
+                      aria-expanded={openPopover === "WHEN"}
+                      className={cn(
+                        "flex min-h-12 cursor-pointer items-center justify-between gap-2 rounded-xl border border-border bg-background px-3.5 py-2 text-left transition-colors hover:border-control-border hover:bg-surface-muted/70",
+                        openPopover === "WHEN" && "border-primary bg-accent/40",
+                      )}
+                    >
+                      <span className="grid min-w-0">
+                        <span className="text-[11px] text-muted-foreground">
+                          Check-out
+                        </span>
+                        <span className="truncate text-sm font-medium text-foreground tabular-nums">
+                          {formatManilaDate(draftCheckOut)}
+                        </span>
+                      </span>
+                      <CalendarIcon />
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={() =>
+                        setOpenPopover((prev) =>
+                          prev === "WHO" ? null : "WHO",
+                        )
+                      }
+                      aria-expanded={openPopover === "WHO"}
+                      className={cn(
+                        "flex min-h-12 cursor-pointer items-center justify-between gap-2 rounded-xl border border-border bg-background px-3.5 py-2 text-left transition-colors hover:border-control-border hover:bg-surface-muted/70",
+                        openPopover === "WHO" && "border-primary bg-accent/40",
+                      )}
+                    >
+                      <span className="grid min-w-0">
+                        <span className="text-[11px] text-muted-foreground">
+                          Guests
+                        </span>
+                        <span className="truncate text-sm font-medium text-foreground">
+                          {formatGuestsSummary(draftAdults, draftChildren)}
+                        </span>
+                      </span>
+                      <GuestsIcon />
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={() =>
+                        setOpenPopover((prev) =>
+                          prev === "FILTER" ? null : "FILTER",
+                        )
+                      }
+                      aria-expanded={openPopover === "FILTER"}
+                      className={cn(
+                        "flex min-h-12 cursor-pointer items-center justify-between gap-2 rounded-xl border border-border bg-background px-3.5 py-2 text-left transition-colors hover:border-control-border hover:bg-surface-muted/70",
+                        openPopover === "FILTER" &&
+                          "border-primary bg-accent/40",
+                      )}
+                    >
+                      <span className="grid min-w-0">
+                        <span className="text-[11px] text-muted-foreground">
+                          Room type
+                        </span>
+                        <span className="truncate text-sm font-medium text-foreground">
+                          {filterLabel}
+                        </span>
+                      </span>
+                      <FilterIcon />
+                    </button>
+                  </div>
+
+                  {/* Primary Rausch Book now CTA */}
+                  <button
+                    type="button"
+                    disabled={loadingAvailability}
+                    onClick={() => applySearch({ scrollToRooms: true })}
+                    className="inline-flex min-h-14 cursor-pointer items-center justify-center rounded-xl bg-primary px-5 text-sm font-semibold text-primary-foreground transition-colors duration-(--duration-control) ease-(--ease-control) hover:bg-primary-hover disabled:cursor-not-allowed disabled:opacity-60 sm:col-span-4"
+                  >
+                    {loadingAvailability ? "Checking..." : "Book now"}
+                  </button>
+                </div>
+
+                {/* Popovers */}
+                {openPopover === "WHEN" && (
+                  <div
+                    role="region"
+                    aria-label="Choose check-in and check-out dates"
+                    className="absolute inset-x-0 top-full z-50 mt-2.5 w-full rounded-2xl border border-border bg-surface p-5 text-foreground shadow-xl sm:right-auto sm:max-w-lg"
+                  >
+                    <div className="grid gap-4 sm:grid-cols-2">
+                      <Field id="search-check-in" label="Check-in">
+                        {(fieldProps) => (
+                          <DatePicker
+                            {...fieldProps}
+                            required
+                            value={draftCheckIn}
+                            onValueChange={(next) => {
+                              setDraftCheckIn(next);
+                              setSearchError(null);
+                            }}
+                          />
+                        )}
+                      </Field>
+                      <Field id="search-check-out" label="Check-out">
+                        {(fieldProps) => (
+                          <DatePicker
+                            {...fieldProps}
+                            required
+                            value={draftCheckOut}
+                            onValueChange={(next) => {
+                              setDraftCheckOut(next);
+                              setSearchError(null);
+                            }}
+                          />
+                        )}
+                      </Field>
+                    </div>
+
+                    <div className="mt-4 flex flex-wrap items-center justify-between gap-3 border-t border-border pt-3">
+                      <span className="text-xs text-muted-foreground tabular-nums">
+                        {draftNights > 0
+                          ? `${draftNights} ${draftNights === 1 ? "night" : "nights"} selected`
+                          : "Select check-out after check-in"}
+                      </span>
+                      <div className="flex items-center gap-2">
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          size="sm"
+                          onClick={() => setOpenPopover(null)}
+                        >
+                          Close
+                        </Button>
+                        <Button
+                          type="button"
+                          variant="primary"
+                          size="sm"
+                          loading={loadingAvailability}
+                          onClick={() => applySearch({ scrollToRooms: true })}
+                        >
+                          Apply dates
+                        </Button>
+                      </div>
+                    </div>
+                  </div>
+                )}
+
+                {openPopover === "WHO" && (
+                  <div
+                    role="region"
+                    aria-label="Choose adults and children"
+                    className="absolute inset-x-0 top-full z-50 mt-2.5 w-full rounded-2xl border border-border bg-surface p-5 text-foreground shadow-xl sm:right-auto sm:max-w-sm"
+                  >
+                    <div className="divide-y divide-border">
+                      <GuestCountStepperRow
+                        label="Adults"
+                        description="Ages 13 or above"
+                        count={draftAdults}
+                        min={1}
+                        max={MAX_PUBLIC_GUESTS - draftChildren}
+                        onChange={(next) => {
+                          setDraftAdults(next);
+                          setSearchError(null);
+                        }}
+                      />
+                      <GuestCountStepperRow
+                        label="Children"
+                        description="Ages 2 to 12"
+                        count={draftChildren}
+                        min={0}
+                        max={MAX_PUBLIC_GUESTS - draftAdults}
+                        onChange={(next) => {
+                          setDraftChildren(next);
+                          setSearchError(null);
+                        }}
+                      />
+                    </div>
+
+                    <div className="mt-3 flex items-center justify-between gap-3 border-t border-border pt-3">
+                      <span className="text-xs text-muted-foreground tabular-nums">
+                        Total guests: {draftAdults + draftChildren}
+                      </span>
+                      <div className="flex items-center gap-2">
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          size="sm"
+                          onClick={() => setOpenPopover(null)}
+                        >
+                          Close
+                        </Button>
+                        <Button
+                          type="button"
+                          variant="primary"
+                          size="sm"
+                          loading={loadingAvailability}
+                          onClick={() => applySearch({ scrollToRooms: true })}
+                        >
+                          Apply
+                        </Button>
+                      </div>
+                    </div>
+                  </div>
+                )}
+
+                {openPopover === "FILTER" && (
+                  <div
+                    role="region"
+                    aria-label="Filter room type"
+                    className="absolute inset-x-0 top-full z-50 mt-2.5 w-full rounded-2xl border border-border bg-surface p-4 text-foreground shadow-xl sm:right-0 sm:left-auto sm:max-w-xs"
+                  >
+                    <div className="grid gap-1.5">
+                      {(
+                        [
+                          ["ALL", "All rooms", "Show private and shared rooms"],
+                          [
+                            "WHOLE_ROOM",
+                            "Private rooms",
+                            "Entire room reserved for your group",
+                          ],
+                          [
+                            "BED",
+                            "Shared rooms",
+                            "Individual bed spaces for solo travelers",
+                          ],
+                        ] as const
+                      ).map(([value, title, desc]) => (
+                        <button
+                          key={value}
+                          type="button"
+                          onClick={() => {
+                            setScopeFilter(value);
+                            setOpenPopover(null);
+                          }}
+                          className={cn(
+                            "flex min-h-11 cursor-pointer flex-col items-start rounded-xl px-3.5 py-2.5 text-left transition-colors",
+                            scopeFilter === value
+                              ? "bg-accent text-accent-foreground"
+                              : "hover:bg-surface-muted",
+                          )}
+                        >
+                          <span className="text-sm font-semibold">{title}</span>
+                          <span className="text-xs text-muted-foreground">
+                            {desc}
+                          </span>
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                )}
               </div>
             </div>
 
-            {openPopover === "WHEN" && (
-              <div
-                role="region"
-                aria-label="Choose check-in and check-out dates"
-                className="absolute top-full left-0 z-40 mt-2 w-full rounded-2xl border border-border bg-surface p-5 shadow-lg sm:max-w-lg"
-              >
-                <div className="grid gap-4 sm:grid-cols-2">
-                  <Field id="search-check-in" label="Check-in">
-                    {(fieldProps) => (
-                      <DatePicker
-                        {...fieldProps}
-                        required
-                        value={draftCheckIn}
-                        onValueChange={(next) => {
-                          setDraftCheckIn(next);
-                          setSearchError(null);
-                        }}
-                      />
-                    )}
-                  </Field>
-                  <Field id="search-check-out" label="Check-out">
-                    {(fieldProps) => (
-                      <DatePicker
-                        {...fieldProps}
-                        required
-                        value={draftCheckOut}
-                        onValueChange={(next) => {
-                          setDraftCheckOut(next);
-                          setSearchError(null);
-                        }}
-                      />
-                    )}
-                  </Field>
-                </div>
+            {/* Right ~34%: Crisp white Featured Room Deck */}
+            <aside
+              aria-label="Featured room preview"
+              className="flex min-w-0 flex-col justify-between gap-6 rounded-b-2xl border-t border-border bg-surface p-6 sm:p-8 lg:col-span-4 lg:rounded-r-2xl lg:rounded-bl-none lg:border-t-0 lg:border-l lg:p-8"
+            >
+              <div className="flex items-start justify-between gap-4">
+                <p className="text-xs leading-5 font-semibold tracking-[0.14em] text-muted-foreground uppercase">
+                  Choose your
+                  <br />
+                  best stay
+                </p>
 
-                <div className="mt-4 flex flex-wrap items-center justify-between gap-3 border-t border-border pt-3">
-                  <span className="text-xs text-muted-foreground">
-                    {draftNights > 0
-                      ? `${draftNights} ${draftNights === 1 ? "night" : "nights"} selected`
-                      : "Select check-out after check-in"}
-                  </span>
-                  <div className="flex items-center gap-2">
-                    <Button
-                      type="button"
-                      variant="ghost"
-                      size="sm"
-                      onClick={() => setOpenPopover(null)}
+                <div className="flex items-center gap-2">
+                  <button
+                    type="button"
+                    disabled={deckItems.length <= 1}
+                    onClick={() => stepDeck(-1)}
+                    aria-label="Previous featured room"
+                    className="inline-flex min-h-11 min-w-11 cursor-pointer items-center justify-center rounded-full border border-control-border bg-surface text-foreground transition-colors hover:bg-surface-muted disabled:cursor-not-allowed disabled:opacity-35"
+                  >
+                    <svg
+                      aria-hidden="true"
+                      viewBox="0 0 16 16"
+                      fill="none"
+                      stroke="currentColor"
+                      strokeWidth="1.6"
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                      className="size-4"
                     >
-                      Close
-                    </Button>
-                    <Button
-                      type="button"
-                      variant="primary"
-                      size="sm"
-                      loading={loadingAvailability}
-                      onClick={() => applySearch()}
+                      <path d="M10 3.5 5.5 8 10 12.5" />
+                    </svg>
+                  </button>
+                  <button
+                    type="button"
+                    disabled={deckItems.length <= 1}
+                    onClick={() => stepDeck(1)}
+                    aria-label="Next featured room"
+                    className="inline-flex min-h-11 min-w-11 cursor-pointer items-center justify-center rounded-full border border-control-border bg-surface text-foreground transition-colors hover:bg-surface-muted disabled:cursor-not-allowed disabled:opacity-35"
+                  >
+                    <svg
+                      aria-hidden="true"
+                      viewBox="0 0 16 16"
+                      fill="none"
+                      stroke="currentColor"
+                      strokeWidth="1.6"
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                      className="size-4"
                     >
-                      Apply dates
-                    </Button>
-                  </div>
+                      <path d="M6 3.5 10.5 8 6 12.5" />
+                    </svg>
+                  </button>
                 </div>
               </div>
-            )}
 
-            {openPopover === "WHO" && (
-              <div
-                role="region"
-                aria-label="Choose adults and children"
-                className="absolute top-full right-0 z-40 mt-2 w-full rounded-2xl border border-border bg-surface p-5 shadow-lg sm:max-w-sm"
-              >
-                <div className="divide-y divide-border">
-                  <GuestCountStepperRow
-                    label="Adults"
-                    description="Ages 13 or above"
-                    count={draftAdults}
-                    min={1}
-                    max={MAX_PUBLIC_GUESTS - draftChildren}
-                    onChange={(next) => {
-                      setDraftAdults(next);
-                      setSearchError(null);
-                    }}
-                  />
-                  <GuestCountStepperRow
-                    label="Children"
-                    description="Ages 2 to 12"
-                    count={draftChildren}
-                    min={0}
-                    max={MAX_PUBLIC_GUESTS - draftAdults}
-                    onChange={(next) => {
-                      setDraftChildren(next);
-                      setSearchError(null);
-                    }}
+              {/* Stacked & tilted layered photo deck */}
+              <div className="relative mx-auto my-2 flex aspect-[4/3] w-full max-w-[272px] items-center justify-center">
+                <div
+                  aria-hidden="true"
+                  className="absolute inset-3 -translate-x-2.5 translate-y-2 -rotate-4 overflow-hidden rounded-2xl border border-border bg-surface-muted opacity-90 transition-transform duration-300"
+                >
+                  <img
+                    src={activeDeckItem.secondaryImageUrl}
+                    alt=""
+                    className="h-full w-full object-cover"
                   />
                 </div>
-
-                <div className="mt-3 flex items-center justify-between gap-3 border-t border-border pt-3">
-                  <span className="text-xs text-muted-foreground tabular-nums">
-                    Total guests: {draftAdults + draftChildren} (max{" "}
-                    {MAX_PUBLIC_GUESTS})
-                  </span>
-                  <div className="flex items-center gap-2">
-                    <Button
-                      type="button"
-                      variant="ghost"
-                      size="sm"
-                      onClick={() => setOpenPopover(null)}
+                <div className="relative z-10 h-full w-[88%] rotate-2 overflow-hidden rounded-2xl border border-border bg-surface shadow-lg transition-transform duration-300 hover:rotate-0">
+                  {activeDeckItem.roomId ? (
+                    <Link
+                      href={`/book/${activeDeckItem.roomId}?${currentStayQuery}`}
+                      aria-label={`View ${activeDeckItem.title}`}
+                      className="block h-full w-full"
                     >
-                      Close
-                    </Button>
-                    <Button
-                      type="button"
-                      variant="primary"
-                      size="sm"
-                      loading={loadingAvailability}
-                      onClick={() => applySearch()}
-                    >
-                      Apply
-                    </Button>
-                  </div>
+                      <img
+                        src={activeDeckItem.imageUrl}
+                        alt={activeDeckItem.title}
+                        className="h-full w-full object-cover"
+                      />
+                    </Link>
+                  ) : (
+                    <img
+                      src={activeDeckItem.imageUrl}
+                      alt={activeDeckItem.title}
+                      className="h-full w-full object-cover"
+                    />
+                  )}
+                  {deckItems.length > 1 && (
+                    <span className="pointer-events-none absolute right-2.5 bottom-2.5 rounded-full bg-foreground/80 px-2.5 py-0.5 text-[11px] font-medium text-surface tabular-nums">
+                      {safeDeckIndex + 1} / {deckItems.length}
+                    </span>
+                  )}
                 </div>
               </div>
-            )}
-          </section>
+
+              {/* Active room caption & price */}
+              <div className="grid min-w-0 gap-2 border-t border-border pt-4">
+                <div className="flex min-w-0 items-start justify-between gap-3">
+                  {activeDeckItem.roomId ? (
+                    <Link
+                      href={`/book/${activeDeckItem.roomId}?${currentStayQuery}`}
+                      className="line-clamp-2 min-w-0 flex-1 text-lg leading-snug font-semibold tracking-tight text-foreground uppercase hover:text-primary hover:underline"
+                    >
+                      {activeDeckItem.title}
+                    </Link>
+                  ) : (
+                    <span className="line-clamp-2 min-w-0 flex-1 text-lg leading-snug font-semibold tracking-tight text-foreground uppercase">
+                      {activeDeckItem.title}
+                    </span>
+                  )}
+                  <span className="shrink-0 pt-0.5 text-right text-sm font-semibold text-primary tabular-nums">
+                    {activeDeckItem.priceLabel}
+                  </span>
+                </div>
+                <div className="flex min-w-0 flex-wrap items-center justify-between gap-x-3 gap-y-1 text-xs text-muted-foreground">
+                  <span className="min-w-0 truncate">
+                    {activeDeckItem.subtitle}
+                  </span>
+                  <span className="shrink-0 tabular-nums">
+                    {formatManilaDate(availability.checkInDateManila)} to{" "}
+                    {formatManilaDate(availability.checkOutDateManila)}
+                  </span>
+                </div>
+              </div>
+            </aside>
+          </div>
 
           {searchError && (
-            <div className="mt-5">
+            <div className="mt-4">
               <Alert tone="danger" role="alert" title="Could not update search">
                 {searchError}
               </Alert>
             </div>
           )}
+        </section>
 
-          <div className="mt-7 mb-6 grid gap-1 border-b border-border pb-4">
-            <h1 className="text-2xl font-semibold tracking-tight text-foreground sm:text-3xl">
-              Rooms for short stays
-            </h1>
-            <p className="text-sm text-muted-foreground">
-              {visibleRooms.length}{" "}
-              {visibleRooms.length === 1 ? "room" : "rooms"} shown for{" "}
-              {activeStaySummary}
-            </p>
-          </div>
-
-          {loadingAvailability ? (
-            <PublicBookingCardsSkeleton count={4} />
-          ) : visibleRooms.length === 0 ? (
-            <EmptyState className="my-6 bg-surface">
-              <EmptyStateTitle>No rooms listed right now</EmptyStateTitle>
-              <EmptyStateDescription>
-                Short-stay rooms are not open for online booking yet.
-                {availability.contactPhone
-                  ? ` You may call ${availability.contactPhone} to ask about open dates.`
-                  : ""}
-              </EmptyStateDescription>
-              <EmptyStateActions>
-                <Button
-                  type="button"
-                  variant="secondary"
-                  onClick={() => applySearch()}
+        {/* Live Rooms Directory (#rooms) in Daisy's Rausch & charcoal palette */}
+        <section
+          id="rooms"
+          ref={roomsSectionRef}
+          aria-labelledby="rooms-directory-heading"
+          className="border-t border-border bg-background px-4 py-14 sm:px-6 lg:px-10 lg:py-20"
+        >
+          <div className="mx-auto w-full max-w-7xl">
+            <div className="mb-10 flex flex-col gap-5 border-b border-border pb-6 md:flex-row md:items-end md:justify-between">
+              <div className="grid gap-2">
+                <h2
+                  id="rooms-directory-heading"
+                  className="font-book-serif text-4xl font-normal tracking-[0.05em] text-foreground uppercase sm:text-5xl"
                 >
-                  Check again
-                </Button>
-              </EmptyStateActions>
-            </EmptyState>
-          ) : (
-            <div className="grid grid-cols-1 gap-x-5 gap-y-8 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 2xl:grid-cols-5">
-              {visibleRooms.map((room) => (
-                <RoomStorefrontCard
-                  key={room.roomId}
-                  room={room}
-                  nights={availability.nights}
-                  requestedGuests={activeTotalGuests}
-                  queryString={currentStayQuery}
-                  slideIndex={slideIndexByRoomId[room.roomId] ?? 0}
-                  onStepSlide={(totalSlides, delta) =>
-                    stepCardSlide(room.roomId, totalSlides, delta)
-                  }
-                />
-              ))}
+                  Rooms for short stays
+                </h2>
+                <p className="text-sm text-muted-foreground">
+                  {visibleRooms.length}{" "}
+                  {visibleRooms.length === 1 ? "room" : "rooms"} shown for{" "}
+                  {activeStaySummary}
+                </p>
+              </div>
+
+              <div
+                role="group"
+                aria-label="Filter rooms by type"
+                className="flex flex-wrap items-center gap-2"
+              >
+                {(
+                  [
+                    ["ALL", "All rooms"],
+                    ["WHOLE_ROOM", "Private"],
+                    ["BED", "Shared"],
+                  ] as const
+                ).map(([value, label]) => (
+                  <button
+                    key={value}
+                    type="button"
+                    aria-pressed={scopeFilter === value}
+                    onClick={() => setScopeFilter(value)}
+                    className={cn(
+                      "inline-flex min-h-11 cursor-pointer items-center justify-center rounded-full border px-4 text-xs font-medium transition-colors duration-(--duration-control) ease-(--ease-control)",
+                      scopeFilter === value
+                        ? "border-primary bg-primary text-primary-foreground"
+                        : "border-control-border bg-surface text-foreground hover:bg-surface-muted",
+                    )}
+                  >
+                    {label}
+                  </button>
+                ))}
+              </div>
             </div>
-          )}
-        </div>
+
+            {loadingAvailability ? (
+              <PublicBookingCardsSkeleton count={4} />
+            ) : visibleRooms.length === 0 ? (
+              <EmptyState className="my-6 bg-surface">
+                <EmptyStateTitle>
+                  {sortedRooms.length === 0
+                    ? "No rooms listed right now"
+                    : "No rooms match this room type"}
+                </EmptyStateTitle>
+                <EmptyStateDescription>
+                  {sortedRooms.length === 0
+                    ? `Short-stay rooms are not open for online booking yet.${
+                        availability.contactPhone
+                          ? ` You may call ${availability.contactPhone} to ask about open dates.`
+                          : ""
+                      }`
+                    : "Switch back to All rooms to see every published stay option."}
+                </EmptyStateDescription>
+                <EmptyStateActions>
+                  {sortedRooms.length > 0 ? (
+                    <Button
+                      type="button"
+                      variant="primary"
+                      onClick={() => setScopeFilter("ALL")}
+                    >
+                      Show all rooms
+                    </Button>
+                  ) : (
+                    <Button
+                      type="button"
+                      variant="secondary"
+                      onClick={() => applySearch()}
+                    >
+                      Check again
+                    </Button>
+                  )}
+                </EmptyStateActions>
+              </EmptyState>
+            ) : (
+              <div className="grid grid-cols-1 gap-x-6 gap-y-8 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
+                {visibleRooms.map((room) => (
+                  <RoomStorefrontCard
+                    key={room.roomId}
+                    room={room}
+                    nights={availability.nights}
+                    requestedGuests={activeTotalGuests}
+                    queryString={currentStayQuery}
+                    slideIndex={slideIndexByRoomId[room.roomId] ?? 0}
+                    onStepSlide={(totalSlides, delta) =>
+                      stepCardSlide(room.roomId, totalSlides, delta)
+                    }
+                  />
+                ))}
+              </div>
+            )}
+          </div>
+        </section>
+
+        {/* Video 2: Scroll-linked horizontal "HOW IT WORKS" showcase */}
+        <HowItWorksScrollTrack
+          availability={availability}
+          rooms={sortedRooms}
+          adults={activeSelection.adults}
+          childrenCount={activeSelection.children}
+          queryString={currentStayQuery}
+          onJumpToSearch={jumpToHeroSearch}
+        />
+
+        {/* Video 2: Split blush-framed detail showcase + sticky "BOOK DIRECT ANYWHERE" */}
+        <StayAnywhereShowcase
+          availability={availability}
+          featuredRoom={sortedRooms[0] ?? null}
+          adults={activeSelection.adults}
+          childrenCount={activeSelection.children}
+          queryString={currentStayQuery}
+        />
       </main>
 
-      <PublicBookingFooter
+      {/* Video 2: Editorial "GET IN TOUCH" footer */}
+      <EditorialBookingFooter
         propertyName={availability.propertyName}
         propertyAddress={availability.propertyAddress}
         contactPhone={availability.contactPhone}
+        checkInTimeManila={availability.checkInTimeManila}
+        checkOutTimeManila={availability.checkOutTimeManila}
         heroPhotoCredit="Room photo: Tim Collins (CC BY-SA 3.0)"
       />
     </div>
@@ -581,8 +1021,8 @@ function RoomStorefrontCard({
       : "No photos yet";
 
   return (
-    <article className="flex min-w-0 flex-col">
-      <div className="relative aspect-[4/3] w-full overflow-hidden rounded-2xl bg-surface-muted">
+    <article className="flex min-w-0 flex-col overflow-hidden rounded-2xl border border-border bg-surface transition-colors duration-(--duration-control) ease-(--ease-control) hover:border-control-border">
+      <div className="relative aspect-[4/3] w-full overflow-hidden bg-surface-muted">
         <Link
           href={detailHref}
           aria-label={`View ${room.title} photos and details`}
@@ -670,13 +1110,13 @@ function RoomStorefrontCard({
         )}
       </div>
 
-      <div className="flex flex-1 flex-col gap-1.5 pt-3">
+      <div className="flex flex-1 flex-col gap-1.5 p-4">
         <div className="flex items-start justify-between gap-2">
-          <h2 className="min-w-0 text-base font-semibold leading-snug text-foreground">
+          <h3 className="min-w-0 text-base leading-snug font-semibold text-foreground">
             <Link href={detailHref} className="hover:underline">
               {room.title}
             </Link>
-          </h2>
+          </h3>
           <span className="shrink-0 text-xs font-medium text-muted-foreground">
             {room.roomTypeName}
           </span>
@@ -696,7 +1136,7 @@ function RoomStorefrontCard({
           <p className="text-xs font-medium text-warning">{status.detail}</p>
         )}
 
-        <div className="mt-auto pt-1.5">
+        <div className="mt-auto pt-2.5">
           <p className="text-sm text-foreground">
             <span className="text-base font-semibold tabular-nums">
               {formatPhpCurrency(room.indicativeTotalAmount)}
@@ -710,7 +1150,7 @@ function RoomStorefrontCard({
           </p>
         </div>
 
-        <div className="mt-2 grid grid-cols-2 gap-2">
+        <div className="mt-3 grid grid-cols-2 gap-2">
           <Link
             href={detailHref}
             className={buttonClasses({
@@ -748,5 +1188,58 @@ function RoomStorefrontCard({
         </div>
       </div>
     </article>
+  );
+}
+
+function CalendarIcon() {
+  return (
+    <svg
+      aria-hidden="true"
+      viewBox="0 0 18 18"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.5"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      className="size-4 shrink-0 text-muted-foreground"
+    >
+      <rect x="2.5" y="3.5" width="13" height="12" rx="2" />
+      <path d="M6 2v3M12 2v3M2.5 7.5h13" />
+    </svg>
+  );
+}
+
+function GuestsIcon() {
+  return (
+    <svg
+      aria-hidden="true"
+      viewBox="0 0 18 18"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.5"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      className="size-4 shrink-0 text-muted-foreground"
+    >
+      <circle cx="9" cy="6" r="2.75" />
+      <path d="M3.5 15.25a5.5 5.5 0 0 1 11 0" />
+    </svg>
+  );
+}
+
+function FilterIcon() {
+  return (
+    <svg
+      aria-hidden="true"
+      viewBox="0 0 18 18"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.5"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      className="size-4 shrink-0 text-muted-foreground"
+    >
+      <path d="M3 4.5h12M5.5 9h7M8 13.5h2" />
+    </svg>
   );
 }

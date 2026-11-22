@@ -217,7 +217,7 @@ export function PublicRoomDetailClient({
 
       <main
         id="main-content"
-        className="w-full flex-1 px-4 py-6 sm:px-6 lg:px-10 lg:py-8"
+        className="mx-auto w-full max-w-7xl flex-1 px-4 py-6 sm:px-6 lg:px-10 lg:py-8"
       >
         <PublicBookingBackLink href={browseHref} label="All rooms" />
 
@@ -237,7 +237,7 @@ export function PublicRoomDetailClient({
                 </a>
               )}
             </div>
-            <h1 className="text-2xl font-semibold tracking-tight text-foreground sm:text-3xl">
+            <h1 className="font-book-serif text-3xl font-normal tracking-[0.02em] text-foreground sm:text-4xl">
               {room.title}
             </h1>
             <p className="text-sm text-muted-foreground">
@@ -576,7 +576,7 @@ export function PublicRoomDetailClient({
           </div>
 
           <aside id="stay-box" className="min-w-0">
-            <Card className="rounded-2xl border border-border bg-surface p-5 shadow-sm lg:sticky lg:top-24">
+            <Card className="rounded-2xl border border-border bg-surface p-5 lg:sticky lg:top-24">
               <div className="flex items-baseline justify-between gap-3 border-b border-border pb-4">
                 <div>
                   <span className="text-2xl font-semibold text-foreground tabular-nums">

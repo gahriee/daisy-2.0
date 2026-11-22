@@ -11,7 +11,8 @@ type PublicBookingHeaderProps = {
 };
 
 /**
- * Full-width sticky commercial header for Daisy's public booking pages.
+ * Sticky commercial header for Daisy's public booking subpages, aligned to the
+ * shared `max-w-7xl` container rail used across `/book`.
  */
 export function PublicBookingHeader({
   propertyName,
@@ -20,16 +21,16 @@ export function PublicBookingHeader({
   homeHref = "/book",
 }: PublicBookingHeaderProps) {
   return (
-    <header className="sticky top-0 z-30 border-b border-border bg-surface">
-      <div className="mx-auto flex w-full flex-wrap items-center justify-between gap-3 px-4 py-3 sm:px-6 lg:flex-nowrap lg:gap-6 lg:px-10">
+    <header className="sticky top-0 z-30 border-b border-border bg-surface/95 backdrop-blur-md">
+      <div className="mx-auto flex w-full max-w-7xl items-center justify-between gap-4 px-4 py-3 sm:px-6 lg:px-10">
         <div className="flex min-w-0 items-center gap-3">
           <Link
             href={homeHref}
             className="flex min-h-11 min-w-0 items-center gap-2.5 rounded-control text-foreground transition-colors duration-(--duration-control) ease-(--ease-control) hover:text-primary"
           >
-            <DaisyBrand asLink={false} show="icon" />
+            <DaisyBrand asLink={false} show="icon" tone="light" />
             <span className="grid min-w-0 leading-tight">
-              <span className="truncate text-base font-semibold tracking-tight">
+              <span className="truncate text-sm font-semibold tracking-[0.08em] uppercase sm:text-base">
                 {propertyName}
               </span>
               {propertyAddress && (
@@ -44,7 +45,7 @@ export function PublicBookingHeader({
         {contactPhone && (
           <a
             href={`tel:${contactPhone.replace(/[^+\d]/g, "")}`}
-            className="inline-flex min-h-11 shrink-0 items-center rounded-control border border-border bg-surface px-3 text-xs font-medium text-foreground transition-colors duration-(--duration-control) ease-(--ease-control) hover:bg-surface-muted"
+            className="inline-flex min-h-11 shrink-0 items-center rounded-full border border-control-border bg-surface px-3.5 text-xs font-medium text-foreground transition-colors duration-(--duration-control) ease-(--ease-control) hover:bg-surface-muted"
           >
             Front desk: {contactPhone}
           </a>
@@ -81,7 +82,8 @@ type PublicBookingFooterProps = {
 };
 
 /**
- * Compact full-width footer with property contact and plain booking terms.
+ * Compact footer aligned to the shared `max-w-7xl` rail with property contact
+ * and plain booking terms.
  */
 export function PublicBookingFooter({
   propertyName,
@@ -93,7 +95,7 @@ export function PublicBookingFooter({
 
   return (
     <footer className="border-t border-border bg-surface">
-      <div className="mx-auto flex w-full flex-col gap-4 px-4 py-6 text-xs text-muted-foreground sm:px-6 lg:flex-row lg:items-center lg:justify-between lg:px-10">
+      <div className="mx-auto flex w-full max-w-7xl flex-col gap-4 px-4 py-6 text-xs text-muted-foreground sm:px-6 lg:flex-row lg:items-center lg:justify-between lg:px-10">
         <div className="flex flex-wrap items-center gap-x-5 gap-y-2">
           <span className="font-semibold text-foreground">
             &copy; {currentYear} {propertyName}
@@ -137,7 +139,7 @@ type GuestCountStepperRowProps = {
 };
 
 /**
- * Touch-friendly Adults/Children counter row modeled after Airbnb's "Who" selector.
+ * Touch-friendly Adults/Children counter row with 44 px circular steppers.
  */
 export function GuestCountStepperRow({
   label,

@@ -186,6 +186,209 @@ body {
   }
 }
 
+/* Public /book editorial serif voice and subtle hero entrance */
+html[data-book-intro="active"] {
+  background: var(--surface);
+}
+
+html[data-book-intro="active"] .book-intro-content {
+  opacity: 0;
+  pointer-events: none;
+}
+
+.font-book-serif {
+  font-family: var(--font-book-serif), Georgia, "Times New Roman", serif;
+}
+
+@keyframes book-hero-reveal {
+  from {
+    opacity: 0;
+    filter: blur(8px);
+    transform: translateY(10px);
+  }
+  to {
+    opacity: 1;
+    filter: blur(0);
+    transform: translateY(0);
+  }
+}
+
+.book-hero-reveal {
+  animation: book-hero-reveal 700ms cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+.book-hero-reveal-delay {
+  animation: book-hero-reveal 750ms cubic-bezier(0.22, 1, 0.36, 1) 140ms both;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .book-hero-reveal,
+  .book-hero-reveal-delay {
+    animation: none;
+    filter: none;
+    transform: none;
+    opacity: 1;
+  }
+}
+
+/* Public /book tablet-tap & 5-star loading animation */
+@keyframes book-loader-tablet-in {
+  0% {
+    opacity: 0;
+    transform: translate(-18px, 24px);
+  }
+  20%,
+  100% {
+    opacity: 1;
+    transform: translate(0, 0);
+  }
+}
+
+@keyframes book-loader-hand-tap {
+  0%,
+  16% {
+    opacity: 0;
+    transform: translate(48px, 44px);
+  }
+  34% {
+    opacity: 1;
+    transform: translate(0, 0);
+  }
+  42% {
+    opacity: 1;
+    transform: translate(-3px, -3px) scale(0.97);
+  }
+  50%,
+  100% {
+    opacity: 1;
+    transform: translate(0, 0) scale(1);
+  }
+}
+
+@keyframes book-loader-ok-color {
+  0%,
+  39% {
+    fill: var(--primary);
+  }
+  43%,
+  100% {
+    fill: var(--success);
+  }
+}
+
+@keyframes book-loader-ok-press {
+  0%,
+  37% {
+    transform: scale(1);
+  }
+  42% {
+    transform: scale(0.9);
+  }
+  48%,
+  100% {
+    transform: scale(1);
+  }
+}
+
+@keyframes book-loader-star-pop {
+  0%,
+  44% {
+    opacity: 0;
+    transform: scale(0.2) translateY(8px);
+  }
+  60% {
+    opacity: 1;
+    transform: scale(1.12) translateY(-2px);
+  }
+  68%,
+  100% {
+    opacity: 1;
+    transform: scale(1) translateY(0);
+  }
+}
+
+@keyframes book-loader-star-outer-pop {
+  0%,
+  56% {
+    opacity: 0;
+    transform: scale(0.2) translateY(8px);
+  }
+  72% {
+    opacity: 1;
+    transform: scale(1.12) translateY(-2px);
+  }
+  80%,
+  100% {
+    opacity: 1;
+    transform: scale(1) translateY(0);
+  }
+}
+
+.book-loader-once .book-loader-tablet-group {
+  animation: book-loader-tablet-in 1.4s cubic-bezier(0.22, 1, 0.36, 1) forwards;
+}
+
+.book-loader-once .book-loader-right-hand {
+  animation: book-loader-hand-tap 1.4s cubic-bezier(0.22, 1, 0.36, 1) forwards;
+}
+
+.book-loader-once .book-loader-ok-bg {
+  fill: var(--primary);
+  animation: book-loader-ok-color 1.4s linear forwards;
+}
+
+.book-loader-once .book-loader-ok-btn {
+  animation: book-loader-ok-press 1.4s ease-out forwards;
+}
+
+.book-loader-once .book-loader-star-center,
+.book-loader-once .book-loader-star-mid {
+  animation: book-loader-star-pop 1.4s cubic-bezier(0.22, 1, 0.36, 1) forwards;
+}
+
+.book-loader-once .book-loader-star-outer {
+  animation: book-loader-star-outer-pop 1.4s cubic-bezier(0.22, 1, 0.36, 1)
+    forwards;
+}
+
+.book-loader-loop .book-loader-tablet-group {
+  animation: book-loader-tablet-in 2.6s cubic-bezier(0.22, 1, 0.36, 1) infinite;
+}
+
+.book-loader-loop .book-loader-right-hand {
+  animation: book-loader-hand-tap 2.6s cubic-bezier(0.22, 1, 0.36, 1) infinite;
+}
+
+.book-loader-loop .book-loader-ok-bg {
+  fill: var(--primary);
+  animation: book-loader-ok-color 2.6s linear infinite;
+}
+
+.book-loader-loop .book-loader-ok-btn {
+  animation: book-loader-ok-press 2.6s ease-out infinite;
+}
+
+.book-loader-loop .book-loader-star-center,
+.book-loader-loop .book-loader-star-mid {
+  animation: book-loader-star-pop 2.6s cubic-bezier(0.22, 1, 0.36, 1) infinite;
+}
+
+.book-loader-loop .book-loader-star-outer {
+  animation: book-loader-star-outer-pop 2.6s cubic-bezier(0.22, 1, 0.36, 1)
+    infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .book-loader-once *,
+  .book-loader-loop * {
+    animation: none !important;
+  }
+  .book-loader-once .book-loader-ok-bg,
+  .book-loader-loop .book-loader-ok-bg {
+    fill: var(--success);
+  }
+}
+
 /* ApexCharts tooltip and numeric axis alignment with Daisy tokens */
 .apexcharts-canvas {
   font-family: var(--font-geist), system-ui, sans-serif;

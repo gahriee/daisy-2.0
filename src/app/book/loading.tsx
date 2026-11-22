@@ -1,5 +1,3 @@
-import { PublicBookingPageSkeleton } from "@/components/common/page-skeletons";
-
 export default function PublicBookingLoading() {
-  return <PublicBookingPageSkeleton />;
+  return <div className="min-h-screen w-full bg-surface" aria-busy="true" />;
 }

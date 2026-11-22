@@ -405,7 +405,7 @@ export function SignInPanel({ initialSession }: SignInPanelProps) {
         Need to set or change your password?{" "}
         <Link
           href="/auth/reset-password"
-          className="font-medium text-foreground underline underline-offset-4 transition-colors duration-(--duration-control) ease-(--ease-control) hover:text-primary"
+          className="font-medium text-foreground transition-colors duration-(--duration-control) ease-(--ease-control) hover:text-primary"
         >
           Reset password
         </Link>
