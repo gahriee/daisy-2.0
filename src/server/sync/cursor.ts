@@ -146,4 +146,3 @@ export function verifySyncCursor<TKind extends "pull" | "bootstrap">(
     ? PullCursorPayload
     : BootstrapCursorPayload;
 }
-

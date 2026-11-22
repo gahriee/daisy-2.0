@@ -74,12 +74,7 @@ export function formatCompactPhpAxis(value: number): string {
 }
 
 export type SupportedApexChartType =
-  | "bar"
-  | "area"
-  | "line"
-  | "donut"
-  | "pie"
-  | "radialBar";
+  "bar" | "area" | "line" | "donut" | "pie" | "radialBar";
 
 type ChartSeries = NonNullable<ApexOptions["series"]>;
 

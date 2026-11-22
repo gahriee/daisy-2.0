@@ -54,4 +54,3 @@ describe("verifyCronSecret", () => {
     ).not.toThrow();
   });
 });
-

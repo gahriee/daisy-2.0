@@ -43,4 +43,3 @@ describe("sync transport schemas", () => {
     ).toBe(false);
   });
 });
-

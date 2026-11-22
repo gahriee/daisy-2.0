@@ -38,4 +38,3 @@ export async function POST(request: Request): Promise<Response> {
     return errorToResponse(error);
   }
 }
-

@@ -311,4 +311,3 @@ describe("offline sync engine (push-before-pull, dependencies, attachments, back
     expect(concurrent).toEqual({ acquired: true, result: "ok" });
   });
 });
-

@@ -23,4 +23,3 @@ const rawPrivate = Buffer.from(privJwk.d, "base64url").toString("base64url");
 console.log(`VAPID_PUBLIC_KEY=${rawPublic}`);
 console.log(`VAPID_PRIVATE_KEY=${rawPrivate}`);
 console.log("VAPID_SUBJECT=mailto:owner@example.com");
-

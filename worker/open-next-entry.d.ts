@@ -8,4 +8,3 @@ type OpenNextWorkerHandler = {
 
 declare const openNextHandler: OpenNextWorkerHandler;
 export default openNextHandler;
-

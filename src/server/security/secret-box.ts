@@ -93,4 +93,3 @@ export function maskSecretLast4(plaintext: string): string {
   }
   return trimmed.slice(-4);
 }
-

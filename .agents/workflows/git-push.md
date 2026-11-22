@@ -14,7 +14,8 @@ description: Commit and push changes to GitHub following Conventional Commits an
 ```
 Please follow the git push workflow below:
 
-1. Check Active Branch & Changes:
+1. Format & Check Active Branch / Changes:
+   - Run `pnpm format` and verify `pnpm format:check` passes cleanly so CI formatting checks never fail.
    - Identify the current working branch: `git branch --show-current`
    - Run `git status` and `git diff` to understand the full scope of changes before adding files to the commit.
 

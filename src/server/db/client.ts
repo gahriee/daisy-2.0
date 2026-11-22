@@ -1,17 +1,40 @@
 import "server-only";
 import { PrismaNeon } from "@prisma/adapter-neon";
-import { PrismaClient } from "../../generated/prisma/client";
+import { Prisma, PrismaClient } from "../../generated/prisma/client";
 import { readDatabaseUrl } from "./environment";
 
 function createClient(connectionString: string): PrismaClient {
-  return new PrismaClient({ adapter: new PrismaNeon({ connectionString }) });
+  return new PrismaClient({
+    adapter: new PrismaNeon({ connectionString }),
+    transactionOptions: {
+      maxWait: 10_000,
+      timeout: 20_000,
+    },
+  });
 }
 
-const PRISMA_CLIENT_SCHEMA_TAG = "20261117210500_booking_request_guest_details";
+function computeGeneratedSchemaFingerprint(): string {
+  const enumKeys = Object.keys(Prisma)
+    .filter((key) => key === "ModelName" || key.endsWith("ScalarFieldEnum"))
+    .sort();
+  return enumKeys
+    .map((key) => {
+      const entry = (Prisma as Record<string, unknown>)[key];
+      if (!entry || typeof entry !== "object") return key;
+      return `${key}:${Object.keys(entry as Record<string, unknown>)
+        .sort()
+        .join(",")}`;
+    })
+    .join("|");
+}
+
+// Automatically changes whenever `pnpm db:generate` adds, removes, or renames
+// any model or column, while remaining identical across split Next.js chunks.
+const PRISMA_SCHEMA_FINGERPRINT = computeGeneratedSchemaFingerprint();
 
 type CachedDatabase = {
   url: string;
-  schemaTag: string;
+  schemaFingerprint: string;
   client: PrismaClient;
   disconnected?: boolean;
 };
@@ -81,7 +104,7 @@ function getCloudflareRequestDatabase(url: string): PrismaClient {
     cached &&
     !cached.disconnected &&
     cached.url === url &&
-    cached.schemaTag === PRISMA_CLIENT_SCHEMA_TAG &&
+    cached.schemaFingerprint === PRISMA_SCHEMA_FINGERPRINT &&
     hasUsableClient(cached.client)
   ) {
     return cached.client;
@@ -90,7 +113,7 @@ function getCloudflareRequestDatabase(url: string): PrismaClient {
   disconnectCached(cached);
   const entry: CachedDatabase = {
     url,
-    schemaTag: PRISMA_CLIENT_SCHEMA_TAG,
+    schemaFingerprint: PRISMA_SCHEMA_FINGERPRINT,
     client: createClient(url),
   };
   cloudflareRequestDatabases.set(requestCtx, entry);
@@ -113,7 +136,7 @@ export function getDatabase(): PrismaClient {
     cached &&
     !cached.disconnected &&
     cached.url === url &&
-    cached.schemaTag === PRISMA_CLIENT_SCHEMA_TAG &&
+    cached.schemaFingerprint === PRISMA_SCHEMA_FINGERPRINT &&
     hasUsableClient(cached.client)
   ) {
     moduleDatabase = cached;
@@ -127,7 +150,7 @@ export function getDatabase(): PrismaClient {
 
   const entry: CachedDatabase = {
     url,
-    schemaTag: PRISMA_CLIENT_SCHEMA_TAG,
+    schemaFingerprint: PRISMA_SCHEMA_FINGERPRINT,
     client: createClient(url),
   };
   moduleDatabase = entry;

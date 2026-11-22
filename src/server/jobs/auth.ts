@@ -30,4 +30,3 @@ export function verifyCronSecret(request: Request): void {
     throw new UnauthenticatedError("Invalid scheduled job credential.");
   }
 }
-

@@ -43,4 +43,3 @@ export type PushStatusResponse = {
   subscriptionCount: number;
   subscribedEndpoints: string[];
 };
-

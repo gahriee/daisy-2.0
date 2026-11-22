@@ -79,4 +79,3 @@ describe("reports pure analytics calculations", () => {
     });
   });
 });
-

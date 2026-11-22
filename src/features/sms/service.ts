@@ -67,7 +67,8 @@ async function consumeSmsRateLimit(
   const db = getDatabase();
   const prefix = `sms:${ownerUserId}:`;
   const key = `${prefix}${workload}`;
-  const maximum = workload === "test" ? TEST_SMS_LIMIT_MAX : MANUAL_SMS_LIMIT_MAX;
+  const maximum =
+    workload === "test" ? TEST_SMS_LIMIT_MAX : MANUAL_SMS_LIMIT_MAX;
   const seconds =
     workload === "test"
       ? TEST_SMS_LIMIT_WINDOW_SECONDS

@@ -119,4 +119,3 @@ export async function sendSemaphoreSms(
 
   return { messageId, status, network };
 }
-

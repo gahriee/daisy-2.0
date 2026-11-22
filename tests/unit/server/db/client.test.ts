@@ -3,6 +3,10 @@ import { afterEach, beforeEach, expect, it, vi } from "vitest";
 vi.mock("server-only", () => ({}));
 vi.mock("@prisma/adapter-neon", () => ({ PrismaNeon: class {} }));
 vi.mock("../../../../src/generated/prisma/client", () => ({
+  Prisma: {
+    ModelName: { Owner: "Owner" },
+    OwnerScalarFieldEnum: { id: "id" },
+  },
   PrismaClient: class {
     $disconnect = vi.fn().mockResolvedValue(undefined);
   },
@@ -54,6 +58,10 @@ it("reuses the global client across module reloads even when constructor identit
 
   vi.resetModules();
   vi.doMock("../../../../src/generated/prisma/client", () => ({
+    Prisma: {
+      ModelName: { Owner: "Owner" },
+      OwnerScalarFieldEnum: { id: "id" },
+    },
     PrismaClient: class {
       $disconnect = vi.fn().mockResolvedValue(undefined);
     },
@@ -65,6 +73,30 @@ it("reuses the global client across module reloads even when constructor identit
 
   expect(second).toBe(first);
   expect(first.$disconnect).not.toHaveBeenCalled();
+});
+
+it("disconnects and replaces the global client when the generated Prisma schema changes", async () => {
+  const { getDatabase: getFirst } =
+    await import("../../../../src/server/db/client");
+  const first = getFirst();
+
+  vi.resetModules();
+  vi.doMock("../../../../src/generated/prisma/client", () => ({
+    Prisma: {
+      ModelName: { Owner: "Owner", NewModel: "NewModel" },
+      OwnerScalarFieldEnum: { id: "id", addedField: "addedField" },
+    },
+    PrismaClient: class {
+      $disconnect = vi.fn().mockResolvedValue(undefined);
+    },
+  }));
+
+  const { getDatabase: getSecond } =
+    await import("../../../../src/server/db/client");
+  const second = getSecond();
+
+  expect(second).not.toBe(first);
+  expect(first.$disconnect).toHaveBeenCalledOnce();
 });
 
 it("fails before constructing a client when credentials are missing", async () => {

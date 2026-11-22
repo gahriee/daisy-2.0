@@ -1,15 +1,16 @@
 # Database client lifecycle
 
 - Status: PASS
-- Last run: 2026-11-16 23:52:29 (UTC+8)
+- Last run: 2026-11-22 15:54:45 (UTC+8)
 - Environment: Windows, Node 26.13.1, pnpm 12.18.0, Vitest 5.1.0
-- Command: `pnpm test:unit tests/unit/server/db/client.test.ts tests/unit/server/jobs/cloudflare-cron.test.ts`
-- Result: 5 passed (445 ms), 0 failed, 0 skipped; full unit suite 159 passed across 41 files in 2.93 s.
+- Command: `pnpm exec vitest run tests/unit/server/db/client.test.ts`
+- Result: 6 passed (105 ms), 0 failed, 0 skipped (298 ms total).
 
 ## Verified cases
 
 - Calls reuse the same client in Node runtime rather than constructing a pool per call.
-- Reuses `globalThis.daisyDatabase` across module reloads even when `PrismaClient` constructor identity differs across split chunks.
+- Reuses `globalThis.daisyDatabase` across module reloads even when `PrismaClient` constructor identity differs across split chunks (same generated `Prisma` schema fingerprint).
+- Disconnects and replaces `globalThis.daisyDatabase` automatically when the generated `Prisma` schema fingerprint changes across reloads.
 - Changing connection configuration disconnects and replaces the prior client.
 - Missing configuration fails before connection setup.
 - Isolates `PrismaClient` instances per Cloudflare Worker `ExecutionContext` (`WeakMap` keyed by `Symbol.for("__cloudflare-context__").ctx` when `navigator.userAgent === "Cloudflare-Workers"`) while reusing within a single request.
@@ -60,3 +61,7 @@
 
 ### Cloudflare Worker request isolation verification run
 - 2026-11-16 23:52:29 (UTC+8): `pnpm test:unit tests/unit/server/db/client.test.ts tests/unit/server/jobs/cloudflare-cron.test.ts` passed after adding `WeakMap<ExecutionContext, CachedDatabase>` isolation when `navigator.userAgent === "Cloudflare-Workers"`; 5 passed here (445 ms), suite 159 passed across 41 files in 2.93 s. `pnpm cf:build` and `wrangler deploy --dry-run` also passed.
+
+### Automatic schema fingerprint & transaction timeout verification runs
+- 2026-11-22 15:54:00 (UTC+8) — **FAIL (5 failed):** `pnpm test:unit tests/unit/server/db/client.test.ts` failed because the Vitest mock for `src/generated/prisma/client` omitted the `Prisma` export read by `computeGeneratedSchemaFingerprint()`. Fix: exported mock `Prisma` (`ModelName` + `OwnerScalarFieldEnum`) in `tests/unit/server/db/client.test.ts` and added a schema-change invalidation test.
+- 2026-11-22 15:54:45 (UTC+8) — **PASS (6 passed, 105 ms):** `pnpm exec vitest run tests/unit/server/db/client.test.ts` passed after updating the mock and adding automatic schema-change invalidation coverage.

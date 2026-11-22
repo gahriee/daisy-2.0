@@ -27,10 +27,7 @@ const RoomPhotoCropperDialog = dynamic(
   {
     ssr: false,
     loading: () => (
-      <div
-        role="status"
-        className="py-1 text-xs text-muted-foreground"
-      >
+      <div role="status" className="py-1 text-xs text-muted-foreground">
         Loading photo cropper…
       </div>
     ),

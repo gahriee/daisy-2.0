@@ -64,4 +64,3 @@ describe("room photo crop helpers", () => {
     expect(normalized.length).toBeLessThanOrEqual(180);
   });
 });
-
