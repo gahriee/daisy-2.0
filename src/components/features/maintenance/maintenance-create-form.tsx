@@ -6,13 +6,14 @@ import { useRouter } from "next/navigation";
 import { OfflineVaultUnlockDialog } from "@/components/features/offline/offline-vault-unlock";
 import { Alert } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
-import { Button, buttonClasses } from "@/components/ui/button";
+import { BackLink, Button, buttonClasses } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Field } from "@/components/ui/field";
 import { CompactFormScope } from "@/components/ui/form-density";
 import { Input } from "@/components/ui/input";
 import { Select } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
+import { toast } from "@/components/ui/toaster";
 import { createMaintenanceRequestAction } from "@/features/maintenance/actions";
 import {
   CreateMaintenanceSyncPayloadSchema,
@@ -179,8 +180,14 @@ export function MaintenanceCreateForm({
           });
 
           if (res.delivery === "synced") {
-            router.push(`/maintenance/${entityId}?created=1`);
+            toast.success(res.message);
+            router.push(`/maintenance/${entityId}`);
           } else {
+            if (res.delivery === "needs_attention") {
+              toast.warning(res.reason);
+            } else {
+              toast.info(res.message);
+            }
             router.push("/maintenance");
           }
           if (navigator.onLine && !offlineMode) {
@@ -215,9 +222,10 @@ export function MaintenanceCreateForm({
       }
 
       if (result.status === "saved") {
+        toast.success(result.message);
         router.push(
           result.requestId
-            ? `/maintenance/${result.requestId}?created=1`
+            ? `/maintenance/${result.requestId}`
             : "/maintenance",
         );
         router.refresh();
@@ -227,8 +235,9 @@ export function MaintenanceCreateForm({
 
   return (
     <div className="grid gap-5">
-      <header className="flex flex-wrap items-start justify-between gap-4">
-        <div className="grid gap-1">
+      <div className="grid gap-2">
+        <BackLink href="/maintenance">Maintenance</BackLink>
+        <header className="grid gap-1">
           <h1 className="text-xl font-semibold tracking-tight text-foreground sm:text-2xl">
             Log maintenance request
           </h1>
@@ -236,15 +245,8 @@ export function MaintenanceCreateForm({
             Record a room repair issue and attach optional inspection photos or
             contractor quotes.
           </p>
-        </div>
-
-        <Link
-          href="/maintenance"
-          className={buttonClasses({ variant: "secondary", size: "md" })}
-        >
-          Back to maintenance
-        </Link>
-      </header>
+        </header>
+      </div>
 
       {rooms.length === 0 && (
         <Alert tone="warning" role="alert">
@@ -404,11 +406,11 @@ export function MaintenanceCreateForm({
               )}
 
               {uploader.items.length > 0 && (
-                <ul className="grid gap-2">
+                <ul className="divide-y divide-border border-t border-border">
                   {uploader.items.map((item) => (
                     <li
                       key={item.localId}
-                      className="flex flex-wrap items-center justify-between gap-2 rounded-control border border-border bg-surface-muted px-3 py-2 text-xs"
+                      className="flex flex-wrap items-center justify-between gap-2 py-2.5 last:pb-0 text-xs"
                     >
                       <div className="grid min-w-0 gap-0.5">
                         <p className="truncate font-medium text-foreground">

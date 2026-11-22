@@ -11,13 +11,15 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { Alert } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
-import { Button, buttonClasses } from "@/components/ui/button";
+import { BackLink, Button, buttonClasses } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Field } from "@/components/ui/field";
 import { CompactFormScope } from "@/components/ui/form-density";
+import { DatePicker } from "@/components/ui/date-picker";
 import { Input } from "@/components/ui/input";
 import { Select } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
+import { toast } from "@/components/ui/toaster";
 import {
   createTenantContractAction,
   type TenantContractActionResult,
@@ -433,9 +435,10 @@ export function TenantContractForm({
 
       const result = await createTenantContractAction(prev, formData);
       if (result.status === "saved" && result.contract) {
-        router.push(
-          `/tenants/${tenant.id}/contracts/${result.contract.id}?created=1`,
+        toast.success(
+          result.message ?? "Signed contract saved privately for this tenant.",
         );
+        router.push(`/tenants/${tenant.id}/contracts/${result.contract.id}`);
       }
       return result;
     },
@@ -449,14 +452,9 @@ export function TenantContractForm({
 
   return (
     <div className="grid gap-5">
-      <header className="flex flex-wrap items-start justify-between gap-4">
-        <div className="grid gap-1">
-          <Link
-            href={`/tenants/${tenant.id}`}
-            className="text-sm font-medium text-muted-foreground transition-colors hover:text-foreground"
-          >
-            &larr; Back to {tenant.fullName}
-          </Link>
+      <div className="grid gap-2">
+        <BackLink href={`/tenants/${tenant.id}`}>{tenant.fullName}</BackLink>
+        <header className="grid gap-1">
           <h1 className="text-xl font-semibold tracking-tight text-foreground sm:text-2xl">
             Add signed contract
           </h1>
@@ -465,8 +463,8 @@ export function TenantContractForm({
             Image captures are whitened and flattened in your browser before
             saving privately.
           </p>
-        </div>
-      </header>
+        </header>
+      </div>
 
       <CompactFormScope>
         <form
@@ -526,11 +524,7 @@ export function TenantContractForm({
                   }
                 >
                   {(fieldProps) => (
-                    <Input
-                      {...fieldProps}
-                      name="signedDateManila"
-                      type="date"
-                    />
+                    <DatePicker {...fieldProps} name="signedDateManila" />
                   )}
                 </Field>
 
@@ -645,16 +639,16 @@ export function TenantContractForm({
               )}
 
               {pages.length === 0 ? (
-                <div className="rounded-control border border-dashed border-border bg-background/60 p-6 text-center text-sm text-muted-foreground">
+                <p className="border-t border-border pt-4 text-sm text-muted-foreground">
                   No pages attached yet. Use &ldquo;Add contract pages&rdquo; to
                   take or select photos of the signed contract or attach a PDF.
-                </div>
+                </p>
               ) : (
-                <div className="grid gap-4">
+                <div className="divide-y divide-border border-t border-border">
                   {pages.map((page, index) => (
                     <div
                       key={page.localId}
-                      className="grid gap-3 rounded-control border border-border bg-background p-4"
+                      className="grid gap-3 py-4 last:pb-0"
                     >
                       <div className="flex flex-wrap items-start justify-between gap-3">
                         <div className="grid gap-0.5">
@@ -745,7 +739,7 @@ export function TenantContractForm({
                       )}
 
                       <div className="grid gap-3 sm:grid-cols-[180px_minmax(0,1fr)]">
-                        <div className="flex min-h-[160px] items-center justify-center overflow-hidden rounded-control border border-border bg-white p-2">
+                        <div className="flex min-h-[160px] items-center justify-center overflow-hidden rounded-control bg-surface-muted p-2">
                           {page.isPdf ? (
                             <div className="grid gap-1 text-center text-xs text-muted-foreground">
                               <Badge tone="neutral">PDF</Badge>

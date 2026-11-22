@@ -6,13 +6,15 @@ import { useRouter } from "next/navigation";
 import { OfflineVaultUnlockDialog } from "@/components/features/offline/offline-vault-unlock";
 import { Alert } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
-import { Button, buttonClasses } from "@/components/ui/button";
+import { BackLink, Button, buttonClasses } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Field } from "@/components/ui/field";
 import { CompactFormScope } from "@/components/ui/form-density";
+import { DatePicker } from "@/components/ui/date-picker";
 import { Input } from "@/components/ui/input";
 import { Select } from "@/components/ui/select";
+import { toast } from "@/components/ui/toaster";
 import {
   recordPaymentAction,
   type PaymentActionResult,
@@ -333,8 +335,14 @@ export function PaymentCreateForm({
           });
 
           if (res.delivery === "synced") {
-            router.push(`/payments/${entityId}?created=1`);
+            toast.success(res.message);
+            router.push(`/payments/${entityId}`);
           } else {
+            if (res.delivery === "needs_attention") {
+              toast.warning(res.reason);
+            } else {
+              toast.info(res.message);
+            }
             router.push("/payments");
           }
           if (navigator.onLine && !offlineMode) {
@@ -363,10 +371,9 @@ export function PaymentCreateForm({
 
       const result = await recordPaymentAction(prev, formData);
       if (result.status === "saved") {
+        toast.success(result.message);
         router.push(
-          result.paymentId
-            ? `/payments/${result.paymentId}?created=1`
-            : "/payments",
+          result.paymentId ? `/payments/${result.paymentId}` : "/payments",
         );
         router.refresh();
       }
@@ -676,8 +683,9 @@ export function PaymentCreateForm({
 
   return (
     <div className="grid gap-5">
-      <header className="flex flex-wrap items-start justify-between gap-4">
-        <div className="grid gap-1">
+      <div className="grid gap-2">
+        <BackLink href="/payments">Payments</BackLink>
+        <header className="grid gap-1">
           <h1 className="text-xl font-semibold tracking-tight text-foreground sm:text-2xl">
             Record payment
           </h1>
@@ -685,15 +693,8 @@ export function PaymentCreateForm({
             Assigns an atomic official receipt number and updates selected
             invoice balances.
           </p>
-        </div>
-
-        <Link
-          href="/payments"
-          className={buttonClasses({ variant: "secondary", size: "md" })}
-        >
-          Back to payments
-        </Link>
-      </header>
+        </header>
+      </div>
 
       {!policiesComplete && (
         <Alert tone="warning" role="status">
@@ -875,14 +876,12 @@ export function PaymentCreateForm({
                   }
                 >
                   {(fieldProps) => (
-                    <Input
+                    <DatePicker
                       {...fieldProps}
-                      type="date"
+                      required
                       name="paidDateManila"
                       value={paidDateManila}
-                      onChange={(event) =>
-                        setPaidDateManila(event.target.value)
-                      }
+                      onValueChange={setPaidDateManila}
                     />
                   )}
                 </Field>
@@ -988,21 +987,21 @@ export function PaymentCreateForm({
               </div>
 
               {tenantInvoices.length === 0 ? (
-                <p className="rounded-control border border-border bg-background/50 px-3 py-2.5 text-xs text-muted-foreground">
+                <p className="border-t border-border pt-3 text-xs leading-5 text-muted-foreground">
                   No open issued invoices for this payer.
                   {overpaymentPolicy === "CREDIT_NEXT_INVOICE"
                     ? " The full payment will be held as unallocated credit for future invoices."
                     : " Issue an invoice first or change your overpayment policy in Settings."}
                 </p>
               ) : (
-                <div className="grid gap-2">
+                <div className="divide-y divide-border border-t border-border">
                   {tenantInvoices.map((inv) => {
                     const allocatedVal = allocMap[inv.id] ?? "";
                     const checked = allocatedVal.trim() !== "";
                     return (
                       <div
                         key={inv.id}
-                        className="grid gap-2 rounded-control border border-border bg-background/40 p-3 sm:grid-cols-[1fr_9rem] sm:items-center"
+                        className="grid gap-2 py-3 last:pb-0 sm:grid-cols-[1fr_9rem] sm:items-center"
                       >
                         <Checkbox
                           aria-label={`Apply payment to ${inv.invoiceNumber ?? inv.id}`}
@@ -1110,11 +1109,11 @@ export function PaymentCreateForm({
               )}
 
               {proofs.length > 0 && (
-                <div className="divide-y divide-border rounded-control border border-border">
+                <div className="divide-y divide-border border-t border-border">
                   {proofs.map((item) => (
                     <div
                       key={item.localId}
-                      className="flex flex-wrap items-center justify-between gap-2 px-3 py-2 text-xs"
+                      className="flex flex-wrap items-center justify-between gap-2 py-2.5 last:pb-0 text-xs"
                     >
                       <div className="grid min-w-0 gap-0.5">
                         <span className="truncate font-medium text-foreground">

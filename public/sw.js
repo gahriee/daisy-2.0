@@ -1,12 +1,13 @@
 // Executable Service Worker matching src/sw.ts & src/offline/sw-policy.ts.
 // Precaches strictly the PII-free public /offline shell and static shell assets.
 
-const SW_CACHE_VERSION = "daisy-shell-v2";
+const SW_CACHE_VERSION = "daisy-shell-v3";
 const OFFLINE_SHELL_PATH = "/offline";
 const SW_PRECACHE_URLS = [
   "/offline",
   "/manifest.webmanifest",
   "/icon.svg",
+  "/brand/daisy-icon-light.png",
   "/brand/daisy-icon-light.svg",
   "/brand/daisy-lockup-light.svg",
   "/illustrations/sweet-home.svg",
@@ -179,6 +180,73 @@ self.addEventListener("fetch", (event) => {
         headers: { "content-type": "text/plain; charset=utf-8" },
       });
     }),
+  );
+});
+
+self.addEventListener("push", (event) => {
+  let title = "Daisy alert";
+  let body = "Open Daisy to review your latest alert.";
+  let url = "/notifications";
+  let tag = "daisy-alert";
+
+  if (event.data) {
+    try {
+      const parsed = event.data.json();
+      if (parsed && typeof parsed.title === "string" && parsed.title.trim()) {
+        title = parsed.title.trim();
+      }
+      if (parsed && typeof parsed.body === "string" && parsed.body.trim()) {
+        body = parsed.body.trim();
+      }
+      if (parsed && typeof parsed.url === "string" && parsed.url.startsWith("/")) {
+        url = parsed.url;
+      }
+      if (parsed && typeof parsed.tag === "string" && parsed.tag.trim()) {
+        tag = parsed.tag.trim();
+      }
+    } catch {
+      const text = event.data.text();
+      if (text && text.trim()) {
+        body = text.trim();
+      }
+    }
+  }
+
+  event.waitUntil(
+    self.registration.showNotification(title, {
+      body,
+      icon: "/brand/daisy-icon-light.png",
+      badge: "/icon.svg",
+      tag,
+      data: { url },
+    }),
+  );
+});
+
+self.addEventListener("notificationclick", (event) => {
+  event.notification.close();
+  const rawUrl =
+    event.notification.data && typeof event.notification.data.url === "string"
+      ? event.notification.data.url
+      : "/notifications";
+  const targetPath = rawUrl.startsWith("/") ? rawUrl : "/notifications";
+  const targetUrl = new URL(targetPath, self.location.origin).href;
+
+  event.waitUntil(
+    self.clients
+      .matchAll({ type: "window", includeUncontrolled: true })
+      .then(async (clientList) => {
+        for (const client of clientList) {
+          if (client.url.startsWith(self.location.origin)) {
+            await client.focus();
+            if ("navigate" in client && typeof client.navigate === "function") {
+              await client.navigate(targetUrl);
+            }
+            return;
+          }
+        }
+        await self.clients.openWindow(targetUrl);
+      }),
   );
 });
 

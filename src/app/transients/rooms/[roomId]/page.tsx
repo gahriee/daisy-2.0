@@ -10,10 +10,8 @@ export const instant = false;
 
 export default async function TransientRoomDetailPage({
   params,
-  searchParams,
 }: {
   params: Promise<{ roomId: string }>;
-  searchParams: Promise<{ created?: string }>;
 }) {
   await connection();
   let authenticated = false;
@@ -28,10 +26,7 @@ export default async function TransientRoomDetailPage({
     redirect("/auth/sign-in");
   }
 
-  const [{ roomId }, resolvedSearchParams] = await Promise.all([
-    params,
-    searchParams,
-  ]);
+  const { roomId } = await params;
 
   const [profile, detail] = await Promise.all([
     getOwnerWorkspaceProfile(ownerUserId),
@@ -52,7 +47,6 @@ export default async function TransientRoomDetailPage({
         building="TRANSIENT"
         room={detail.room}
         roomTypes={detail.roomTypes}
-        justCreated={resolvedSearchParams.created === "1"}
       />
     </WorkspaceShell>
   );

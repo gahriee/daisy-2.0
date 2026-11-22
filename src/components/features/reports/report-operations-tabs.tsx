@@ -244,6 +244,18 @@ export function TransientRevenueReportPanel({
             size: "68%",
             labels: {
               show: true,
+              name: {
+                color: DAISY_CHART_COLORS.slate,
+                fontSize: "12px",
+                fontWeight: 500,
+              },
+              value: {
+                show: true,
+                color: DAISY_CHART_COLORS.charcoal,
+                fontSize: "18px",
+                fontWeight: 600,
+                formatter: (val: string) => `${Math.round(Number(val))}`,
+              },
               total: {
                 show: true,
                 label: "Stays",
@@ -370,7 +382,7 @@ export function TransientRevenueReportPanel({
           description={`Total nights, billed amounts, and collections across ${periodLabel}.`}
           actions={
             <Link
-              href="/transients"
+              href="/transients/stays"
               className={buttonClasses({ variant: "secondary", size: "sm" })}
             >
               Open short stays

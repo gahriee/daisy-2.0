@@ -1,11 +1,15 @@
 export const BILLING_GENERATE_CRON = "15 16 * * *";
+export const OVERDUE_SMS_CRON = "*/30 * * * *";
 export const MAINTENANCE_CLEANUP_CRON = "45 18 * * *";
 
 export type ScheduledJobEndpoint =
-  "/api/jobs/billing/generate" | "/api/jobs/maintenance/cleanup";
+  | "/api/jobs/billing/generate"
+  | "/api/jobs/billing/overdue-sms"
+  | "/api/jobs/maintenance/cleanup";
 
 const CRON_ENDPOINT_MAP: Record<string, ScheduledJobEndpoint> = {
   [BILLING_GENERATE_CRON]: "/api/jobs/billing/generate",
+  [OVERDUE_SMS_CRON]: "/api/jobs/billing/overdue-sms",
   [MAINTENANCE_CLEANUP_CRON]: "/api/jobs/maintenance/cleanup",
 };
 

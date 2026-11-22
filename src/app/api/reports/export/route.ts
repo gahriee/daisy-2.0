@@ -1,4 +1,4 @@
-import { exportReportCsv } from "@/features/reports/service";
+import { exportReport } from "@/features/reports/service";
 import { requireOwnerUserId } from "@/server/auth/owner";
 import {
   errorToResponse,
@@ -6,17 +6,19 @@ import {
 } from "@/server/http/route-helpers";
 
 /**
- * Generates and downloads a bounded CSV attachment for one operational report.
- * Records an identifier-only `report.exported` audit entry before returning CSV bytes.
+ * Generates and downloads a bounded operational report attachment in CSV, Excel
+ * (`.xlsx`), Word (`.docx`), or PDF (`.pdf`) using Daisy's shared report template.
+ * Records an identifier-only `report.exported` audit entry before returning bytes.
  */
 export async function GET(request: Request) {
   try {
     const ownerUserId = await requireOwnerUserId();
     const { searchParams } = new URL(request.url);
 
-    const result = await exportReportCsv(
+    const result = await exportReport(
       ownerUserId,
       searchParams.get("reportType") ?? undefined,
+      searchParams.get("format") ?? undefined,
       {
         asOfDate: searchParams.get("asOfDate") ?? undefined,
         fromDate: searchParams.get("fromDate") ?? undefined,
@@ -27,14 +29,15 @@ export async function GET(request: Request) {
     );
 
     const headers = new Headers(PRIVATE_RESPONSE_HEADERS);
-    headers.set("Content-Type", "text/csv; charset=utf-8");
+    headers.set("Content-Type", result.contentType);
     headers.set(
       "Content-Disposition",
       `attachment; filename="${result.filename}"`,
     );
     headers.set("X-Content-Type-Options", "nosniff");
 
-    return new Response(result.csv, {
+    const body = new Uint8Array(result.bytes);
+    return new Response(body, {
       status: 200,
       headers,
     });

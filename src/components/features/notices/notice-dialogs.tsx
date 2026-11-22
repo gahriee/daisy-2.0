@@ -1,10 +1,12 @@
 "use client";
 
 import { useState, useTransition } from "react";
+import Link from "next/link";
 import { Alert } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { Dialog } from "@/components/ui/dialog";
 import { Field } from "@/components/ui/field";
+import { DatePicker } from "@/components/ui/date-picker";
 import { Input } from "@/components/ui/input";
 import { Select } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
@@ -13,6 +15,7 @@ import {
   updateNoticeAction,
 } from "@/features/notices/actions";
 import {
+  formatNoticeSmsText,
   NOTICE_AUDIENCE_LABELS,
   NOTICE_AUDIENCES,
   type NoticeAudienceValue,
@@ -22,7 +25,8 @@ import {
   type NoticeTenantOptionDto,
 } from "@/features/notices/schemas";
 import { ROOM_BUILDING_LABELS } from "@/features/rooms/schemas";
-import { addManilaDays } from "@/lib/dates";
+import { estimateSmsSegments } from "@/features/sms/schemas";
+import { addManilaDays, formatManilaDate } from "@/lib/dates";
 
 export const NOTICE_LIFECYCLE_TONE: Record<
   NoticeLifecycleStatus,
@@ -40,6 +44,8 @@ export function NoticeFormDialog({
   todayManila,
   rooms,
   tenants,
+  smsConfigured,
+  businessName,
   onClose,
   onSaved,
 }: {
@@ -48,6 +54,8 @@ export function NoticeFormDialog({
   todayManila: string;
   rooms: NoticeRoomOptionDto[];
   tenants: NoticeTenantOptionDto[];
+  smsConfigured: boolean;
+  businessName: string;
   onClose: () => void;
   onSaved: (message: string, noticeId?: string) => void | Promise<void>;
 }) {
@@ -69,6 +77,14 @@ export function NoticeFormDialog({
   );
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [pending, startTransition] = useTransition();
+
+  const isScheduledForFuture = startDateManila > todayManila;
+  const smsPreviewText = formatNoticeSmsText({
+    title: title || "Notice title",
+    body: body || "Your message will appear here.",
+    businessName,
+  });
+  const smsEstimate = estimateSmsSegments(smsPreviewText);
 
   function handleAudienceChange(next: NoticeAudienceValue) {
     setAudience(next);
@@ -124,8 +140,8 @@ export function NoticeFormDialog({
       onClose={onClose}
       dismissDisabled={pending}
       maxWidthClassName="max-w-xl"
-      title={isEditing ? "Edit notice" : "Publish notice"}
-      description="Share property announcements or targeted reminders with an explicit display window."
+      title={isEditing ? "Edit notice" : "Send SMS notice"}
+      description="Notices are texted directly to tenants through Semaphore—right away if the send date is today, or automatically on a future date."
     >
       <form onSubmit={handleSubmit} className="grid gap-4">
         {errorMessage && (
@@ -236,30 +252,60 @@ export function NoticeFormDialog({
         </Field>
 
         <div className="grid gap-4 sm:grid-cols-2">
-          <Field id="notice-start" label="Visible from" required>
+          <Field id="notice-start" label="Send date" required>
             {(fieldProps) => (
-              <Input
+              <DatePicker
                 {...fieldProps}
-                type="date"
+                required
                 value={startDateManila}
-                onChange={(e) => setStartDateManila(e.target.value)}
+                onValueChange={setStartDateManila}
                 disabled={pending}
               />
             )}
           </Field>
 
-          <Field id="notice-end" label="Visible until (inclusive)" required>
+          <Field id="notice-end" label="Active until" required>
             {(fieldProps) => (
-              <Input
+              <DatePicker
                 {...fieldProps}
-                type="date"
+                required
                 value={endDateManila}
-                onChange={(e) => setEndDateManila(e.target.value)}
+                onValueChange={setEndDateManila}
                 disabled={pending}
               />
             )}
           </Field>
         </div>
+
+        {!isEditing &&
+          (!smsConfigured ? (
+            <Alert tone="warning">
+              Connect your Semaphore account in{" "}
+              <Link
+                href="/settings/sms"
+                className="font-medium underline underline-offset-2"
+              >
+                Overdue SMS settings
+              </Link>{" "}
+              before sending or scheduling text notices.
+            </Alert>
+          ) : (
+            <div className="grid gap-1.5 rounded-control border border-border bg-surface-muted/50 p-3 text-xs">
+              <p className="font-medium text-foreground">
+                {isScheduledForFuture
+                  ? `Scheduled SMS — will text automatically on ${formatManilaDate(startDateManila)}`
+                  : "Sends right away via Semaphore"}
+              </p>
+              <p className="break-words text-muted-foreground">
+                {smsPreviewText}
+              </p>
+              <p className="text-muted-foreground tabular-nums">
+                {smsEstimate.length} characters · {smsEstimate.segments}{" "}
+                {smsEstimate.segments === 1 ? "text credit" : "text credits"}{" "}
+                per recipient
+              </p>
+            </div>
+          ))}
 
         <div className="flex flex-wrap justify-end gap-2.5 border-t border-border pt-4">
           <Button
@@ -270,8 +316,16 @@ export function NoticeFormDialog({
           >
             Cancel
           </Button>
-          <Button type="submit" loading={pending}>
-            {isEditing ? "Save changes" : "Publish notice"}
+          <Button
+            type="submit"
+            loading={pending}
+            disabled={!isEditing && !smsConfigured}
+          >
+            {isEditing
+              ? "Save changes"
+              : isScheduledForFuture
+                ? "Schedule SMS notice"
+                : "Send SMS notice"}
           </Button>
         </div>
       </form>

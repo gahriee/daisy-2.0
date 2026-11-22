@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from "vitest";
 import {
   BILLING_GENERATE_CRON,
   MAINTENANCE_CLEANUP_CRON,
+  OVERDUE_SMS_CRON,
   dispatchScheduledCron,
   resolveScheduledJobPath,
 } from "../../../../src/server/jobs/cloudflare-cron";
@@ -10,6 +11,9 @@ describe("cloudflare cron dispatcher", () => {
   it("maps documented schedules to scheduled job endpoints and ignores unknown crons", () => {
     expect(resolveScheduledJobPath(BILLING_GENERATE_CRON)).toBe(
       "/api/jobs/billing/generate",
+    );
+    expect(resolveScheduledJobPath(OVERDUE_SMS_CRON)).toBe(
+      "/api/jobs/billing/overdue-sms",
     );
     expect(resolveScheduledJobPath(MAINTENANCE_CLEANUP_CRON)).toBe(
       "/api/jobs/maintenance/cleanup",

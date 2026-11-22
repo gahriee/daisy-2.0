@@ -7,13 +7,14 @@
  * - NEVER cache `/api/*`, authenticated HTML/RSC routes, exports, or `/book` live data.
  */
 
-export const SW_CACHE_VERSION = "daisy-shell-v2";
+export const SW_CACHE_VERSION = "daisy-shell-v3";
 export const OFFLINE_SHELL_PATH = "/offline";
 
 export const SW_PRECACHE_URLS = [
   "/offline",
   "/manifest.webmanifest",
   "/icon.svg",
+  "/brand/daisy-icon-light.png",
   "/brand/daisy-icon-light.svg",
   "/brand/daisy-lockup-light.svg",
   "/illustrations/sweet-home.svg",

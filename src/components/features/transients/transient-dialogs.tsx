@@ -1,14 +1,19 @@
 "use client";
 
 import { useActionState, useState } from "react";
+import Link from "next/link";
+import { OfflineSyncBadge } from "@/components/features/offline/offline-vault-unlock";
 import { Alert } from "@/components/ui/alert";
-import { Button } from "@/components/ui/button";
+import { Badge } from "@/components/ui/badge";
+import { Button, buttonClasses } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Dialog } from "@/components/ui/dialog";
 import { Field } from "@/components/ui/field";
+import { DatePicker } from "@/components/ui/date-picker";
 import { Input } from "@/components/ui/input";
 import { Select } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
+import type { SavedFeedbackTone } from "@/components/ui/toaster";
 import {
   cancelTransientAction,
   createTransientGuestAction,
@@ -18,18 +23,27 @@ import {
 } from "@/features/transients/actions";
 import { computeTransientNights } from "@/features/transients/calculations";
 import {
+  ALLOCATION_SCOPE_LABELS,
   CreateTransientGuestSyncPayloadSchema,
   CreateTransientReservationSyncPayloadSchema,
+  TRANSIENT_RESERVATION_STATUS_LABELS,
   type TransientGuestDto,
   type TransientReservationDto,
+  type TransientReservationStatusValue,
   type TransientRoomOptionDto,
 } from "@/features/transients/schemas";
-import { addManilaDays, toManilaDate } from "@/lib/dates";
+import {
+  addManilaDays,
+  formatManilaDate,
+  formatManilaDateTime,
+  toManilaDate,
+} from "@/lib/dates";
 import {
   formatMoneyDecimal,
   formatPhpCurrency,
   parseMoneyDecimal,
 } from "@/lib/money";
+import type { OfflineEntitySyncBadge } from "@/offline/snapshot-selectors";
 import {
   getOfflineVaultClientState,
   OfflineVaultLockedError,
@@ -60,7 +74,7 @@ export function CreateTransientGuestDialog({
   offlineMode?: boolean;
   onClose: () => void;
   onRequireVaultUnlock?: () => void;
-  onSaved: (message: string) => void | Promise<void>;
+  onSaved: (message: string, tone?: SavedFeedbackTone) => void | Promise<void>;
 }) {
   const [state, submitAction, pending] = useActionState(
     async (
@@ -110,6 +124,11 @@ export function CreateTransientGuestDialog({
           onClose();
           await onSaved(
             res.delivery === "needs_attention" ? res.reason : res.message,
+            res.delivery === "needs_attention"
+              ? "warning"
+              : res.delivery === "queued"
+                ? "info"
+                : "success",
           );
           return { status: "saved", message: "Saved.", entityId };
         } catch (error) {
@@ -245,7 +264,7 @@ export function CreateTransientReservationDialog({
   rooms: TransientRoomOptionDto[];
   onClose: () => void;
   onRequireVaultUnlock?: () => void;
-  onSaved: (message: string) => void | Promise<void>;
+  onSaved: (message: string, tone?: SavedFeedbackTone) => void | Promise<void>;
 }) {
   const activeGuests = guests.filter((g) => !g.archivedAt);
   const eligibleRooms = rooms.filter((r) => Boolean(r.resolvedDailyRate));
@@ -349,6 +368,11 @@ export function CreateTransientReservationDialog({
           onClose();
           await onSaved(
             res.delivery === "needs_attention" ? res.reason : res.message,
+            res.delivery === "needs_attention"
+              ? "warning"
+              : res.delivery === "queued"
+                ? "info"
+                : "success",
           );
           return { status: "saved", message: "Saved.", entityId };
         } catch (error) {
@@ -463,12 +487,11 @@ export function CreateTransientReservationDialog({
         <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
           <Field id="stay-checkin" label="Check-in date" required>
             {(fieldProps) => (
-              <Input
+              <DatePicker
                 {...fieldProps}
-                type="date"
                 name="checkInDateManila"
                 value={checkInDate}
-                onChange={(e) => setCheckInDate(e.target.value)}
+                onValueChange={setCheckInDate}
                 required
               />
             )}
@@ -476,12 +499,11 @@ export function CreateTransientReservationDialog({
 
           <Field id="stay-checkout" label="Check-out date" required>
             {(fieldProps) => (
-              <Input
+              <DatePicker
                 {...fieldProps}
-                type="date"
                 name="checkOutDateManila"
                 value={checkOutDate}
-                onChange={(e) => setCheckOutDate(e.target.value)}
+                onValueChange={setCheckOutDate}
                 required
               />
             )}
@@ -535,7 +557,7 @@ export function CreateTransientReservationDialog({
           )}
         </Field>
 
-        <div className="grid gap-2 rounded-control border border-border bg-surface-muted px-3.5 py-2.5 text-sm">
+        <div className="grid gap-2 border-y border-border py-2.5 text-sm">
           <div className="flex flex-wrap items-center justify-between gap-2">
             {nights > 0 ? (
               <div className="grid gap-0.5 text-muted-foreground">
@@ -600,7 +622,7 @@ export function CancelTransientDialog({
 }: {
   reservation: TransientReservationDto | null;
   onClose: () => void;
-  onSaved: (message: string) => void | Promise<void>;
+  onSaved: (message: string, tone?: SavedFeedbackTone) => void | Promise<void>;
 }) {
   const [state, submitAction, pending] = useActionState(
     async (
@@ -681,7 +703,7 @@ export function TransientPolicyNoteDialog({
   open: boolean;
   initialNote: string | null;
   onClose: () => void;
-  onSaved: (message: string) => void | Promise<void>;
+  onSaved: (message: string, tone?: SavedFeedbackTone) => void | Promise<void>;
 }) {
   const [note, setNote] = useState(initialNote ?? "");
   const [state, submitAction, pending] = useActionState(
@@ -740,6 +762,262 @@ export function TransientPolicyNoteDialog({
           </Button>
         </div>
       </form>
+    </Dialog>
+  );
+}
+
+const RESERVATION_DETAIL_STATUS_TONE: Record<
+  TransientReservationStatusValue,
+  "warning" | "info" | "success" | "neutral" | "danger"
+> = {
+  TENTATIVE: "warning",
+  CONFIRMED: "info",
+  CHECKED_IN: "success",
+  CHECKED_OUT: "neutral",
+  CANCELLED: "danger",
+  NO_SHOW: "danger",
+};
+
+export function TransientReservationDetailDialog({
+  reservation,
+  guest,
+  syncBadge,
+  onClose,
+}: {
+  reservation: TransientReservationDto | null;
+  guest: TransientGuestDto | null;
+  syncBadge?: OfflineEntitySyncBadge;
+  onClose: () => void;
+}) {
+  const guestPhone = reservation?.guestPhone ?? guest?.phone ?? null;
+  const guestEmail = reservation?.guestEmail ?? guest?.email ?? null;
+  const guestNotes = guest?.notes ?? null;
+
+  return (
+    <Dialog
+      open={Boolean(reservation)}
+      onClose={onClose}
+      closeOnBackdrop
+      maxWidthClassName="max-w-xl"
+      title={
+        reservation
+          ? `Stay for ${reservation.guestName}`
+          : "Reservation details"
+      }
+      {...(reservation
+        ? {
+            description: `Room ${reservation.roomNumber} (${reservation.roomTypeName})`,
+          }
+        : {})}
+    >
+      {reservation && (
+        <div className="grid gap-5">
+          <div className="flex flex-wrap items-center gap-2">
+            <Badge tone={RESERVATION_DETAIL_STATUS_TONE[reservation.status]}>
+              {TRANSIENT_RESERVATION_STATUS_LABELS[reservation.status]}
+            </Badge>
+            <OfflineSyncBadge badge={syncBadge} />
+          </div>
+
+          <section className="grid gap-2.5 border-t border-border pt-4">
+            <h3 className="text-xs font-semibold tracking-wide text-muted-foreground uppercase">
+              Guest details
+            </h3>
+            <dl className="grid gap-2 text-sm sm:grid-cols-2">
+              <div className="grid gap-0.5">
+                <dt className="text-xs text-muted-foreground">Full name</dt>
+                <dd className="font-medium text-foreground">
+                  {reservation.guestName}
+                </dd>
+              </div>
+              <div className="grid gap-0.5">
+                <dt className="text-xs text-muted-foreground">Party size</dt>
+                <dd className="text-foreground tabular-nums">
+                  {reservation.partySize}{" "}
+                  {reservation.partySize === 1 ? "guest" : "guests"}
+                </dd>
+              </div>
+              <div className="grid gap-0.5">
+                <dt className="text-xs text-muted-foreground">Phone</dt>
+                <dd className="text-foreground tabular-nums">
+                  {guestPhone ?? "—"}
+                </dd>
+              </div>
+              <div className="grid gap-0.5">
+                <dt className="text-xs text-muted-foreground">Email</dt>
+                <dd className="break-all text-foreground">
+                  {guestEmail ?? "—"}
+                </dd>
+              </div>
+              {guestNotes && (
+                <div className="grid gap-0.5 sm:col-span-2">
+                  <dt className="text-xs text-muted-foreground">Guest notes</dt>
+                  <dd className="whitespace-pre-wrap text-foreground">
+                    {guestNotes}
+                  </dd>
+                </div>
+              )}
+            </dl>
+          </section>
+
+          <section className="grid gap-2.5 border-t border-border pt-4">
+            <h3 className="text-xs font-semibold tracking-wide text-muted-foreground uppercase">
+              Stay &amp; room
+            </h3>
+            <dl className="grid gap-2 text-sm sm:grid-cols-2">
+              <div className="grid gap-0.5">
+                <dt className="text-xs text-muted-foreground">Room</dt>
+                <dd className="font-medium text-foreground">
+                  Room {reservation.roomNumber} ({reservation.roomTypeName})
+                </dd>
+              </div>
+              <div className="grid gap-0.5">
+                <dt className="text-xs text-muted-foreground">Booking scope</dt>
+                <dd className="text-foreground">
+                  {ALLOCATION_SCOPE_LABELS[reservation.scope]}
+                  {reservation.bedNumber
+                    ? ` (Bed ${reservation.bedNumber})`
+                    : ""}
+                </dd>
+              </div>
+              <div className="grid gap-0.5">
+                <dt className="text-xs text-muted-foreground">Check-in date</dt>
+                <dd className="text-foreground tabular-nums">
+                  {formatManilaDate(reservation.checkInDateManila)}
+                </dd>
+              </div>
+              <div className="grid gap-0.5">
+                <dt className="text-xs text-muted-foreground">
+                  Check-out date
+                </dt>
+                <dd className="text-foreground tabular-nums">
+                  {formatManilaDate(reservation.checkOutDateManila)} (
+                  {reservation.nights}{" "}
+                  {reservation.nights === 1 ? "night" : "nights"})
+                </dd>
+              </div>
+              <div className="grid gap-0.5">
+                <dt className="text-xs text-muted-foreground">Daily rate</dt>
+                <dd className="text-foreground tabular-nums">
+                  {formatPhpCurrency(reservation.dailyRate)}
+                </dd>
+              </div>
+              <div className="grid gap-0.5">
+                <dt className="text-xs text-muted-foreground">Stay total</dt>
+                <dd className="font-semibold text-foreground tabular-nums">
+                  {formatPhpCurrency(reservation.totalAmount)}
+                </dd>
+              </div>
+              {reservation.checkedInAt && (
+                <div className="grid gap-0.5">
+                  <dt className="text-xs text-muted-foreground">Checked in</dt>
+                  <dd className="text-foreground tabular-nums">
+                    {formatManilaDateTime(new Date(reservation.checkedInAt))}
+                  </dd>
+                </div>
+              )}
+              {reservation.checkedOutAt && (
+                <div className="grid gap-0.5">
+                  <dt className="text-xs text-muted-foreground">Checked out</dt>
+                  <dd className="text-foreground tabular-nums">
+                    {formatManilaDateTime(new Date(reservation.checkedOutAt))}
+                  </dd>
+                </div>
+              )}
+              {reservation.cancelledAt && (
+                <div className="grid gap-0.5">
+                  <dt className="text-xs text-muted-foreground">
+                    Cancelled / closed
+                  </dt>
+                  <dd className="text-foreground tabular-nums">
+                    {formatManilaDateTime(new Date(reservation.cancelledAt))}
+                  </dd>
+                </div>
+              )}
+              {reservation.notes && (
+                <div className="grid gap-0.5 sm:col-span-2">
+                  <dt className="text-xs text-muted-foreground">Stay notes</dt>
+                  <dd className="whitespace-pre-wrap text-foreground">
+                    {reservation.notes}
+                  </dd>
+                </div>
+              )}
+              {reservation.cancellationReason && (
+                <div className="grid gap-0.5 sm:col-span-2">
+                  <dt className="text-xs text-muted-foreground">
+                    Cancellation / no-show reason
+                  </dt>
+                  <dd className="whitespace-pre-wrap text-foreground">
+                    {reservation.cancellationReason}
+                  </dd>
+                </div>
+              )}
+            </dl>
+          </section>
+
+          <section className="grid gap-2.5 border-t border-border pt-4">
+            <h3 className="text-xs font-semibold tracking-wide text-muted-foreground uppercase">
+              Billing
+            </h3>
+            {reservation.activeInvoiceId ? (
+              <dl className="grid gap-2 text-sm sm:grid-cols-2">
+                <div className="grid gap-0.5">
+                  <dt className="text-xs text-muted-foreground">Invoice</dt>
+                  <dd className="font-mono font-semibold text-foreground">
+                    <Link
+                      href={`/billing/${reservation.activeInvoiceId}`}
+                      className="underline underline-offset-4 hover:text-primary"
+                    >
+                      {reservation.activeInvoiceNumber ?? "Draft invoice"}
+                    </Link>
+                  </dd>
+                </div>
+                <div className="grid gap-0.5">
+                  <dt className="text-xs text-muted-foreground">Status</dt>
+                  <dd className="text-foreground">
+                    {reservation.activeInvoiceStatus ?? "—"}
+                  </dd>
+                </div>
+                <div className="grid gap-0.5">
+                  <dt className="text-xs text-muted-foreground">
+                    Invoice total
+                  </dt>
+                  <dd className="text-foreground tabular-nums">
+                    {formatPhpCurrency(reservation.activeInvoiceTotal ?? "0")}
+                  </dd>
+                </div>
+                <div className="grid gap-0.5">
+                  <dt className="text-xs text-muted-foreground">
+                    Remaining balance
+                  </dt>
+                  <dd className="font-semibold text-foreground tabular-nums">
+                    {formatPhpCurrency(reservation.activeInvoiceBalance ?? "0")}
+                  </dd>
+                </div>
+              </dl>
+            ) : (
+              <p className="text-sm text-muted-foreground">
+                No invoice issued for this stay yet.
+              </p>
+            )}
+          </section>
+
+          <div className="flex flex-wrap items-center justify-end gap-2.5 border-t border-border pt-4">
+            {reservation.activeInvoiceId &&
+              reservation.activeInvoiceStatus !== "PAID" && (
+                <Link
+                  href={`/payments/new?invoiceId=${reservation.activeInvoiceId}`}
+                  className={buttonClasses({ variant: "primary", size: "md" })}
+                >
+                  Collect payment
+                </Link>
+              )}
+            <Button type="button" variant="secondary" onClick={onClose}>
+              Close
+            </Button>
+          </div>
+        </div>
+      )}
     </Dialog>
   );
 }

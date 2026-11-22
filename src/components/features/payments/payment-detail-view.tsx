@@ -5,7 +5,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { Alert } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
-import { Button, buttonClasses } from "@/components/ui/button";
+import { BackLink, Button, buttonClasses } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { TableEmptyState } from "@/components/ui/empty-state";
 import {
@@ -18,6 +18,7 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { TablePagination } from "@/components/ui/table-pagination";
+import { toast } from "@/components/ui/toaster";
 import {
   PAYMENT_METHOD_LABELS,
   PAYMENT_STATUS_LABELS,
@@ -64,28 +65,9 @@ function formatByteSize(bytes: number): string {
   return `${(bytes / (1024 * 1024)).toFixed(2)} MB`;
 }
 
-export function PaymentDetailView({
-  payment,
-  justCreated = false,
-}: {
-  payment: PaymentDto;
-  justCreated?: boolean;
-}) {
+export function PaymentDetailView({ payment }: { payment: PaymentDto }) {
   const router = useRouter();
   const [reverseOpen, setReverseOpen] = useState(false);
-  const [feedback, setFeedback] = useState<{
-    tone: "success" | "danger";
-    message: string;
-  } | null>(
-    justCreated
-      ? {
-          tone: "success",
-          message: payment.receiptNumber
-            ? `Posted payment ${payment.receiptNumber} (PHP ${payment.amount}).`
-            : `Posted payment (PHP ${payment.amount}).`,
-        }
-      : null,
-  );
 
   const allocationsSort = useTableSort(
     payment.allocations,
@@ -102,72 +84,60 @@ export function PaymentDetailView({
 
   return (
     <div className="grid gap-5">
-      <header className="flex flex-wrap items-start justify-between gap-4">
-        <div className="grid gap-1.5">
-          <div className="flex flex-wrap items-center gap-2">
-            <h1 className="font-mono text-xl font-semibold tracking-tight text-foreground sm:text-2xl">
-              {payment.receiptNumber
-                ? `Receipt ${payment.receiptNumber}`
-                : "Reversal entry"}
-            </h1>
-            <Badge tone={PAYMENT_BADGE_TONE[payment.status]}>
-              {PAYMENT_STATUS_LABELS[payment.status]}
-            </Badge>
-            <Badge tone="neutral">
-              {PAYMENT_METHOD_LABELS[payment.method]}
-            </Badge>
+      <div className="grid gap-2">
+        <BackLink href="/payments">Payments</BackLink>
+        <header className="flex flex-wrap items-start justify-between gap-4">
+          <div className="grid gap-1.5">
+            <div className="flex flex-wrap items-center gap-2">
+              <h1 className="font-mono text-xl font-semibold tracking-tight text-foreground sm:text-2xl">
+                {payment.receiptNumber
+                  ? `Receipt ${payment.receiptNumber}`
+                  : "Reversal entry"}
+              </h1>
+              <Badge tone={PAYMENT_BADGE_TONE[payment.status]}>
+                {PAYMENT_STATUS_LABELS[payment.status]}
+              </Badge>
+              <Badge tone="neutral">
+                {PAYMENT_METHOD_LABELS[payment.method]}
+              </Badge>
+            </div>
+            <div className="grid gap-0.5 text-sm text-muted-foreground">
+              <span>
+                {payment.tenantId ? (
+                  <Link
+                    href={`/tenants/${payment.tenantId}`}
+                    className="font-medium text-foreground hover:text-primary"
+                  >
+                    {payment.tenantName}
+                  </Link>
+                ) : (
+                  <Link
+                    href="/transients/stays"
+                    className="font-medium text-foreground hover:text-primary"
+                  >
+                    {payment.tenantName}
+                  </Link>
+                )}
+              </span>
+              <span className="tabular-nums">
+                Collected {formatManilaDate(payment.paidDateManila)}
+              </span>
+            </div>
           </div>
-          <div className="grid gap-0.5 text-sm text-muted-foreground">
-            <span>
-              {payment.tenantId ? (
-                <Link
-                  href={`/tenants/${payment.tenantId}`}
-                  className="font-medium text-foreground hover:text-primary"
-                >
-                  {payment.tenantName}
-                </Link>
-              ) : (
-                <Link
-                  href="/transients"
-                  className="font-medium text-foreground hover:text-primary"
-                >
-                  {payment.tenantName}
-                </Link>
-              )}
-            </span>
-            <span className="tabular-nums">
-              Collected {formatManilaDate(payment.paidDateManila)}
-            </span>
-          </div>
-        </div>
 
-        <div className="flex flex-wrap items-center gap-2.5">
-          <Link
-            href="/payments"
-            className={buttonClasses({ variant: "secondary", size: "md" })}
-          >
-            Back to payments
-          </Link>
           {payment.status === "POSTED" && (
-            <Button
-              size="md"
-              variant="danger"
-              onClick={() => setReverseOpen(true)}
-            >
-              Reverse payment
-            </Button>
+            <div className="flex flex-wrap items-center gap-2.5">
+              <Button
+                size="md"
+                variant="danger"
+                onClick={() => setReverseOpen(true)}
+              >
+                Reverse payment
+              </Button>
+            </div>
           )}
-        </div>
-      </header>
-
-      {feedback && (
-        <Alert
-          tone={feedback.tone}
-          role={feedback.tone === "danger" ? "alert" : "status"}
-        >
-          {feedback.message}
-        </Alert>
-      )}
+        </header>
+      </div>
 
       {payment.reversalReason && (
         <Alert tone="warning" role="status">
@@ -423,7 +393,7 @@ export function PaymentDetailView({
         payment={reverseOpen ? payment : null}
         onClose={() => setReverseOpen(false)}
         onSaved={(message) => {
-          setFeedback({ tone: "success", message });
+          toast.success(message);
           router.refresh();
         }}
       />

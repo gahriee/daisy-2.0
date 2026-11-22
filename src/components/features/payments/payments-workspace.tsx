@@ -42,6 +42,7 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { TablePagination } from "@/components/ui/table-pagination";
+import { toast } from "@/components/ui/toaster";
 import { applyTenantCreditAction } from "@/features/payments/actions";
 import {
   PAYMENT_METHOD_LABELS,
@@ -232,10 +233,7 @@ export function PaymentsWorkspace({
   const [reversingPayment, setReversingPayment] = useState<PaymentDto | null>(
     null,
   );
-  const [feedback, setFeedback] = useState<{
-    tone: "success" | "warning" | "danger";
-    message: string;
-  } | null>(null);
+  const [errorMessage, setErrorMessage] = useState<string | null>(null);
 
   async function applyVaultState(base: PaymentsOverviewDto = serverOverview) {
     try {
@@ -321,13 +319,11 @@ export function PaymentsWorkspace({
       } catch (error) {
         await applyVaultState(serverOverview);
         if (navigator.onLine) {
-          setFeedback({
-            tone: "danger",
-            message:
-              error instanceof Error
-                ? error.message
-                : "Could not refresh payment ledger.",
-          });
+          setErrorMessage(
+            error instanceof Error
+              ? error.message
+              : "Could not refresh payment ledger.",
+          );
         }
       }
     });
@@ -337,36 +333,30 @@ export function PaymentsWorkspace({
     badge: OfflineEntitySyncBadge,
     action: "keep_mine" | "discard",
   ) {
-    setFeedback(null);
+    setErrorMessage(null);
     startRefreshTransition(async () => {
       try {
         if (action === "keep_mine") {
           await resolveNeedsAttentionKeepMine(badge.opId);
-          setFeedback({
-            tone: "success",
-            message: navigator.onLine
+          toast.info(
+            navigator.onLine
               ? "Marked your payment draft to try saving again."
               : "Marked your payment draft to save once online.",
-          });
+          );
         } else {
           await resolveNeedsAttentionDiscard(badge.opId);
-          setFeedback({
-            tone: "success",
-            message: "Removed saved payment draft.",
-          });
+          toast.success("Removed saved payment draft.");
         }
         await reloadPayments();
       } catch (error) {
         if (error instanceof OfflineVaultLockedError) {
           setUnlockPromptOpen(true);
         } else {
-          setFeedback({
-            tone: "danger",
-            message:
-              error instanceof Error
-                ? error.message
-                : "Could not resolve local draft.",
-          });
+          setErrorMessage(
+            error instanceof Error
+              ? error.message
+              : "Could not resolve local draft.",
+          );
         }
       }
     });
@@ -374,7 +364,7 @@ export function PaymentsWorkspace({
 
   function handleApplyCredit(tenantId: string) {
     setApplyingTenantId(tenantId);
-    setFeedback(null);
+    setErrorMessage(null);
     startCreditTransition(async () => {
       try {
         const formData = new FormData();
@@ -384,9 +374,9 @@ export function PaymentsWorkspace({
           formData,
         );
         if (result.status === "error") {
-          setFeedback({ tone: "danger", message: result.message });
+          setErrorMessage(result.message);
         } else if (result.status === "saved") {
-          setFeedback({ tone: "success", message: result.message });
+          toast.success(result.message);
           await reloadPayments();
         }
       } finally {
@@ -600,12 +590,9 @@ export function PaymentsWorkspace({
         confirmVariant="primary"
       />
 
-      {feedback && (
-        <Alert
-          tone={feedback.tone === "success" ? "success" : "danger"}
-          role={feedback.tone === "success" ? "status" : "alert"}
-        >
-          {feedback.message}
+      {errorMessage && (
+        <Alert tone="danger" role="alert">
+          {errorMessage}
         </Alert>
       )}
 
@@ -856,7 +843,7 @@ export function PaymentsWorkspace({
                           href={
                             payment.tenantId
                               ? `/tenants/${payment.tenantId}`
-                              : "/transients"
+                              : "/transients/stays"
                           }
                           className="font-medium text-foreground hover:text-primary"
                         >
@@ -924,7 +911,7 @@ export function PaymentsWorkspace({
         payment={reversingPayment}
         onClose={() => setReversingPayment(null)}
         onSaved={async (message) => {
-          setFeedback({ tone: "success", message });
+          toast.success(message);
           await reloadPayments();
         }}
       />

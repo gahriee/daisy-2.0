@@ -12,10 +12,8 @@ export const instant = false;
 
 export default async function TenantContractDetailPage({
   params,
-  searchParams,
 }: {
   params: Promise<{ tenantId: string; contractId: string }>;
-  searchParams: Promise<{ created?: string }>;
 }) {
   await connection();
   let authenticated = false;
@@ -30,10 +28,7 @@ export default async function TenantContractDetailPage({
     redirect("/auth/sign-in");
   }
 
-  const [{ tenantId, contractId }, resolvedSearchParams] = await Promise.all([
-    params,
-    searchParams,
-  ]);
+  const { tenantId, contractId } = await params;
   if (
     !z.string().uuid().safeParse(tenantId).success ||
     !z.string().uuid().safeParse(contractId).success
@@ -53,11 +48,7 @@ export default async function TenantContractDetailPage({
 
   return (
     <WorkspaceShell title={contract.title} profile={profile}>
-      <TenantContractDetail
-        tenant={detail.tenant}
-        contract={contract}
-        justCreated={resolvedSearchParams.created === "1"}
-      />
+      <TenantContractDetail tenant={detail.tenant} contract={contract} />
     </WorkspaceShell>
   );
 }

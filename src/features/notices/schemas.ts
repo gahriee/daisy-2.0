@@ -137,11 +137,47 @@ export const ArchiveRestoreNoticeSchema = z.object({
   expectedVersion: z.coerce.number().int().min(1),
 });
 
+export const SendNoticeSmsSchema = z.object({
+  noticeId: z.string().uuid("Select a valid notice."),
+});
+
 export type CreateNoticeInput = z.input<typeof CreateNoticeSchema>;
 export type UpdateNoticeInput = z.input<typeof UpdateNoticeSchema>;
 export type ArchiveRestoreNoticeInput = z.input<
   typeof ArchiveRestoreNoticeSchema
 >;
+export type SendNoticeSmsInput = z.input<typeof SendNoticeSmsSchema>;
+
+export type SendNoticeSmsResultDto = {
+  noticeId: string;
+  totalTargets: number;
+  sentCount: number;
+  failedCount: number;
+  skippedNoPhoneCount: number;
+};
+
+const MAX_NOTICE_SMS_LENGTH = 900;
+
+/**
+ * Formats a notice into a plain-text SMS body suitable for Semaphore delivery.
+ */
+export function formatNoticeSmsText(params: {
+  title: string;
+  body: string;
+  businessName?: string | null;
+}): string {
+  const title = params.title.trim();
+  const body = params.body.trim();
+  const business = params.businessName?.trim();
+  const suffix = business ? ` - ${business}` : "";
+  const combined = title ? `${title}: ${body}` : body;
+  const maxBodyLength = Math.max(40, MAX_NOTICE_SMS_LENGTH - suffix.length);
+  const clipped =
+    combined.length > maxBodyLength
+      ? `${combined.slice(0, maxBodyLength - 1).trimEnd()}…`
+      : combined;
+  return `${clipped}${suffix}`.trim();
+}
 
 export type NoticeDto = {
   id: string;
@@ -158,6 +194,8 @@ export type NoticeDto = {
   startDate: string;
   endDate: string;
   lifecycleStatus: NoticeLifecycleStatus;
+  smsSentAt: string | null;
+  smsSentCount: number;
   archivedAt: string | null;
   createdAt: string;
   updatedAt: string;
@@ -177,6 +215,8 @@ export type NoticeTenantOptionDto = {
 
 export type NoticeOverviewDto = {
   todayManila: string;
+  smsConfigured: boolean;
+  businessName: string;
   totals: {
     activeCount: number;
     scheduledCount: number;

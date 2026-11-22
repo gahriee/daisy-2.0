@@ -87,6 +87,24 @@ function buildModuleRawInput(formData: FormData, settingsModule: string) {
           "proofMaxFilesPerRecord",
         ),
       };
+    case "sms":
+      return {
+        module: "sms",
+        expectedVersion,
+        smsOverdueEnabled: formData.get("smsOverdueEnabled") === "on",
+        smsOverdueFrequencyDays: readRequiredInt(
+          formData,
+          "smsOverdueFrequencyDays",
+        ),
+        smsOverdueSendTimeManila: readString(
+          formData,
+          "smsOverdueSendTimeManila",
+        ),
+        smsApiKey: readNullableString(formData, "smsApiKey"),
+        clearSmsApiKey: formData.get("clearSmsApiKey") === "on",
+        smsSenderName: readNullableString(formData, "smsSenderName"),
+        smsOverdueTemplate: readNullableString(formData, "smsOverdueTemplate"),
+      };
     default:
       return { module: settingsModule, expectedVersion };
   }
@@ -107,6 +125,10 @@ function formatSavedMessage(
       return updated.stayScheduleComplete
         ? "Stays & limits saved and configured."
         : "Stays & limits saved. Set standard check-in and check-out times to complete stay schedule setup.";
+    case "sms":
+      return updated.smsOverdueEnabled
+        ? "Overdue SMS settings saved and enabled."
+        : "Overdue SMS settings saved.";
   }
 }
 
@@ -132,7 +154,8 @@ export async function saveBusinessSettingsAction(
         status: "error",
         ...(rawModule === "profile" ||
         rawModule === "policies" ||
-        rawModule === "operations"
+        rawModule === "operations" ||
+        rawModule === "sms"
           ? { module: rawModule }
           : {}),
         message: "Review the highlighted fields before saving.",

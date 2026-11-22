@@ -182,7 +182,13 @@ Surfaces remain flat at rest. `Card` defaults to a hairline border and crisp
 white fill (`24 px` mobile / `28 px` wider screens) with no resting shadow;
 explicit `interactive` cards lift `2 px` on fine-pointer hover with a quiet
 border step and hover-only ambient shadow. Alerts pair tonal fills with subtle
-hairline borders instead of heavy accent stripes.
+hairline borders instead of heavy accent stripes. Always avoid nested bordered
+containers inside a `Card`, `Dialog`, table panel, or popover (`box-in-box`):
+separate subsections, repeating rows, summary readouts, and mobile list entries
+using spacing and hairline dividers (`border-t border-border`, `border-y`, or
+`divide-y divide-border`) instead of inner bordered boxes, reserving inner
+framing only for form inputs, badges, standalone `Alert`s, or image/PDF media
+viewports.
 
 ## Shapes
 
@@ -211,6 +217,26 @@ forced-color mode restores native checkbox appearance and system highlights.
   `text-danger` instead, reserving plain `secondary` for benign `Cancel`
   dismissals. Buttons use flat color transitions with no scale or translation
   transforms. Loading retains the action label with a spinner and `aria-busy`.
+  For unboxed header and summary navigation links (`ActionLink`, `BackLink`,
+  `linkClasses`, and `LinkArrowIcon` in `src/components/ui/button.tsx`)—reserved
+  for dashboard chart headers (`Analytics`, `Reports`) and dashboard
+  operational summary cards (`Open maintenance`, `Review transients`,
+  `Notices`, `Activity history`)—keep Rausch link ink (`--primary` stepping to
+  `--primary-hover`), hover-underline on the label only, `min-h-11 sm:min-h-8`
+  touch comfort, and a crisp `16 px` directional arrow (`→` or diagonal `↗`)
+  that shifts quietly on hover under reduced-motion rules; never use `->` links
+  on table container headers (`TableCardHeader`), which always keep `secondary`
+  `sm` button framing (`Button` / `buttonClasses`), matching `Create invoice`. On
+  dedicated pages with back navigation (`/tenants/[tenantId]`,
+  `/tenants/[tenantId]/contracts/*`, `/billing/new`, `/billing/[invoiceId]`,
+  `/payments/new`, `/payments/[paymentId]`, `/rooms/new`, `/rooms/[roomId]`,
+  `/maintenance/new`, `/maintenance/[requestId]`, `/transients/requests/*`,
+  `/transients/listings/*`, and `/book/*`), always place `<BackLink>` above
+  `<header>` using muted link ink (`--muted-foreground` stepping to
+  `--foreground`), label-only hover underline, a leading `←` arrow
+  (`LinkArrowIcon direction="left"`), and the concise destination data/term
+  label (`Tenants`, `Billing`, `Payments`, `Rooms`, `Transient rooms`,
+  `Maintenance`, `Transients`, tenant name, `All rooms`, or room title).
 - **Input, Textarea and Select:** shared `1 px` base border (`control-border`),
   zero hover styling, zero shadows, and `1 px` border color transitions on focus,
   active, and `aria-invalid` danger states. All form inputs and selectors default
@@ -237,7 +263,17 @@ forced-color mode restores native checkbox appearance and system highlights.
   on both white and muted surfaces.
 - **Alert:** info, success, warning and danger tones with subtle tone-matched
   borders and a fixed left-rail geometric glyph so custom child layouts stay
-  aligned. Uses `role="status"` by default.
+  aligned. Uses `role="status"` by default. Reserved for inline errors, form
+  failures, and persistent warnings rather than completed save confirmations.
+- **Toast (`Toaster`, `toast`, `notifySaved` in `src/components/ui/toaster.tsx`):**
+  root-mounted `sonner` viewport (`top-right`, `richColors`, `z-[70]`,
+  `--panel-radius`, `16×16` geometric icons matching `Alert`, and inline
+  right-aligned `32 px` close control) used across every module to announce
+  save, archive, export, notification, copy, auth, and sync results without
+  shifting page content. Online confirmed saves use `success`, locally queued
+  offline drafts use `info` (never green confirmed checkmarks), and sync
+  conflicts use `warning`, respecting `prefers-reduced-motion` and
+  `forced-colors`.
 - **Card:** `default` (white hairline), `tonal` (`surface-muted`), and `open`
   variants, plus opt-in `interactive` hover lift, with no data access or routing.
 - **MetricCard:** KPI summary card built on `Card` (`min-h-[152px]`) pairing a
@@ -247,15 +283,21 @@ forced-color mode restores native checkbox appearance and system highlights.
   ApexCharts wrapper inside `ChartCard` (`Card` with `TableCardHeader`) using
   Rausch, info slate, forest success, warm amber, burnt danger, and charcoal
   tokens (never violet/lavender), reduced-motion gating, `Skeleton` load states,
-  `tabular-nums` tooltips/axes, and `TableEmptyState` fallbacks when zero data
-  is present.
+  `tabular-nums` unified tooltips (shared `fillSeriesColor: false` light hairline
+  card with stone title bar, series dot, and formatted `tabular-nums` values/shares
+  across bar, area, line, pie, and donut charts, plus formatted donut hover center
+  values), and `TableEmptyState` fallbacks when zero data is present.
 - **Dashboard vs. Reports views (`/` vs. `/reports`):** `/` stays minimal on
   current operational status (4 KPI `MetricCard`s, 2 comparison charts, today's
   bookings/stays, top overdue/due invoices, and compact live area counts), while
   `/reports` pairs KPI `MetricCard`s, dynamic `SearchFilterBar` date/building
   controls (no manual Apply button), analytical ApexCharts, and comparison /
   overall computation summary tables with `TableFooter` totals instead of raw
-  record lists (detailed line-item rows download as a spreadsheet).
+  record lists. Detailed multi-format exports (`Excel` `.xlsx`, `Word` `.docx`,
+  and `PDF` `.pdf`, built from one shared `SharedReportDocument` template)
+  trigger from a compact header `Export` menu (`ReportExportMenu`) with
+  format-specific icons, full keyboard menu navigation, and `360 px` viewport
+  clamping.
 - **Dialog vs. dedicated pages:** accessible modal surface (`role="dialog"`,
   `aria-modal="true"`) with `Escape` and explicit close/cancel button dismissal
   (backdrop clicks do not close modals by default so active crops, form drafts,
@@ -327,7 +369,9 @@ forced-color mode restores native checkbox appearance and system highlights.
 - **Table (`Table`, `TableCardHeader`, `TableHeader`, `TableBody`, `TableRow`, `TableHead`, `TableCell`):**
   hairline-bordered horizontal scroll container preserving 360 px viewports with
   a consistent `TableCardHeader` bar (title on the left, tabular item/record
-  count and optional header actions on the right) across both module workspaces
+  count and link-styled `ActionLink` / `ActionLinkButton` header navigation on the
+  right—never boxed secondary buttons on table or chart container headers) across
+  both module workspaces
   and detail-view ledgers (`Line items`, `Linked adjustments`,
   `Bills paid`, `Attached proofs`, `Attachments`, `Updates`, `Notes`,
   `Assignment history`, `Signed contracts`, `Invoices`, `Payments`,
@@ -369,8 +413,8 @@ forced-color mode restores native checkbox appearance and system highlights.
   (`icon`, `wordmark`, `lockup`) and `tone` (`light`, `dark`, `monochrome`),
   mirrored by static raster `.png` and vector `.svg` exports in `public/brand/`
   and previewed in `/design-system`. Avoid clip-art petals, gradients, shadows, or dots.
-- **Public booking & transients workspace (`/book`, `/book/[roomId]`, `/book/[roomId]/request`, `/transients`, `/transients/requests/[requestId]`):**
-  `/book` renders outside the management sidebar as a full-width, edge-to-edge commercial booking storefront (`w-full px-4 sm:px-6 lg:px-10`, 1–5 column card grid) modeled after commercial travel storefronts in `Rausch and charcoal` without modal dialogs for viewing rooms or submitting requests. `PublicBookingHeader` and `PublicBookingFooter` stay dedicated to guests (property brand lockup on the left, optional front-desk phone link on the right, subtle hero photo attribution line in the `/book` footer, zero staff sign-in or boxy back buttons in the navbar), while `PublicBookingBackLink` sits cleanly as an understated inline text link directly above subpage headings on `/book/[roomId]` and `/book/[roomId]/request`. Main `/book` opens with a plain full-bleed-edge sunlit room hero photograph (`public/images/hero/stay-hero-*.jpg`, no text overlays or scrims), followed by a centered `When` (check-in/check-out dates), `Who` (`44 px` Adults/Children steppers), and Rausch `Search` pill straddling its bottom edge (`sm+`), the `Rooms for short stays` section heading positioned below the search bar, and 1–5 column listing cards with `44 px` sibling carousel controls, plain everyday language (`Private room`, `Shared room (1 guest per bed)`, `Up to date` / `Saved on this device`, senior-friendly labels without technical or `"Owner"` jargon across the workspace), exact PHP totals, and links to dedicated `/book/[roomId]` and `/book/[roomId]/request` pages. Dedicated `/book/[roomId]` pairs a `4:3` arrow-key photo viewer, `4:3` thumbnails, and full `#photos` `4:3` captioned gallery with a sticky right-hand stay calculator. Dedicated `/book/[roomId]/request` aligns editable stay fields with a proportional 12-column guest form (`Full name` `6`, `Age` `2`, compact `Male`/`Female` `radiogroup` matched to `Input` height `4`, `Address` `12`, `Contact no.` `6`, `Email (optional)` `6`, `Note for the host (optional)` `12`), field-level focus validation, payload-keyed retries, and an inline copyable confirmation screen (`Waiting for host confirmation`). Boarding House `/rooms/new` and `/rooms/[roomId]` omit room photos, while on `/transients/rooms/new`, `/transients/rooms/[roomId]`, and `/transients/listings/[roomId]`, `Room type` options omit inline `(₱.../mo)` pricing, read-only rate summaries resolve from the selected type, and property managers upload 1 cover photo plus unlimited captioned gallery shots cropped on-demand (`react-easy-crop`) to `1200 × 900` px (`4:3`) matching `/book` and `/book/[roomId]`. `/transients` pairs KPI cards, `SearchFilter`, and 360 px mobile lists + desktop tables, while `/transients/requests/[requestId]` displays all submitted guest fields alongside rate-change review and bed/guest assignment before approval (`Approve & reserve room`).
+- **Public booking & transients workspace (`/book`, `/book/[roomId]`, `/book/[roomId]/request`, `/transients/stays`, `/transients/requests`, `/transients/requests/[requestId]`):**
+  `/book` renders outside the management sidebar as a full-width, edge-to-edge commercial booking storefront (`w-full px-4 sm:px-6 lg:px-10`, 1–5 column card grid) modeled after commercial travel storefronts in `Rausch and charcoal` without modal dialogs for viewing rooms or submitting requests. `PublicBookingHeader` and `PublicBookingFooter` stay dedicated to guests (property brand lockup on the left, optional front-desk phone link on the right, subtle hero photo attribution line in the `/book` footer, zero staff sign-in or boxy back buttons in the navbar), while `PublicBookingBackLink` sits cleanly as an understated inline text link directly above subpage headings on `/book/[roomId]` and `/book/[roomId]/request`. Main `/book` opens with a plain full-bleed-edge sunlit room hero photograph (`public/images/hero/stay-hero-*.jpg`, no text overlays or scrims), followed by a centered `When` (check-in/check-out dates), `Who` (`44 px` Adults/Children steppers), and Rausch `Search` pill straddling its bottom edge (`sm+`), the `Rooms for short stays` section heading positioned below the search bar, and 1–5 column listing cards with `44 px` sibling carousel controls, plain everyday language (`Private room`, `Shared room (1 guest per bed)`, `Up to date` / `Saved on this device`, senior-friendly labels without technical or `"Owner"` jargon across the workspace), exact PHP totals, and links to dedicated `/book/[roomId]` and `/book/[roomId]/request` pages. Dedicated `/book/[roomId]` pairs a `4:3` arrow-key photo viewer, `4:3` thumbnails, and full `#photos` `4:3` captioned gallery with a sticky right-hand stay calculator. Dedicated `/book/[roomId]/request` aligns editable stay fields with a proportional 12-column guest form (`Full name` `6`, `Age` `2`, compact `Male`/`Female` `radiogroup` matched to `Input` height `4`, `Address` `12`, `Contact no.` `6`, `Email (optional)` `6`, `Note for the host (optional)` `12`), field-level focus validation, payload-keyed retries, and an inline copyable confirmation screen (`Waiting for host confirmation`). Boarding House `/rooms/new` and `/rooms/[roomId]` omit public listing fields and room photos, while Transient `/transients/rooms/new` and `/transients/rooms/[roomId]` integrate the `Public /book listing` settings (`isTransientPublished`, optional public title and summary) alongside cropped cover + unlimited captioned gallery shots (`react-easy-crop`, `1200 × 900` px `4:3` matching `/book` and `/book/[roomId]`), with `/transients/rooms` displaying public status (`Published` / `Hidden`) directly in the room directory. The expandable sidebar `Stays & requests` group separates `/transients/stays` (with a `View` row action opening a flat read-only modal for full guest, stay, room, and billing details) and `/transients/requests` (with `/transients` and `/transients/guests` redirecting to `/transients/stays`, and `/transients/listings/*` redirecting to `/transients/rooms/*`), each pairing focused KPI cards, scoped `SearchFilter`, and 360 px mobile lists + desktop tables, while `/transients/requests/[requestId]` displays all submitted guest fields alongside rate-change review and bed/guest assignment before approval (`Approve & reserve room`).
 - **Tenants directory & separate notes (`/tenants`, `/tenants/[tenantId]`):**
   `/tenants` opens separate timestamped `TenantNote` management from the row
   `•••` menu and mobile card actions (`Notes` / `Notes (N)`) via `TenantNotesDialog`
@@ -379,6 +423,12 @@ forced-color mode restores native checkbox appearance and system highlights.
   `Notes` card and modal trigger; Add tenant, Edit tenant, Assign room, and
   Move out dialogs omit flat `Notes` fields, and user-facing workspace labels omit
   explicit `Manila` / `Asia/Manila` timezone strings for local PH readability.
+  On `/tenants/[tenantId]`, `TenantDetailWorkspace` keeps the action header above
+  and splits sections into controlled underline `Tabs` (`<TabsList
+  className="overflow-x-auto">` with `whitespace-nowrap` triggers): `Overview`
+  (`Contact & profile details` and `Current occupancy & balance`) plus
+  count-badged `Assignments`, `Contracts`, `Invoices`, `Payments`, and `Notes`
+  panels, preserving the active tab across `router.refresh()`.
 - **Maintenance & notices workspaces (`/maintenance`, `/maintenance/new`, `/maintenance/[requestId]`, `/notices`):**
   both overview screens pair 4 KPI `MetricCard`s, `SearchFilterBar` with
   `Select` filters (no tab/pill chips), `document-search.svg` empty states,
@@ -405,6 +455,7 @@ the shared `cn` helper so consumer classes override conflicting recipe utilities
 
 ## Do's and Don'ts
 
+- Do use plain, non-technical everyday language on every frontend screen, label, button, helper text, preview, toast, and error message—never developer jargon (`gateway`, `encrypted at rest`, `rendered`, `GSM/UNICODE`, `payload`, `endpoint`, or raw `{{token}}` button labels).
 - Do use semantic tokens rather than copying palette values into screens.
 - Do keep controls labeled and style text inputs with borders only on focus and active states.
 - Do source requested vector illustrations from unDraw and recolor them to match semantic tokens.

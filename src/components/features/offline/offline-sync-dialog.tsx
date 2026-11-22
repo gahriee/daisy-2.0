@@ -7,6 +7,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import { Dialog } from "@/components/ui/dialog";
+import { toast } from "@/components/ui/toaster";
 import { formatManilaDateTime } from "@/lib/dates";
 import {
   getBrowserOfflineDb,
@@ -69,7 +70,6 @@ export function OfflineSyncDialog({
     [],
   );
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
-  const [statusNotice, setStatusNotice] = useState<string | null>(null);
   const [discardTarget, setDiscardTarget] = useState<NeedsAttentionView | null>(
     null,
   );
@@ -128,13 +128,11 @@ export function OfflineSyncDialog({
   function handleClose() {
     if (busy || discardTarget) return;
     setErrorMessage(null);
-    setStatusNotice(null);
     onClose();
   }
 
   function handleSyncNow() {
     setErrorMessage(null);
-    setStatusNotice(null);
 
     startBusy(async () => {
       try {
@@ -154,13 +152,13 @@ export function OfflineSyncDialog({
         await reloadModalState();
 
         if (res.status === "already_running") {
-          setStatusNotice("Another browser tab is already updating this device.");
+          toast.info("Another browser tab is already updating this device.");
         } else if (res.status === "rate_limited") {
           setErrorMessage(
             `Too many updates at once. Try again in ${res.retryAfterSeconds ?? 10} seconds.`,
           );
         } else {
-          setStatusNotice(
+          toast.success(
             `Saved ${res.appliedCount} pending change(s) and received ${res.pulledCount} update(s).`,
           );
         }
@@ -179,19 +177,16 @@ export function OfflineSyncDialog({
     setCachedCount(0);
     setNeedsAttention([]);
     notifyOfflineVaultChanged();
-    setStatusNotice("Offline copy locked for privacy.");
+    toast.info("Offline copy locked for privacy.");
   }
 
   function handleKeepMine(opId: string) {
     setErrorMessage(null);
-    setStatusNotice(null);
     startBusy(async () => {
       try {
         await resolveNeedsAttentionKeepMine(opId);
         await reloadModalState();
-        setStatusNotice(
-          "Marked your saved change to try saving again.",
-        );
+        toast.info("Marked your saved change to try saving again.");
       } catch (error) {
         setErrorMessage(
           error instanceof Error
@@ -205,16 +200,13 @@ export function OfflineSyncDialog({
   function handleConfirmDiscard() {
     if (!discardTarget) return;
     setErrorMessage(null);
-    setStatusNotice(null);
     const targetOpId = discardTarget.record.opId;
     startBusy(async () => {
       try {
         await resolveNeedsAttentionDiscard(targetOpId);
         setDiscardTarget(null);
         await reloadModalState();
-        setStatusNotice(
-          "Removed your draft and restored the latest saved copy.",
-        );
+        toast.success("Removed your draft and restored the latest saved copy.");
       } catch (error) {
         setErrorMessage(
           error instanceof Error ? error.message : "Could not remove draft.",
@@ -335,12 +327,6 @@ export function OfflineSyncDialog({
           </Alert>
         )}
 
-        {statusNotice && (
-          <Alert tone="success" role="status">
-            {statusNotice}
-          </Alert>
-        )}
-
         {!unlocked ? (
           <VaultPassphraseForm
             showCancel
@@ -348,10 +334,12 @@ export function OfflineSyncDialog({
             submitSetupLabel={
               online ? "Save password & update" : "Save offline password"
             }
-            submitUnlockLabel={online ? "Unlock & update" : "Unlock offline copy"}
+            submitUnlockLabel={
+              online ? "Unlock & update" : "Unlock offline copy"
+            }
             onUnlocked={async ({ initializedNew }) => {
               await reloadModalState();
-              setStatusNotice(
+              toast.success(
                 initializedNew
                   ? online
                     ? "Offline password saved and records updated."
@@ -371,7 +359,8 @@ export function OfflineSyncDialog({
                     Needs attention ({needsAttention.length})
                   </h3>
                   <p className="text-xs text-muted-foreground">
-                    Review offline changes that could not be saved before retrying.
+                    Review offline changes that could not be saved before
+                    retrying.
                   </p>
                 </div>
 
@@ -425,8 +414,8 @@ export function OfflineSyncDialog({
             <div className="flex flex-wrap items-center justify-between gap-3">
               <div className="grid gap-0.5">
                 <span className="text-sm font-medium text-foreground tabular-nums">
-                  {cachedCount} saved{" "}
-                  {cachedCount === 1 ? "record" : "records"} on this device
+                  {cachedCount} saved {cachedCount === 1 ? "record" : "records"}{" "}
+                  on this device
                 </span>
                 <span className="text-xs text-muted-foreground">
                   {syncSummary.pendingCount > 0

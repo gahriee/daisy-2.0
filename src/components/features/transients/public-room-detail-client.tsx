@@ -30,7 +30,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button, buttonClasses } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Field } from "@/components/ui/field";
-import { Input } from "@/components/ui/input";
+import { DatePicker } from "@/components/ui/date-picker";
 import { diffManilaDays, formatManilaDate } from "@/lib/dates";
 import { formatPhpCurrency } from "@/lib/money";
 import { cn } from "@/lib/cn";
@@ -618,12 +618,12 @@ export function PublicRoomDetailClient({
                 <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-2">
                   <Field id="detail-check-in" label="Check-in">
                     {(fieldProps) => (
-                      <Input
+                      <DatePicker
                         {...fieldProps}
-                        type="date"
+                        required
                         value={draftCheckIn}
-                        onChange={(event) => {
-                          setDraftCheckIn(event.target.value);
+                        onValueChange={(next) => {
+                          setDraftCheckIn(next);
                           setDateError(null);
                         }}
                       />
@@ -631,12 +631,12 @@ export function PublicRoomDetailClient({
                   </Field>
                   <Field id="detail-check-out" label="Check-out">
                     {(fieldProps) => (
-                      <Input
+                      <DatePicker
                         {...fieldProps}
-                        type="date"
+                        required
                         value={draftCheckOut}
-                        onChange={(event) => {
-                          setDraftCheckOut(event.target.value);
+                        onValueChange={(next) => {
+                          setDraftCheckOut(next);
                           setDateError(null);
                         }}
                       />
@@ -659,7 +659,7 @@ export function PublicRoomDetailClient({
                   </Button>
                 )}
 
-                <div className="rounded-xl border border-border px-4 py-1 divide-y divide-border">
+                <div className="border-t border-border pt-2 divide-y divide-border">
                   <GuestCountStepperRow
                     label="Adults"
                     description="Ages 13 or above"

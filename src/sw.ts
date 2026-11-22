@@ -97,3 +97,76 @@ self.addEventListener("fetch", (event) => {
     }),
   );
 });
+
+self.addEventListener("push", (event) => {
+  let title = "Daisy alert";
+  let body = "Open Daisy to review your latest alert.";
+  let url = "/notifications";
+  let tag = "daisy-alert";
+
+  if (event.data) {
+    try {
+      const parsed = event.data.json() as {
+        title?: unknown;
+        body?: unknown;
+        url?: unknown;
+        tag?: unknown;
+      };
+      if (typeof parsed.title === "string" && parsed.title.trim()) {
+        title = parsed.title.trim();
+      }
+      if (typeof parsed.body === "string" && parsed.body.trim()) {
+        body = parsed.body.trim();
+      }
+      if (typeof parsed.url === "string" && parsed.url.startsWith("/")) {
+        url = parsed.url;
+      }
+      if (typeof parsed.tag === "string" && parsed.tag.trim()) {
+        tag = parsed.tag.trim();
+      }
+    } catch {
+      const text = event.data.text();
+      if (text.trim()) {
+        body = text.trim();
+      }
+    }
+  }
+
+  event.waitUntil(
+    self.registration.showNotification(title, {
+      body,
+      icon: "/brand/daisy-icon-light.png",
+      badge: "/icon.svg",
+      tag,
+      data: { url },
+    }),
+  );
+});
+
+self.addEventListener("notificationclick", (event) => {
+  event.notification.close();
+  const rawUrl = (event.notification.data as { url?: unknown } | undefined)
+    ?.url;
+  const targetPath =
+    typeof rawUrl === "string" && rawUrl.startsWith("/")
+      ? rawUrl
+      : "/notifications";
+  const targetUrl = new URL(targetPath, self.location.origin).href;
+
+  event.waitUntil(
+    self.clients
+      .matchAll({ type: "window", includeUncontrolled: true })
+      .then(async (clientList) => {
+        for (const client of clientList) {
+          if (client.url.startsWith(self.location.origin)) {
+            await client.focus();
+            if ("navigate" in client && typeof client.navigate === "function") {
+              await client.navigate(targetUrl);
+            }
+            return;
+          }
+        }
+        await self.clients.openWindow(targetUrl);
+      }),
+  );
+});

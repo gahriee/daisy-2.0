@@ -11,10 +11,8 @@ export const instant = false;
 
 export default async function RoomDetailPage({
   params,
-  searchParams,
 }: {
   params: Promise<{ roomId: string }>;
-  searchParams: Promise<{ created?: string }>;
 }) {
   await connection();
   let authenticated = false;
@@ -29,7 +27,7 @@ export default async function RoomDetailPage({
     redirect("/auth/sign-in");
   }
 
-  const [{ roomId }, rawSearch] = await Promise.all([params, searchParams]);
+  const { roomId } = await params;
   if (!z.string().uuid().safeParse(roomId).success) {
     notFound();
   }
@@ -45,12 +43,7 @@ export default async function RoomDetailPage({
 
   return (
     <WorkspaceShell title={`Room ${detail.room.number}`} profile={profile}>
-      <RoomForm
-        mode="edit"
-        roomTypes={detail.roomTypes}
-        room={detail.room}
-        justCreated={rawSearch.created === "1"}
-      />
+      <RoomForm mode="edit" roomTypes={detail.roomTypes} room={detail.room} />
     </WorkspaceShell>
   );
 }

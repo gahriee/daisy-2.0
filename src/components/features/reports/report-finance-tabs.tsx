@@ -178,6 +178,18 @@ export function ReceivablesAgingReportPanel({
             size: "68%",
             labels: {
               show: true,
+              name: {
+                color: DAISY_CHART_COLORS.slate,
+                fontSize: "12px",
+                fontWeight: 500,
+              },
+              value: {
+                show: true,
+                color: DAISY_CHART_COLORS.charcoal,
+                fontSize: "18px",
+                fontWeight: 600,
+                formatter: (val: string) => formatChartPhp(Number(val)),
+              },
               total: {
                 show: true,
                 label: "Outstanding",

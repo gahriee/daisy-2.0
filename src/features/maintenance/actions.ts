@@ -3,6 +3,7 @@
 import { revalidatePath } from "next/cache";
 import { AppError } from "@/lib/errors";
 import { requireOwnerUserId } from "@/server/auth/owner";
+import { notifyOwnerPushSafe } from "@/server/notifications/web-push";
 import type {
   AddMaintenanceUpdateInput,
   CreateMaintenanceRequestInput,
@@ -46,6 +47,9 @@ function revalidateMaintenancePaths(requestId?: string) {
   revalidatePath("/rooms");
   revalidatePath("/tenants");
   revalidatePath("/transients");
+  revalidatePath("/transients", "layout");
+  revalidatePath("/transients/stays");
+  revalidatePath("/transients/rooms");
   revalidatePath("/audit");
   revalidatePath("/book");
   revalidatePath("/");
@@ -58,6 +62,14 @@ export async function createMaintenanceRequestAction(
     const ownerUserId = await requireOwnerUserId();
     const dto = await createMaintenanceRequest(ownerUserId, rawInput);
     revalidateMaintenancePaths(dto.id);
+    if (dto.priority === "URGENT") {
+      void notifyOwnerPushSafe(ownerUserId, {
+        title: "Urgent maintenance logged",
+        body: `Room ${dto.roomNumber} needs urgent attention.`,
+        url: `/maintenance/${dto.id}`,
+        tag: `maintenance-${dto.id}`,
+      });
+    }
     return {
       status: "saved",
       requestId: dto.id,

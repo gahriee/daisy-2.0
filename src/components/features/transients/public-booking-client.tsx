@@ -33,7 +33,7 @@ import {
   EmptyStateTitle,
 } from "@/components/ui/empty-state";
 import { Field } from "@/components/ui/field";
-import { Input } from "@/components/ui/input";
+import { DatePicker } from "@/components/ui/date-picker";
 import { diffManilaDays, formatManilaDate } from "@/lib/dates";
 import { formatPhpCurrency } from "@/lib/money";
 import { cn } from "@/lib/cn";
@@ -90,6 +90,10 @@ export function PublicBookingClient({
     if (!openPopover) return;
 
     function handlePointerDown(event: PointerEvent) {
+      const target = event.target as HTMLElement | null;
+      if (target?.closest('[data-daisy-picker-popover="true"]')) {
+        return;
+      }
       if (
         searchBarRef.current &&
         !searchBarRef.current.contains(event.target as Node)
@@ -352,12 +356,12 @@ export function PublicBookingClient({
                 <div className="grid gap-4 sm:grid-cols-2">
                   <Field id="search-check-in" label="Check-in">
                     {(fieldProps) => (
-                      <Input
+                      <DatePicker
                         {...fieldProps}
-                        type="date"
+                        required
                         value={draftCheckIn}
-                        onChange={(event) => {
-                          setDraftCheckIn(event.target.value);
+                        onValueChange={(next) => {
+                          setDraftCheckIn(next);
                           setSearchError(null);
                         }}
                       />
@@ -365,12 +369,12 @@ export function PublicBookingClient({
                   </Field>
                   <Field id="search-check-out" label="Check-out">
                     {(fieldProps) => (
-                      <Input
+                      <DatePicker
                         {...fieldProps}
-                        type="date"
+                        required
                         value={draftCheckOut}
-                        onChange={(event) => {
-                          setDraftCheckOut(event.target.value);
+                        onValueChange={(next) => {
+                          setDraftCheckOut(next);
                           setSearchError(null);
                         }}
                       />

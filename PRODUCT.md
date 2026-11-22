@@ -42,6 +42,7 @@ in [the global stylesheet](src/app/globals.css).
 - Distinguish local pending work from server-confirmed state.
 - Keep financial and occupancy history traceable.
 - Show unavailable or stale information honestly instead of implying zero.
+- Use plain, non-technical everyday language across all frontend screens so the boarding house owner can complete every task without software jargon.
 
 ## Accessibility & Inclusion
 

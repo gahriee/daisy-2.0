@@ -44,11 +44,15 @@ function handleActionError(
 
 function revalidateTransientPaths(requestId?: string, roomId?: string) {
   revalidatePath("/transients");
+  revalidatePath("/transients", "layout");
+  revalidatePath("/transients/stays");
+  revalidatePath("/transients/requests");
+  revalidatePath("/transients/rooms");
   if (requestId) {
     revalidatePath(`/transients/requests/${requestId}`);
   }
   if (roomId) {
-    revalidatePath(`/transients/listings/${roomId}`);
+    revalidatePath(`/transients/rooms/${roomId}`);
     revalidatePath(`/rooms/${roomId}`);
   }
   revalidatePath("/rooms");

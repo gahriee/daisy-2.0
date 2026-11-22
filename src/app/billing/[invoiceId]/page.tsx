@@ -11,10 +11,8 @@ export const instant = false;
 
 export default async function InvoiceDetailPage({
   params,
-  searchParams,
 }: {
   params: Promise<{ invoiceId: string }>;
-  searchParams: Promise<{ created?: string }>;
 }) {
   await connection();
   let authenticated = false;
@@ -29,7 +27,7 @@ export default async function InvoiceDetailPage({
     redirect("/auth/sign-in");
   }
 
-  const [{ invoiceId }, rawSearch] = await Promise.all([params, searchParams]);
+  const { invoiceId } = await params;
   if (!z.string().uuid().safeParse(invoiceId).success) {
     notFound();
   }
@@ -51,7 +49,6 @@ export default async function InvoiceDetailPage({
       <InvoiceDetailView
         invoice={detail.invoice}
         hasInvoicePrefix={detail.hasInvoicePrefix}
-        justCreated={rawSearch.created === "1"}
       />
     </WorkspaceShell>
   );

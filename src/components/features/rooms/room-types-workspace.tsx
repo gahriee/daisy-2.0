@@ -25,6 +25,7 @@ import {
 } from "@/components/ui/search-filter";
 import { Select } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
+import { toast } from "@/components/ui/toaster";
 import {
   archiveRoomTypeAction,
   createRoomTypeAction,
@@ -81,10 +82,7 @@ export function RoomTypesWorkspace({
   const [formResetKey, setFormResetKey] = useState(0);
   const [refreshing, setRefreshing] = useState(false);
   const [rowPendingId, setRowPendingId] = useState<string | null>(null);
-  const [feedback, setFeedback] = useState<{
-    tone: "success" | "danger";
-    message: string;
-  } | null>(null);
+  const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [, startTransition] = useTransition();
 
   async function reloadRoomTypes() {
@@ -94,19 +92,13 @@ export function RoomTypesWorkspace({
         cache: "no-store",
       });
       if (!response.ok) {
-        setFeedback({
-          tone: "danger",
-          message: "Could not refresh room types right now.",
-        });
+        setErrorMessage("Could not refresh room types right now.");
         return;
       }
       const fresh = (await response.json()) as InventoryOverviewDto;
       setRoomTypes(fresh.roomTypes);
     } catch {
-      setFeedback({
-        tone: "danger",
-        message: "Connect to the internet to refresh room types.",
-      });
+      setErrorMessage("Connect to the internet to refresh room types.");
     } finally {
       setRefreshing(false);
     }
@@ -120,7 +112,7 @@ export function RoomTypesWorkspace({
       const result = await createRoomTypeAction(prev, formData);
       if (result.status === "saved") {
         setFormResetKey((prevKey) => prevKey + 1);
-        setFeedback({ tone: "success", message: result.message });
+        toast.success(result.message);
         await reloadRoomTypes();
       }
       return result;
@@ -136,7 +128,7 @@ export function RoomTypesWorkspace({
       const result = await updateRoomTypeAction(prev, formData);
       if (result.status === "saved") {
         setEditingRoomType(null);
-        setFeedback({ tone: "success", message: result.message });
+        toast.success(result.message);
         await reloadRoomTypes();
       }
       return result;
@@ -150,7 +142,7 @@ export function RoomTypesWorkspace({
 
   function handleArchiveRestore(roomType: RoomTypeDto) {
     if (rowPendingId) return;
-    setFeedback(null);
+    setErrorMessage(null);
     setConfirmError(null);
     setRowPendingId(roomType.id);
     startTransition(async () => {
@@ -168,7 +160,7 @@ export function RoomTypesWorkspace({
 
         if (result.status === "saved") {
           setConfirmingRoomType(null);
-          setFeedback({ tone: "success", message: result.message });
+          toast.success(result.message);
           await reloadRoomTypes();
         } else if (result.status === "error") {
           setConfirmError(result.message);
@@ -233,12 +225,9 @@ export function RoomTypesWorkspace({
         </div>
       </header>
 
-      {feedback && (
-        <Alert
-          tone={feedback.tone}
-          role={feedback.tone === "danger" ? "alert" : "status"}
-        >
-          {feedback.message}
+      {errorMessage && (
+        <Alert tone="danger" role="alert">
+          {errorMessage}
         </Alert>
       )}
 

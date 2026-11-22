@@ -27,6 +27,11 @@ const SECTION_HEADERS: Record<
     description:
       "Standard check-in/out times, how long offline access stays active, and photo upload limits.",
   },
+  sms: {
+    title: "Overdue SMS",
+    description:
+      "Semaphore account, schedule, and message for overdue rent texts.",
+  },
   devices: {
     title: "Trusted devices",
     description:

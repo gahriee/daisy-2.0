@@ -68,6 +68,16 @@ const optionalShortText = (max: number, message: string) =>
     .refine((val) => val.length <= max, message)
     .transform((val) => (val ? val : null));
 
+const optionalUnsetShortText = (max: number, message: string) =>
+  z
+    .union([z.string(), z.null()])
+    .optional()
+    .transform((val) =>
+      val === undefined ? undefined : typeof val === "string" ? val.trim() : "",
+    )
+    .refine((val) => val === undefined || val.length <= max, message)
+    .transform((val) => (val === undefined ? undefined : val ? val : null));
+
 export const CreateRoomTypeSchema = z
   .object({
     building: z.enum(ROOM_BUILDINGS).default("BOARDING"),
@@ -254,6 +264,9 @@ function enforceRoomBuildingRates(
     building?: RoomBuildingValue | undefined;
     baseMonthlyRate: string | null;
     transientDailyRate: string | null;
+    isTransientPublished?: boolean | undefined;
+    transientTitle?: string | null | undefined;
+    transientDescription?: string | null | undefined;
     photos?: z.input<typeof RoomPhotoManifestSchema> | undefined;
   },
   ctx: z.RefinementCtx,
@@ -263,6 +276,35 @@ function enforceRoomBuildingRates(
       code: z.ZodIssueCode.custom,
       message: "Boarding House rooms cannot set a transient daily rate.",
       path: ["transientDailyRate"],
+    });
+  }
+  if (val.building === "BOARDING" && val.isTransientPublished === true) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      message: "Boarding House rooms cannot be published on /book.",
+      path: ["isTransientPublished"],
+    });
+  }
+  if (
+    val.building === "BOARDING" &&
+    val.transientTitle !== undefined &&
+    val.transientTitle !== null
+  ) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      message: "Boarding House rooms do not support public listing titles.",
+      path: ["transientTitle"],
+    });
+  }
+  if (
+    val.building === "BOARDING" &&
+    val.transientDescription !== undefined &&
+    val.transientDescription !== null
+  ) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      message: "Boarding House rooms do not support public listing summaries.",
+      path: ["transientDescription"],
     });
   }
   if (val.building === "BOARDING" && hasNonEmptyRoomPhotos(val.photos)) {
@@ -286,6 +328,15 @@ export const CreateRoomSchema = z
     building: z.enum(ROOM_BUILDINGS).default("BOARDING"),
     ...sharedRoomFieldsSchema,
     baseMonthlyRate: optionalMoneySchema,
+    isTransientPublished: z.boolean().default(false),
+    transientTitle: optionalShortText(
+      120,
+      "Keep public title under 120 characters.",
+    ),
+    transientDescription: optionalShortText(
+      600,
+      "Keep public summary under 600 characters.",
+    ),
     photos: RoomPhotoManifestSchema.optional(),
   })
   .superRefine(enforceRoomBuildingRates);
@@ -297,6 +348,15 @@ export const UpdateRoomSchema = z
     building: z.enum(ROOM_BUILDINGS).optional(),
     ...sharedRoomFieldsSchema,
     baseMonthlyRate: optionalMoneySchema,
+    isTransientPublished: z.boolean().optional(),
+    transientTitle: optionalUnsetShortText(
+      120,
+      "Keep public title under 120 characters.",
+    ),
+    transientDescription: optionalUnsetShortText(
+      600,
+      "Keep public summary under 600 characters.",
+    ),
     photos: RoomPhotoManifestSchema.optional(),
   })
   .superRefine(enforceRoomBuildingRates);
@@ -454,6 +514,8 @@ export type RoomDto = {
   baseMonthlyRate: string | null;
   transientDailyRate: string | null;
   isTransientPublished: boolean;
+  transientTitle: string | null;
+  transientDescription: string | null;
   notes: string | null;
   previewPhoto: RoomPhotoDto | null;
   galleryPhotos: RoomPhotoDto[];

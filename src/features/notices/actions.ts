@@ -1,6 +1,7 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
+import { formatManilaDate, toManilaDate } from "@/lib/dates";
 import { AppError } from "@/lib/errors";
 import { requireOwnerUserId } from "@/server/auth/owner";
 import type { CreateNoticeInput, UpdateNoticeInput } from "./schemas";
@@ -8,6 +9,7 @@ import {
   archiveNotice,
   createNotice,
   restoreNotice,
+  sendNoticeSms,
   updateNotice,
 } from "./service";
 
@@ -94,10 +96,28 @@ export async function createNoticeAction(
       "create",
     ) as CreateNoticeInput;
     const saved = await createNotice(ownerUserId, input);
+    const todayManila = toManilaDate(new Date());
+    let message: string;
+    if (saved.startDateManila > todayManila) {
+      message = `Notice scheduled. It will be texted automatically on ${formatManilaDate(saved.startDateManila)}.`;
+    } else {
+      try {
+        const summary = await sendNoticeSms(ownerUserId, {
+          noticeId: saved.id,
+        });
+        message = formatNoticeSmsSummaryMessage(summary, true);
+      } catch (smsError) {
+        const reason =
+          smsError instanceof AppError
+            ? smsError.message
+            : "Could not send text right now.";
+        message = `Notice saved, but text was not sent: ${reason}`;
+      }
+    }
     revalidateNoticePaths();
     return {
       status: "saved",
-      message: "Notice published.",
+      message,
       noticeId: saved.id,
     };
   } catch (error) {
@@ -148,6 +168,66 @@ export async function archiveNoticeAction(input: {
     };
   } catch (error) {
     return handleNoticeActionError(error, "Unable to archive notice.");
+  }
+}
+
+function formatNoticeSmsSummaryMessage(
+  summary: {
+    sentCount: number;
+    failedCount: number;
+    skippedNoPhoneCount: number;
+  },
+  afterSave = false,
+): string {
+  const prefix = afterSave ? "Notice saved and texted" : "Text sent";
+  if (summary.sentCount === 0 && summary.failedCount === 0) {
+    return afterSave
+      ? "Notice saved, but none of the selected tenants have a valid mobile number on file."
+      : "No text sent — none of the selected tenants have a valid mobile number on file.";
+  }
+  const parts: string[] = [];
+  if (summary.sentCount > 0) {
+    parts.push(
+      `${prefix} to ${summary.sentCount} ${summary.sentCount === 1 ? "tenant" : "tenants"}`,
+    );
+  }
+  if (summary.failedCount > 0) {
+    parts.push(`${summary.failedCount} failed`);
+  }
+  if (summary.skippedNoPhoneCount > 0) {
+    parts.push(`${summary.skippedNoPhoneCount} without a mobile number`);
+  }
+  return `${parts.join(" · ")}.`;
+}
+
+/**
+ * Server Action texting an unarchived notice to its audience via Semaphore.
+ */
+export async function sendNoticeSmsAction(input: {
+  noticeId: string;
+}): Promise<NoticeActionResult> {
+  try {
+    const ownerUserId = await requireOwnerUserId();
+    const summary = await sendNoticeSms(ownerUserId, input);
+    revalidateNoticePaths();
+    if (summary.sentCount === 0 && summary.failedCount > 0) {
+      return {
+        status: "error",
+        message:
+          "Semaphore could not deliver the text right now. Check your Semaphore account and credits.",
+        fieldErrors: {},
+      };
+    }
+    return {
+      status: "saved",
+      message: formatNoticeSmsSummaryMessage(summary),
+      noticeId: summary.noticeId,
+    };
+  } catch (error) {
+    return handleNoticeActionError(
+      error,
+      "Could not send text notice right now.",
+    );
   }
 }
 

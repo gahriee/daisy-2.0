@@ -9,6 +9,7 @@ import {
   readBoundedJson,
 } from "@/server/http/route-helpers";
 import { verifyCronSecret } from "@/server/jobs/auth";
+import { notifyOwnerPushSafe } from "@/server/notifications/web-push";
 
 const ScheduledBillingBodySchema = z.object({
   billingPeriod: BillingPeriodSchema.optional(),
@@ -52,6 +53,15 @@ export async function POST(request: Request) {
         actorId: "cron:billing-generate",
       },
     );
+
+    if (summary.createdCount > 0) {
+      await notifyOwnerPushSafe(ownerUserId, {
+        title: "Monthly bills ready",
+        body: `Created ${summary.createdCount} rent ${summary.createdCount === 1 ? "bill" : "bills"} for ${billingPeriod}.`,
+        url: "/billing",
+        tag: `billing-generate-${billingPeriod}`,
+      });
+    }
 
     return jsonPrivate({ ok: true, summary });
   } catch (error) {

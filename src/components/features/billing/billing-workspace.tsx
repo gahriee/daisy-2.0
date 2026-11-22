@@ -40,7 +40,12 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { TablePagination } from "@/components/ui/table-pagination";
+import { toast } from "@/components/ui/toaster";
 import { issueDraftInvoiceAction } from "@/features/billing/actions";
+import {
+  sendOverdueSmsBatchAction,
+  sendOverdueSmsForInvoiceAction,
+} from "@/features/sms/actions";
 import { formatBillingPeriodLabel } from "@/features/billing/calculations";
 import {
   INVOICE_STATUS_LABELS,
@@ -229,12 +234,15 @@ export function BillingWorkspace({
   );
   const [issuingInvoice, setIssuingInvoice] = useState<InvoiceDto | null>(null);
   const [issueError, setIssueError] = useState<string | null>(null);
+  const [smsTargetInvoice, setSmsTargetInvoice] = useState<InvoiceDto | null>(
+    null,
+  );
+  const [smsBatchConfirmOpen, setSmsBatchConfirmOpen] = useState(false);
+  const [smsSending, setSmsSending] = useState(false);
+  const [smsError, setSmsError] = useState<string | null>(null);
   const [refreshing, setRefreshing] = useState(false);
   const [rowPendingId, setRowPendingId] = useState<string | null>(null);
-  const [feedback, setFeedback] = useState<{
-    tone: "success" | "danger";
-    message: string;
-  } | null>(null);
+  const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [, startTransition] = useTransition();
 
   async function reloadBilling() {
@@ -242,13 +250,11 @@ export function BillingWorkspace({
     try {
       await reload();
     } catch (error) {
-      setFeedback({
-        tone: "danger",
-        message:
-          error instanceof Error
-            ? error.message
-            : "Connect to the internet to refresh billing.",
-      });
+      setErrorMessage(
+        error instanceof Error
+          ? error.message
+          : "Connect to the internet to refresh billing.",
+      );
     } finally {
       setRefreshing(false);
     }
@@ -257,7 +263,7 @@ export function BillingWorkspace({
   function handleConfirmIssue() {
     if (!issuingInvoice || rowPendingId) return;
     const invoice = issuingInvoice;
-    setFeedback(null);
+    setErrorMessage(null);
     setIssueError(null);
     setRowPendingId(invoice.id);
     startTransition(async () => {
@@ -268,7 +274,7 @@ export function BillingWorkspace({
         });
         if (res.status === "saved") {
           setIssuingInvoice(null);
-          setFeedback({ tone: "success", message: res.message });
+          toast.success(res.message);
           await reloadBilling();
         } else if (res.status === "error") {
           setIssueError(res.message);
@@ -278,6 +284,51 @@ export function BillingWorkspace({
       }
     });
   }
+
+  function handleConfirmSingleSms() {
+    if (!smsTargetInvoice || smsSending) return;
+    const invoice = smsTargetInvoice;
+    setSmsError(null);
+    setSmsSending(true);
+    startTransition(async () => {
+      try {
+        const res = await sendOverdueSmsForInvoiceAction({
+          invoiceId: invoice.id,
+        });
+        if (res.status === "saved") {
+          setSmsTargetInvoice(null);
+          toast.success(res.message);
+        } else if (res.status === "error") {
+          setSmsError(res.message);
+        }
+      } finally {
+        setSmsSending(false);
+      }
+    });
+  }
+
+  function handleConfirmBatchSms() {
+    if (smsSending) return;
+    setSmsError(null);
+    setSmsSending(true);
+    startTransition(async () => {
+      try {
+        const res = await sendOverdueSmsBatchAction();
+        if (res.status === "saved") {
+          setSmsBatchConfirmOpen(false);
+          toast.success(res.message);
+        } else if (res.status === "error") {
+          setSmsError(res.message);
+        }
+      } finally {
+        setSmsSending(false);
+      }
+    });
+  }
+
+  const overdueBoardingCount = overview.invoices.filter(
+    (inv) => inv.isOverdue && Boolean(inv.tenantId),
+  ).length;
 
   const periodOptions = Array.from(
     new Set(
@@ -371,6 +422,21 @@ export function BillingWorkspace({
               disabled: isOfflineView,
               onSelect: () => setAdjustingInvoice(invoice),
             },
+            ...(invoice.isOverdue && invoice.tenantId
+              ? [
+                  {
+                    id: "send-overdue-sms",
+                    label: isOfflineView
+                      ? "Send overdue SMS (online only)"
+                      : "Send overdue SMS",
+                    disabled: isOfflineView || smsSending,
+                    onSelect: () => {
+                      setSmsError(null);
+                      setSmsTargetInvoice(invoice);
+                    },
+                  },
+                ]
+              : []),
           ]
         : []),
     ];
@@ -398,6 +464,19 @@ export function BillingWorkspace({
             <RefreshIcon />
             Refresh
           </Button>
+          {!isOfflineView && overdueBoardingCount > 0 && (
+            <Button
+              size="md"
+              variant="secondary"
+              disabled={smsSending}
+              onClick={() => {
+                setSmsError(null);
+                setSmsBatchConfirmOpen(true);
+              }}
+            >
+              Send overdue SMS ({overdueBoardingCount})
+            </Button>
+          )}
           {!isOfflineView && (
             <Link
               href="/billing/new"
@@ -445,12 +524,9 @@ export function BillingWorkspace({
         </Alert>
       )}
 
-      {feedback && (
-        <Alert
-          tone={feedback.tone}
-          role={feedback.tone === "danger" ? "alert" : "status"}
-        >
-          {feedback.message}
+      {errorMessage && (
+        <Alert tone="danger" role="alert">
+          {errorMessage}
         </Alert>
       )}
 
@@ -700,7 +776,7 @@ export function BillingWorkspace({
                             href={
                               invoice.tenantId
                                 ? `/tenants/${invoice.tenantId}`
-                                : "/transients"
+                                : "/transients/stays"
                             }
                             className="font-medium text-foreground hover:text-primary"
                           >
@@ -763,7 +839,7 @@ export function BillingWorkspace({
         policiesComplete={overview.policiesComplete}
         onClose={() => setGenerateOpen(false)}
         onSaved={async (message) => {
-          setFeedback({ tone: "success", message });
+          toast.success(message);
           await reloadBilling();
         }}
       />
@@ -772,7 +848,7 @@ export function BillingWorkspace({
         invoice={adjustingInvoice}
         onClose={() => setAdjustingInvoice(null)}
         onSaved={async (message) => {
-          setFeedback({ tone: "success", message });
+          toast.success(message);
           await reloadBilling();
         }}
       />
@@ -816,6 +892,62 @@ export function BillingWorkspace({
         confirmLabel="Issue invoice"
         confirmVariant="primary"
         loading={issuingInvoice !== null && rowPendingId === issuingInvoice.id}
+      />
+
+      <ConfirmDialog
+        open={smsTargetInvoice !== null}
+        onClose={() => {
+          if (smsSending) return;
+          setSmsError(null);
+          setSmsTargetInvoice(null);
+        }}
+        onConfirm={handleConfirmSingleSms}
+        title="Send overdue SMS reminder?"
+        description="Sends your overdue reminder text to this tenant's mobile number."
+        details={
+          smsTargetInvoice ? (
+            <>
+              <div className="flex items-center justify-between gap-2">
+                <span className="text-muted-foreground">Tenant</span>
+                <span className="font-medium text-foreground">
+                  {smsTargetInvoice.snapshotTenantName ?? "Tenant"}
+                </span>
+              </div>
+              <div className="flex items-center justify-between gap-2">
+                <span className="text-muted-foreground">Invoice</span>
+                <span className="font-mono text-foreground">
+                  {smsTargetInvoice.invoiceNumber ?? "Invoice"}
+                </span>
+              </div>
+              <div className="flex items-center justify-between gap-2">
+                <span className="text-muted-foreground">Balance due</span>
+                <span className="font-semibold text-foreground tabular-nums">
+                  {formatPhpCurrency(smsTargetInvoice.balanceAmount)}
+                </span>
+              </div>
+            </>
+          ) : null
+        }
+        errorMessage={smsError}
+        confirmLabel="Send SMS"
+        confirmVariant="primary"
+        loading={smsSending}
+      />
+
+      <ConfirmDialog
+        open={smsBatchConfirmOpen}
+        onClose={() => {
+          if (smsSending) return;
+          setSmsError(null);
+          setSmsBatchConfirmOpen(false);
+        }}
+        onConfirm={handleConfirmBatchSms}
+        title="Send overdue SMS reminders?"
+        description={`Sends your reminder message for up to ${overdueBoardingCount} overdue boarding house ${overdueBoardingCount === 1 ? "bill" : "bills"}. Bills already reminded today or without a mobile number are skipped automatically.`}
+        errorMessage={smsError}
+        confirmLabel="Send overdue SMS"
+        confirmVariant="primary"
+        loading={smsSending}
       />
     </div>
   );

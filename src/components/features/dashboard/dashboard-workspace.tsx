@@ -9,7 +9,7 @@ import {
 } from "@/components/features/offline/offline-vault-unlock";
 import { Alert } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
-import { Button, buttonClasses } from "@/components/ui/button";
+import { ActionLink, Button, buttonClasses } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import {
   ApexChart,
@@ -169,7 +169,7 @@ function buildCurrentBookingRows(
       person: stay.guestName,
       roomLabel: `Room ${stay.roomNumber}`,
       detail: `${TRANSIENT_RESERVATION_STATUS_LABELS[stay.status]} (${stay.nights} ${stay.nights === 1 ? "night" : "nights"})`,
-      href: "/transients",
+      href: "/transients/stays",
     });
   }
 
@@ -181,7 +181,7 @@ function buildCurrentBookingRows(
       person: stay.guestName,
       roomLabel: `Room ${stay.roomNumber}`,
       detail: `${TRANSIENT_RESERVATION_STATUS_LABELS[stay.status]} (${formatPhpCurrency(stay.totalAmount)})`,
-      href: "/transients",
+      href: "/transients/stays",
     });
   }
 
@@ -621,14 +621,7 @@ export function DashboardWorkspace({
           title="Occupancy by building"
           description="Live occupied, available, and maintenance room counts."
           summary={`${totalOccupiedAll} of ${totalRoomsAll} occupied`}
-          actions={
-            <Link
-              href="/reports"
-              className={buttonClasses({ variant: "secondary", size: "sm" })}
-            >
-              Analytics
-            </Link>
-          }
+          actions={<ActionLink href="/reports">Analytics</ActionLink>}
         >
           {totalRoomsAll === 0 ? (
             <TableEmptyState
@@ -652,14 +645,7 @@ export function DashboardWorkspace({
           title="Collections & receivables"
           description="Recent monthly collections compared with current and overdue open balances."
           summary={`${snapshot.billing.overdueInvoiceCount} overdue`}
-          actions={
-            <Link
-              href="/reports"
-              className={buttonClasses({ variant: "secondary", size: "sm" })}
-            >
-              Reports
-            </Link>
-          }
+          actions={<ActionLink href="/reports">Reports</ActionLink>}
         >
           {!hasFinancialTotals ? (
             <TableEmptyState
@@ -690,7 +676,7 @@ export function DashboardWorkspace({
             count={`${currentBookings.length} ${currentBookings.length === 1 ? "item" : "items"}`}
             actions={
               <Link
-                href="/transients"
+                href="/transients/stays"
                 className={buttonClasses({ variant: "secondary", size: "sm" })}
               >
                 Transients
@@ -956,12 +942,7 @@ export function DashboardWorkspace({
             </Badge>
           </div>
           <div>
-            <Link
-              href="/maintenance"
-              className={buttonClasses({ variant: "secondary", size: "sm" })}
-            >
-              Open maintenance
-            </Link>
+            <ActionLink href="/maintenance">Open maintenance</ActionLink>
           </div>
         </Card>
 
@@ -991,12 +972,15 @@ export function DashboardWorkspace({
             </Badge>
           </div>
           <div>
-            <Link
-              href="/transients"
-              className={buttonClasses({ variant: "secondary", size: "sm" })}
+            <ActionLink
+              href={
+                snapshot.staysToday.pendingBookingRequests > 0
+                  ? "/transients/requests"
+                  : "/transients/stays"
+              }
             >
               Review transients
-            </Link>
+            </ActionLink>
           </div>
         </Card>
 
@@ -1019,19 +1003,9 @@ export function DashboardWorkspace({
               {snapshot.notices.activeCount} active
             </Badge>
           </div>
-          <div className="flex flex-wrap items-center gap-2">
-            <Link
-              href="/notices"
-              className={buttonClasses({ variant: "secondary", size: "sm" })}
-            >
-              Notices
-            </Link>
-            <Link
-              href="/audit"
-              className={buttonClasses({ variant: "secondary", size: "sm" })}
-            >
-              Activity history
-            </Link>
+          <div className="flex flex-wrap items-center gap-4">
+            <ActionLink href="/notices">Notices</ActionLink>
+            <ActionLink href="/audit">Activity history</ActionLink>
           </div>
         </Card>
       </section>

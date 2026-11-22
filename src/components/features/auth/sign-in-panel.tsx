@@ -10,6 +10,7 @@ import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import { Field } from "@/components/ui/field";
 import { Input } from "@/components/ui/input";
 import { Separator } from "@/components/ui/separator";
+import { toast } from "@/components/ui/toaster";
 import {
   formatRetryWaitMessage,
   parseRetryAfterSeconds,
@@ -74,7 +75,6 @@ export function SignInPanel({ initialSession }: SignInPanelProps) {
   const [busyAction, setBusyAction] = useState<
     "sign-in" | "sign-out" | "recheck" | null
   >(null);
-  const [notice, setNotice] = useState("");
   const [error, setError] = useState("");
   const [retryAfter, setRetryAfter] = useState<number | null>(null);
   const [emailError, setEmailError] = useState("");
@@ -101,7 +101,6 @@ export function SignInPanel({ initialSession }: SignInPanelProps) {
   async function handleRecheck() {
     if (busy) return;
     setError("");
-    setNotice("");
     setRetryAfter(null);
     setBusyAction("recheck");
     try {
@@ -109,12 +108,12 @@ export function SignInPanel({ initialSession }: SignInPanelProps) {
       setSessionState(next);
       if (next === "authenticated") {
         clearFormState();
-        setNotice("Signed in. Opening your dashboard…");
+        toast.success("Signed in. Opening your dashboard…");
         router.replace("/");
         router.refresh();
         return;
       } else if (next === "unauthenticated") {
-        setNotice("You are not signed in yet. Sign in below.");
+        toast.info("You are not signed in yet. Sign in below.");
       } else {
         setError(
           "We could not check if you are signed in. Try signing in or wait a moment.",
@@ -138,7 +137,6 @@ export function SignInPanel({ initialSession }: SignInPanelProps) {
     event.preventDefault();
     if (busy) return;
     setError("");
-    setNotice("");
     setRetryAfter(null);
     setEmailError("");
     setPasswordError("");
@@ -205,7 +203,7 @@ export function SignInPanel({ initialSession }: SignInPanelProps) {
       if (verified === "authenticated") {
         clearFormState();
         setSessionState("authenticated");
-        setNotice("Signed in. Opening your dashboard…");
+        toast.success("Signed in. Opening your dashboard…");
         router.replace("/");
         router.refresh();
         return;
@@ -253,7 +251,6 @@ export function SignInPanel({ initialSession }: SignInPanelProps) {
   async function handleSignOut() {
     if (busy) return;
     setError("");
-    setNotice("");
     setRetryAfter(null);
     setBusyAction("sign-out");
     try {
@@ -275,7 +272,9 @@ export function SignInPanel({ initialSession }: SignInPanelProps) {
       }
       clearFormState();
       setSessionState("unauthenticated");
-      setNotice("Signed out. Enter your email and password to sign back in.");
+      toast.success(
+        "Signed out. Enter your email and password to sign back in.",
+      );
       router.refresh();
       focusFeedback();
     } catch {
@@ -308,9 +307,6 @@ export function SignInPanel({ initialSession }: SignInPanelProps) {
         tabIndex={-1}
         className="grid gap-3 rounded-control empty:hidden focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-focus"
       >
-        <div aria-live="polite" className="empty:hidden">
-          {notice && <Alert tone="success">{notice}</Alert>}
-        </div>
         <div role="alert" className="empty:hidden">
           {error && (
             <Alert role="presentation" tone="danger" className="grid gap-1">

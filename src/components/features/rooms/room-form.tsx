@@ -7,13 +7,15 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { Alert } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
-import { Button, buttonClasses } from "@/components/ui/button";
+import { BackLink, Button, buttonClasses } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
+import { Checkbox } from "@/components/ui/checkbox";
 import { Field } from "@/components/ui/field";
 import { CompactFormScope } from "@/components/ui/form-density";
 import { Input } from "@/components/ui/input";
 import { Select } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
+import { toast } from "@/components/ui/toaster";
 import {
   archiveRoomAction,
   createRoomAction,
@@ -33,7 +35,7 @@ function RoomTypeRateSummary({ roomType }: { roomType: RoomTypeDto | null }) {
   if (!roomType) return null;
   const isTransient = roomType.building === "TRANSIENT";
   return (
-    <div className="sm:col-span-2 grid grid-cols-1 gap-3 rounded-control border border-border bg-background px-3 py-2">
+    <div className="sm:col-span-2 grid grid-cols-1 gap-0.5 border-t border-border pt-3">
       <div className="grid gap-0.5">
         <span className="text-xs text-muted-foreground">
           {isTransient ? "Default daily rate" : "Default monthly rate"}
@@ -56,13 +58,11 @@ export function RoomForm({
   mode,
   roomTypes,
   room = null,
-  justCreated = false,
   building = "BOARDING",
 }: {
   mode: "create" | "edit";
   roomTypes: RoomTypeDto[];
   room?: EditableRoom | null;
-  justCreated?: boolean;
   building?: RoomBuildingValue;
 }) {
   const router = useRouter();
@@ -80,12 +80,18 @@ export function RoomForm({
   const [selectedTypeId, setSelectedTypeId] = useState(
     room?.roomTypeId ?? selectableTypes[0]?.id ?? "",
   );
+  const [syncedRoomVersion, setSyncedRoomVersion] = useState<number | null>(
+    room?.version ?? null,
+  );
+  const [published, setPublished] = useState(
+    room?.isTransientPublished ?? false,
+  );
+  if (room && room.version !== syncedRoomVersion) {
+    setSyncedRoomVersion(room.version);
+    setPublished(room.isTransientPublished);
+  }
   const [photosUploading, setPhotosUploading] = useState(false);
   const [archivePending, startArchiveTransition] = useTransition();
-  const [statusFeedback, setStatusFeedback] = useState<{
-    tone: "success" | "danger";
-    message: string;
-  } | null>(justCreated ? { tone: "success", message: "Room added." } : null);
 
   const selectedType =
     selectableTypes.find((rt) => rt.id === selectedTypeId) ?? null;
@@ -97,11 +103,10 @@ export function RoomForm({
       prev: InventoryActionResult,
       formData: FormData,
     ): Promise<InventoryActionResult> => {
-      setStatusFeedback(null);
       if (mode === "edit") {
         const result = await updateRoomAction(prev, formData);
         if (result.status === "saved") {
-          setStatusFeedback({ tone: "success", message: result.message });
+          toast.success(result.message);
           router.refresh();
         }
         return result;
@@ -109,9 +114,8 @@ export function RoomForm({
 
       const result = await createRoomAction(prev, formData);
       if (result.status === "saved") {
-        router.push(
-          result.roomId ? `${basePath}/${result.roomId}?created=1` : basePath,
-        );
+        toast.success(result.message);
+        router.push(result.roomId ? `${basePath}/${result.roomId}` : basePath);
         router.refresh();
       }
       return result;
@@ -124,7 +128,6 @@ export function RoomForm({
 
   function handleArchiveRestore() {
     if (!room || archivePending) return;
-    setStatusFeedback(null);
     setArchiveError(null);
     startArchiveTransition(async () => {
       const result = isArchived
@@ -138,7 +141,7 @@ export function RoomForm({
           });
       if (result.status === "saved") {
         setArchiveConfirmOpen(false);
-        setStatusFeedback({ tone: "success", message: result.message });
+        toast.success(result.message);
         router.refresh();
       } else if (result.status === "error") {
         setArchiveError(result.message);
@@ -148,45 +151,31 @@ export function RoomForm({
 
   return (
     <div className="grid gap-5">
-      <header className="flex flex-wrap items-start justify-between gap-4">
-        <div className="grid gap-1">
-          <div className="flex flex-wrap items-center gap-2">
-            <h1 className="text-xl font-semibold tracking-tight text-foreground sm:text-2xl">
-              {mode === "edit" && room ? `Room ${room.number}` : "Add room"}
-            </h1>
-            {isArchived && <Badge tone="neutral">Archived</Badge>}
+      <div className="grid gap-2">
+        <BackLink href={basePath}>
+          {isTransient ? "Transient rooms" : "Rooms"}
+        </BackLink>
+        <header className="flex flex-wrap items-start justify-between gap-4">
+          <div className="grid gap-1">
+            <div className="flex flex-wrap items-center gap-2">
+              <h1 className="text-xl font-semibold tracking-tight text-foreground sm:text-2xl">
+                {mode === "edit" && room ? `Room ${room.number}` : "Add room"}
+              </h1>
+              {isArchived && <Badge tone="neutral">Archived</Badge>}
+            </div>
+            <p className="text-sm leading-6 text-muted-foreground">
+              {isTransient
+                ? mode === "edit"
+                  ? "Rates sync from room types. Update room details, public /book visibility, and cropped photos below."
+                  : "Choose a room type to apply its daily rate, configure public /book listing options, and upload cropped photos."
+                : mode === "edit"
+                  ? "Rates are configured on room types. Update room details below."
+                  : "Choose a room type to apply its configured monthly rate."}
+            </p>
           </div>
-          <p className="text-sm leading-6 text-muted-foreground">
-            {isTransient
-              ? mode === "edit"
-                ? "Rates are configured on room types. Update room details or manage cropped photos for /book."
-                : "Choose a room type to apply its configured rates, and upload cropped photos for /book."
-              : mode === "edit"
-                ? "Rates are configured on room types. Update room details below."
-                : "Choose a room type to apply its configured monthly rate."}
-          </p>
-        </div>
 
-        <div className="flex flex-wrap items-center gap-2.5">
-          <Link
-            href={basePath}
-            className={buttonClasses({ variant: "secondary", size: "md" })}
-          >
-            Back to rooms
-          </Link>
           {mode === "edit" && room && (
-            <>
-              {isTransient && (
-                <Link
-                  href={`/transients/listings/${room.id}`}
-                  className={buttonClasses({
-                    variant: "secondary",
-                    size: "md",
-                  })}
-                >
-                  Transient listing
-                </Link>
-              )}
+            <div className="flex flex-wrap items-center gap-2.5">
               <Button
                 size="md"
                 variant={isArchived ? "primary" : "danger"}
@@ -223,10 +212,10 @@ export function RoomForm({
                 confirmVariant={isArchived ? "primary" : "danger"}
                 loading={archivePending}
               />
-            </>
+            </div>
           )}
-        </div>
-      </header>
+        </header>
+      </div>
 
       {mode === "create" && selectableTypes.length === 0 ? (
         <Alert tone="warning" role="status">
@@ -245,15 +234,6 @@ export function RoomForm({
         </Alert>
       ) : (
         <>
-          {statusFeedback && (
-            <Alert
-              tone={statusFeedback.tone}
-              role={statusFeedback.tone === "danger" ? "alert" : "status"}
-            >
-              {statusFeedback.message}
-            </Alert>
-          )}
-
           {state.status === "error" && (
             <Alert tone="danger" role="alert">
               {state.message}
@@ -389,6 +369,93 @@ export function RoomForm({
 
                 {isTransient && (
                   <Card className="grid gap-4">
+                    {!isArchived && (
+                      <input
+                        type="hidden"
+                        name="hasPublicListingFields"
+                        value="1"
+                      />
+                    )}
+                    <div className="flex flex-wrap items-start justify-between gap-2">
+                      <div className="grid gap-1">
+                        <h2 className="text-base font-semibold text-foreground">
+                          Public /book listing
+                        </h2>
+                        <p className="text-xs text-muted-foreground">
+                          Choose whether guests can view and request this room
+                          on the unauthenticated /book page. Internal notes stay
+                          private.
+                        </p>
+                      </div>
+                      <Badge tone={published ? "success" : "neutral"}>
+                        {published ? "Published" : "Hidden"}
+                      </Badge>
+                    </div>
+
+                    <Checkbox
+                      name="isTransientPublished"
+                      checked={published}
+                      disabled={isArchived || pending}
+                      onChange={(e) => setPublished(e.target.checked)}
+                      label="Publish this room on /book for public transient requests"
+                    />
+                    {state.status === "error" &&
+                      state.fieldErrors.isTransientPublished && (
+                        <p className="text-xs text-danger">
+                          {state.fieldErrors.isTransientPublished}
+                        </p>
+                      )}
+
+                    <Field
+                      id="room-transient-title"
+                      label="Public title"
+                      description={`Optional display name shown on /book. Defaults to Room ${room?.number ?? "number"} when left blank.`}
+                      error={
+                        state.status === "error"
+                          ? state.fieldErrors.transientTitle
+                          : undefined
+                      }
+                    >
+                      {(fieldProps) => (
+                        <Input
+                          {...fieldProps}
+                          name="transientTitle"
+                          defaultValue={room?.transientTitle ?? ""}
+                          maxLength={120}
+                          disabled={isArchived || pending}
+                          placeholder={
+                            room ? `Room ${room.number}` : "e.g. Room 201"
+                          }
+                        />
+                      )}
+                    </Field>
+
+                    <Field
+                      id="room-transient-description"
+                      label="Public summary"
+                      description="Guest-facing highlights shown on /book (bed setup, inclusions, view)."
+                      error={
+                        state.status === "error"
+                          ? state.fieldErrors.transientDescription
+                          : undefined
+                      }
+                    >
+                      {(fieldProps) => (
+                        <Textarea
+                          {...fieldProps}
+                          name="transientDescription"
+                          defaultValue={room?.transientDescription ?? ""}
+                          maxLength={600}
+                          disabled={isArchived || pending}
+                          placeholder="Optional guest-facing overview for /book"
+                        />
+                      )}
+                    </Field>
+                  </Card>
+                )}
+
+                {isTransient && (
+                  <Card className="grid gap-4">
                     <div className="grid gap-1">
                       <h2 className="text-base font-semibold text-foreground">
                         Room photos
@@ -427,14 +494,24 @@ export function RoomForm({
                     </dd>
                   </div>
                   {isTransient ? (
-                    <div className="flex items-start justify-between gap-3">
-                      <dt className="text-muted-foreground">Daily rate</dt>
-                      <dd className="font-medium text-foreground tabular-nums">
-                        {selectedType?.dailyRate
-                          ? formatPhpCurrency(selectedType.dailyRate)
-                          : "—"}
-                      </dd>
-                    </div>
+                    <>
+                      <div className="flex items-start justify-between gap-3">
+                        <dt className="text-muted-foreground">Daily rate</dt>
+                        <dd className="font-medium text-foreground tabular-nums">
+                          {selectedType?.dailyRate
+                            ? formatPhpCurrency(selectedType.dailyRate)
+                            : "—"}
+                        </dd>
+                      </div>
+                      <div className="flex items-start justify-between gap-3">
+                        <dt className="text-muted-foreground">Public /book</dt>
+                        <dd className="text-right font-medium text-foreground">
+                          <Badge tone={published ? "success" : "neutral"}>
+                            {published ? "Published" : "Hidden"}
+                          </Badge>
+                        </dd>
+                      </div>
+                    </>
                   ) : (
                     <div className="flex items-start justify-between gap-3">
                       <dt className="text-muted-foreground">Monthly rate</dt>

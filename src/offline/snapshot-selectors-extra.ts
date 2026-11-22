@@ -398,6 +398,8 @@ function reconstructRoomsAndTypes(projections: DecryptedEntityView[]): {
           ? formatMoneyDecimal(parseSafeMoney(row.data.transientDailyRate))
           : null,
       isTransientPublished: toBoolean(row.data.isTransientPublished),
+      transientTitle: asString(row.data.transientTitle),
+      transientDescription: asString(row.data.transientDescription),
       notes: asString(row.data.notes),
       previewPhoto,
       galleryPhotos,
@@ -490,8 +492,8 @@ export function buildTransientsOverviewFromRecords(input: {
       capacity: r.capacity,
       resolvedDailyRate: r.transientDailyRate,
       isTransientPublished: r.isTransientPublished,
-      transientTitle: null,
-      transientDescription: null,
+      transientTitle: r.transientTitle,
+      transientDescription: r.transientDescription,
       transientScope: null,
       transientDailyRate: r.transientDailyRate,
       previewPhoto: r.previewPhoto,
@@ -951,6 +953,8 @@ export function buildNoticesOverviewFromRecords(input: {
       startDate: asNonEmptyString(row.data.startDate, row.updatedAt),
       endDate: asNonEmptyString(row.data.endDate, row.updatedAt),
       lifecycleStatus,
+      smsSentAt: asString(row.data.smsSentAt),
+      smsSentCount: asNumber(row.data.smsSentCount, 0),
       archivedAt,
       createdAt: asNonEmptyString(row.data.createdAt, row.updatedAt),
       updatedAt: asNonEmptyString(row.data.updatedAt, row.updatedAt),
@@ -960,6 +964,8 @@ export function buildNoticesOverviewFromRecords(input: {
   notices.sort((a, b) => b.startDateManila.localeCompare(a.startDateManila));
   return {
     todayManila,
+    smsConfigured: false,
+    businessName: "",
     totals: { activeCount, scheduledCount, expiredCount, archivedCount },
     notices,
     rooms,

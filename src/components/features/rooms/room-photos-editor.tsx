@@ -29,7 +29,7 @@ const RoomPhotoCropperDialog = dynamic(
     loading: () => (
       <div
         role="status"
-        className="rounded-control border border-border bg-surface px-3 py-2 text-xs text-muted-foreground"
+        className="py-1 text-xs text-muted-foreground"
       >
         Loading photo cropper…
       </div>
@@ -608,7 +608,7 @@ export function RoomPhotosEditor({
   const activeCropTask = cropQueue[0] ?? null;
 
   return (
-    <div className="grid gap-3 rounded-panel border border-border bg-background/60 p-3">
+    <div className="grid gap-4">
       <input type="hidden" name="roomPhotosJson" value={manifestJson} />
 
       <input
@@ -661,8 +661,8 @@ export function RoomPhotosEditor({
         </div>
 
         {previewItem && (
-          <div className="flex flex-wrap items-center gap-3 rounded-control border border-border bg-surface p-2">
-            <div className="relative aspect-[4/3] w-24 shrink-0 overflow-hidden rounded-control border border-border bg-surface-muted">
+          <div className="flex flex-wrap items-center gap-3 pt-1">
+            <div className="relative aspect-[4/3] w-24 shrink-0 overflow-hidden rounded-control bg-surface-muted">
               <Image
                 src={previewItem.previewUrl}
                 alt="Room card preview"
@@ -758,13 +758,13 @@ export function RoomPhotosEditor({
         </div>
 
         {galleryItems.length > 0 && (
-          <div className="grid gap-2">
+          <div className="divide-y divide-border border-t border-border">
             {galleryItems.map((item, index) => (
               <div
                 key={item.localId}
-                className="flex flex-col gap-2 rounded-control border border-border bg-surface p-2 sm:flex-row sm:items-start"
+                className="flex flex-col gap-2.5 py-3 last:pb-0 sm:flex-row sm:items-start"
               >
-                <div className="relative aspect-[4/3] w-24 shrink-0 overflow-hidden rounded-control border border-border bg-surface-muted">
+                <div className="relative aspect-[4/3] w-24 shrink-0 overflow-hidden rounded-control bg-surface-muted">
                   <Image
                     src={item.previewUrl}
                     alt={

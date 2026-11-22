@@ -4,14 +4,16 @@ import { useState, useTransition } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { Alert } from "@/components/ui/alert";
-import { Button, buttonClasses } from "@/components/ui/button";
+import { BackLink, Button, buttonClasses } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Field } from "@/components/ui/field";
 import { CompactFormScope } from "@/components/ui/form-density";
+import { DatePicker } from "@/components/ui/date-picker";
 import { Input } from "@/components/ui/input";
 import { Select } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
+import { toast } from "@/components/ui/toaster";
 import { createManualInvoiceAction } from "@/features/billing/actions";
 import {
   computeLineItemTotalCentavos,
@@ -138,10 +140,9 @@ export function InvoiceCreateForm({
       });
 
       if (result.status === "saved") {
+        toast.success(result.message);
         router.push(
-          result.invoiceId
-            ? `/billing/${result.invoiceId}?created=1`
-            : "/billing",
+          result.invoiceId ? `/billing/${result.invoiceId}` : "/billing",
         );
         router.refresh();
       } else if (result.status === "error") {
@@ -153,8 +154,9 @@ export function InvoiceCreateForm({
 
   return (
     <div className="grid gap-5">
-      <header className="flex flex-wrap items-start justify-between gap-4">
-        <div className="grid gap-1">
+      <div className="grid gap-2">
+        <BackLink href="/billing">Billing</BackLink>
+        <header className="grid gap-1">
           <h1 className="text-xl font-semibold tracking-tight text-foreground sm:text-2xl">
             Create invoice
           </h1>
@@ -162,15 +164,8 @@ export function InvoiceCreateForm({
             Create an itemized draft or issued invoice for rent, utilities, or
             deposits.
           </p>
-        </div>
-
-        <Link
-          href="/billing"
-          className={buttonClasses({ variant: "secondary", size: "md" })}
-        >
-          Back to billing
-        </Link>
-      </header>
+        </header>
+      </div>
 
       {tenants.length === 0 && (
         <Alert tone="warning" role="status">
@@ -260,13 +255,11 @@ export function InvoiceCreateForm({
                   error={fieldErrors.periodStartManila}
                 >
                   {(fieldProps) => (
-                    <Input
+                    <DatePicker
                       {...fieldProps}
-                      type="date"
+                      required
                       value={periodStartManila}
-                      onChange={(event) =>
-                        setPeriodStartManila(event.target.value)
-                      }
+                      onValueChange={setPeriodStartManila}
                     />
                   )}
                 </Field>
@@ -278,13 +271,11 @@ export function InvoiceCreateForm({
                   error={fieldErrors.periodEndManila}
                 >
                   {(fieldProps) => (
-                    <Input
+                    <DatePicker
                       {...fieldProps}
-                      type="date"
+                      required
                       value={periodEndManila}
-                      onChange={(event) =>
-                        setPeriodEndManila(event.target.value)
-                      }
+                      onValueChange={setPeriodEndManila}
                     />
                   )}
                 </Field>
@@ -296,11 +287,11 @@ export function InvoiceCreateForm({
                   error={fieldErrors.dueDateManila}
                 >
                   {(fieldProps) => (
-                    <Input
+                    <DatePicker
                       {...fieldProps}
-                      type="date"
+                      required
                       value={dueDateManila}
-                      onChange={(event) => setDueDateManila(event.target.value)}
+                      onValueChange={setDueDateManila}
                     />
                   )}
                 </Field>
@@ -355,14 +346,11 @@ export function InvoiceCreateForm({
                 </Alert>
               )}
 
-              <div className="grid gap-3">
+              <div className="divide-y divide-border border-t border-border">
                 {items.map((item, idx) => {
                   const rowTotal = lineTotals[idx] ?? null;
                   return (
-                    <div
-                      key={item.key}
-                      className="grid gap-3 rounded-panel border border-border bg-background/50 p-3.5 sm:p-4"
-                    >
+                    <div key={item.key} className="grid gap-3 py-4 last:pb-0">
                       <div className="flex flex-wrap items-center justify-between gap-2">
                         <span className="text-xs font-semibold text-muted-foreground tabular-nums">
                           Item #{idx + 1}

@@ -71,6 +71,8 @@ function revalidatePaymentPaths(
   }
   if (transientGuestId || !tenantId) {
     revalidatePath("/transients");
+    revalidatePath("/transients", "layout");
+    revalidatePath("/transients/stays");
   }
   revalidatePath("/audit");
   revalidatePath("/");

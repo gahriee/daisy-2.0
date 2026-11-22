@@ -13,6 +13,7 @@ const SECTION_TITLES: Record<SettingsSectionKey, string> = {
   profile: "Property profile",
   policies: "Billing & policies",
   operations: "Stays & limits",
+  sms: "Overdue SMS",
   devices: "Trusted devices",
 };
 

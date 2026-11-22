@@ -582,6 +582,52 @@ describe("reports overview & bounded CSV exports integration", () => {
     expect(exportAudits[0]?.entityId).toBe("receivables-aging");
     expect(JSON.stringify(exportAudits[0]?.metadata)).not.toContain("Maria");
 
+    // Multi-format exports (Excel, Word, PDF) use the shared template and log export audits
+    const formatAssertions = [
+      {
+        format: "xlsx",
+        contentType:
+          "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        filename: "daisy-receivables-aging-2026-11-15.xlsx",
+        signature: [0x50, 0x4b, 0x03, 0x04],
+      },
+      {
+        format: "docx",
+        contentType:
+          "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+        filename: "daisy-receivables-aging-2026-11-15.docx",
+        signature: [0x50, 0x4b, 0x03, 0x04],
+      },
+      {
+        format: "pdf",
+        contentType: "application/pdf",
+        filename: "daisy-receivables-aging-2026-11-15.pdf",
+        signature: [0x25, 0x50, 0x44, 0x46],
+      },
+    ] as const;
+
+    for (const check of formatAssertions) {
+      const res = await exportReportRoute(
+        new Request(
+          `https://daisy.local/api/reports/export?reportType=receivables-aging&asOfDate=2026-11-15&format=${check.format}`,
+        ),
+      );
+      expect(res.status).toBe(200);
+      expect(res.headers.get("content-type")).toBe(check.contentType);
+      expect(res.headers.get("content-disposition")).toContain(
+        `filename="${check.filename}"`,
+      );
+      const bytes = new Uint8Array(await res.arrayBuffer());
+      expect(Array.from(bytes.slice(0, 4))).toEqual(check.signature);
+    }
+
+    const invalidFormatRes = await exportReportRoute(
+      new Request(
+        "https://daisy.local/api/reports/export?reportType=occupancy&format=txt",
+      ),
+    );
+    expect(invalidFormatRes.status).toBe(400);
+
     // Pre-populate export rate limit to threshold (30) and assert 31st returns 429 + Retry-After
     await db.securityRateLimit.upsert({
       where: { key: `reports:${ownerId}:export` },

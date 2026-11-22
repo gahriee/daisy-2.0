@@ -292,4 +292,74 @@ describe("rooms, room types & beds schemas", () => {
       }).success,
     ).toBe(true);
   });
+
+  it("validates public /book listing options on transient rooms and rejects them on boarding rooms", () => {
+    const roomTypeId = randomUUID();
+
+    const createdTransient = CreateRoomSchema.parse({
+      building: "TRANSIENT",
+      number: "205",
+      roomTypeId,
+      capacity: 1,
+      transientDailyRate: "850",
+      isTransientPublished: true,
+      transientTitle: "  Corner Queen Suite  ",
+      transientDescription: "  Quiet street view with workspace.  ",
+    });
+    expect(createdTransient.isTransientPublished).toBe(true);
+    expect(createdTransient.transientTitle).toBe("Corner Queen Suite");
+    expect(createdTransient.transientDescription).toBe(
+      "Quiet street view with workspace.",
+    );
+
+    expect(
+      CreateRoomSchema.safeParse({
+        building: "BOARDING",
+        number: "101",
+        roomTypeId,
+        capacity: 1,
+        baseMonthlyRate: "4500",
+        isTransientPublished: true,
+      }).success,
+    ).toBe(false);
+
+    expect(
+      CreateRoomSchema.safeParse({
+        building: "BOARDING",
+        number: "101",
+        roomTypeId,
+        capacity: 1,
+        baseMonthlyRate: "4500",
+        transientTitle: "Public suite",
+      }).success,
+    ).toBe(false);
+
+    // Partial programmatic updates preserve undefined listing fields instead of clearing them.
+    const partialUpdate = UpdateRoomSchema.parse({
+      roomId: randomUUID(),
+      expectedVersion: 1,
+      number: "205",
+      roomTypeId,
+      capacity: 1,
+    });
+    expect(partialUpdate.isTransientPublished).toBeUndefined();
+    expect(partialUpdate.transientTitle).toBeUndefined();
+    expect(partialUpdate.transientDescription).toBeUndefined();
+
+    // Explicit blank strings clear optional listing text.
+    const clearedUpdate = UpdateRoomSchema.parse({
+      roomId: randomUUID(),
+      expectedVersion: 2,
+      building: "TRANSIENT",
+      number: "205",
+      roomTypeId,
+      capacity: 1,
+      isTransientPublished: false,
+      transientTitle: "   ",
+      transientDescription: "",
+    });
+    expect(clearedUpdate.isTransientPublished).toBe(false);
+    expect(clearedUpdate.transientTitle).toBeNull();
+    expect(clearedUpdate.transientDescription).toBeNull();
+  });
 });

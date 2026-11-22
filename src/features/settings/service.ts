@@ -3,6 +3,10 @@ import { Prisma } from "@/generated/prisma/client";
 import { ConflictError, ValidationError } from "@/lib/errors";
 import { ensureOwnerRecord } from "@/server/db/owner-record";
 import { getDatabase } from "@/server/db/client";
+import {
+  encryptAppSecret,
+  maskSecretLast4,
+} from "@/server/security/secret-box";
 import { writeAuditEntry } from "@/server/sync/publish";
 import {
   BusinessSettingsModuleUpdateSchema,
@@ -33,6 +37,13 @@ const SETTINGS_SELECT = {
   receiptPrefix: true,
   checkInTimeManila: true,
   checkOutTimeManila: true,
+  smsOverdueEnabled: true,
+  smsOverdueFrequencyDays: true,
+  smsOverdueSendTimeManila: true,
+  smsApiKeyEncrypted: true,
+  smsApiKeyLast4: true,
+  smsSenderName: true,
+  smsOverdueTemplate: true,
   offlineUnlockMaxDays: true,
   proofMaxBytes: true,
   proofMaxFilesPerRecord: true,
@@ -56,6 +67,13 @@ const INITIAL_CREATE_DEFAULTS: Omit<
   receiptPrefix: null,
   checkInTimeManila: null,
   checkOutTimeManila: null,
+  smsOverdueEnabled: false,
+  smsOverdueFrequencyDays: 1,
+  smsOverdueSendTimeManila: "09:00",
+  smsApiKeyEncrypted: null,
+  smsApiKeyLast4: null,
+  smsSenderName: null,
+  smsOverdueTemplate: null,
   offlineUnlockMaxDays: 7,
   proofMaxBytes: 5 * BYTES_PER_MB,
   proofMaxFilesPerRecord: 5,
@@ -77,6 +95,13 @@ function toSettingsDto(row: {
   receiptPrefix: string | null;
   checkInTimeManila: string | null;
   checkOutTimeManila: string | null;
+  smsOverdueEnabled: boolean;
+  smsOverdueFrequencyDays: number;
+  smsOverdueSendTimeManila: string;
+  smsApiKeyEncrypted: string | null;
+  smsApiKeyLast4: string | null;
+  smsSenderName: string | null;
+  smsOverdueTemplate: string | null;
   offlineUnlockMaxDays: number;
   proofMaxBytes: number;
   proofMaxFilesPerRecord: number;
@@ -98,6 +123,13 @@ function toSettingsDto(row: {
     receiptPrefix: row.receiptPrefix,
     checkInTimeManila: row.checkInTimeManila,
     checkOutTimeManila: row.checkOutTimeManila,
+    smsOverdueEnabled: row.smsOverdueEnabled,
+    smsOverdueFrequencyDays: row.smsOverdueFrequencyDays,
+    smsOverdueSendTimeManila: row.smsOverdueSendTimeManila,
+    smsApiKeyConfigured: Boolean(row.smsApiKeyEncrypted),
+    smsApiKeyLast4: row.smsApiKeyEncrypted ? row.smsApiKeyLast4 : null,
+    smsSenderName: row.smsSenderName,
+    smsOverdueTemplate: row.smsOverdueTemplate,
     offlineUnlockMaxDays: row.offlineUnlockMaxDays,
     proofMaxBytes: row.proofMaxBytes,
     proofMaxFilesPerRecord: row.proofMaxFilesPerRecord,
@@ -132,6 +164,13 @@ export async function getBusinessSettings(
       receiptPrefix: null,
       checkInTimeManila: null,
       checkOutTimeManila: null,
+      smsOverdueEnabled: false,
+      smsOverdueFrequencyDays: 1,
+      smsOverdueSendTimeManila: "09:00",
+      smsApiKeyConfigured: false,
+      smsApiKeyLast4: null,
+      smsSenderName: null,
+      smsOverdueTemplate: null,
       offlineUnlockMaxDays: 7,
       proofMaxBytes: 5 * BYTES_PER_MB,
       proofMaxFilesPerRecord: 5,
@@ -175,6 +214,23 @@ function buildModuleWriteData(
         proofMaxBytes: input.proofMaxMb * BYTES_PER_MB,
         proofMaxFilesPerRecord: input.proofMaxFilesPerRecord,
       };
+    case "sms": {
+      const next: PersistedSettingsWriteData = {
+        smsOverdueEnabled: input.smsOverdueEnabled,
+        smsOverdueFrequencyDays: input.smsOverdueFrequencyDays,
+        smsOverdueSendTimeManila: input.smsOverdueSendTimeManila,
+        smsSenderName: input.smsSenderName,
+        smsOverdueTemplate: input.smsOverdueTemplate,
+      };
+      if (input.clearSmsApiKey) {
+        next.smsApiKeyEncrypted = null;
+        next.smsApiKeyLast4 = null;
+      } else if (input.smsApiKey) {
+        next.smsApiKeyEncrypted = encryptAppSecret(input.smsApiKey);
+        next.smsApiKeyLast4 = maskSecretLast4(input.smsApiKey);
+      }
+      return next;
+    }
   }
 }
 
@@ -271,6 +327,20 @@ export async function updateBusinessSettingsModule(
     );
   }
   const input = parsed.data;
+  if (input.module === "sms" && input.smsOverdueEnabled) {
+    const existing = await getDatabase().businessSettings.findUnique({
+      where: { ownerUserId },
+      select: { smsApiKeyEncrypted: true },
+    });
+    const willHaveApiKey =
+      !input.clearSmsApiKey &&
+      (Boolean(input.smsApiKey) || Boolean(existing?.smsApiKeyEncrypted));
+    if (!willHaveApiKey) {
+      throw new ValidationError(
+        "Enter your Semaphore API key before enabling automatic overdue SMS reminders.",
+      );
+    }
+  }
   return persistSettingsChange(
     ownerUserId,
     input.expectedVersion,

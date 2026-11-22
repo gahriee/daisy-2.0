@@ -5,7 +5,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { Alert } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
-import { Button, buttonClasses } from "@/components/ui/button";
+import { BackLink, Button, buttonClasses } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Checkbox } from "@/components/ui/checkbox";
 import { ConfirmDialog } from "@/components/ui/confirm-dialog";
@@ -13,6 +13,7 @@ import { Field } from "@/components/ui/field";
 import { Input } from "@/components/ui/input";
 import { Select } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
+import { toast } from "@/components/ui/toaster";
 import {
   approveBookingRequestAction,
   rejectBookingRequestAction,
@@ -59,6 +60,7 @@ export function BookingRequestDetail({
     ): Promise<TransientActionResult> => {
       const res = await approveBookingRequestAction(prev, formData);
       if (res.status === "saved") {
+        toast.success(res.message);
         router.refresh();
       }
       return res;
@@ -73,6 +75,7 @@ export function BookingRequestDetail({
     ): Promise<TransientActionResult> => {
       const res = await rejectBookingRequestAction(prev, formData);
       if (res.status === "saved") {
+        toast.success(res.message);
         router.refresh();
       }
       return res;
@@ -93,6 +96,7 @@ export function BookingRequestDetail({
       setWithdrawFeedback(res);
       if (res.status === "saved") {
         setConfirmAction(null);
+        toast.success(res.message);
         router.refresh();
       } else if (res.status === "error") {
         setWithdrawError(res.message);
@@ -110,8 +114,9 @@ export function BookingRequestDetail({
 
   return (
     <div className="grid min-w-0 gap-6">
-      <div className="flex flex-wrap items-start justify-between gap-4">
-        <div className="grid gap-1">
+      <div className="grid gap-2">
+        <BackLink href="/transients/requests">Booking requests</BackLink>
+        <header className="grid gap-1">
           <div className="flex flex-wrap items-center gap-2">
             <span className="font-mono text-xs font-semibold text-muted-foreground">
               {request.referenceCode}
@@ -141,31 +146,11 @@ export function BookingRequestDetail({
               {request.nights === 1 ? "night" : "nights"})
             </span>
           </div>
-        </div>
-
-        <Link
-          href="/transients"
-          className={buttonClasses({ variant: "secondary", size: "sm" })}
-        >
-          Back to transients
-        </Link>
+        </header>
       </div>
 
-      {approveState.status === "saved" && (
-        <Alert tone="success" role="status">
-          {approveState.message}
-        </Alert>
-      )}
-      {rejectState.status === "saved" && (
-        <Alert tone="info" role="status">
-          {rejectState.message}
-        </Alert>
-      )}
-      {withdrawFeedback.status !== "idle" && (
-        <Alert
-          tone={withdrawFeedback.status === "saved" ? "info" : "danger"}
-          role="status"
-        >
+      {withdrawFeedback.status === "error" && (
+        <Alert tone="danger" role="alert">
           {withdrawFeedback.message}
         </Alert>
       )}
@@ -235,15 +220,15 @@ export function BookingRequestDetail({
           </dl>
 
           {request.notes && (
-            <div className="rounded-control border border-border bg-surface-muted p-3 text-sm text-foreground">
-              <p className="mb-1 text-xs font-medium text-muted-foreground">
+            <div className="grid gap-1 border-t border-border pt-3 text-sm text-foreground">
+              <p className="text-xs font-medium text-muted-foreground">
                 Visitor note
               </p>
               <p>{request.notes}</p>
             </div>
           )}
 
-          <div className="rounded-control border border-border bg-surface-muted p-3 text-sm">
+          <div className="grid gap-0.5 border-t border-border pt-3 text-sm">
             <p className="font-medium text-foreground">
               Live room check ({formatManilaDate(request.checkInDateManila)}{" "}
               &rarr; {formatManilaDate(request.checkOutDateManila)})
@@ -449,10 +434,10 @@ export function BookingRequestDetail({
             )}
             {request.approvedReservationId && (
               <Link
-                href="/transients"
+                href="/transients/stays"
                 className={buttonClasses({ variant: "secondary", size: "sm" })}
               >
-                Manage stay in Transients
+                Manage stay in Stays &amp; reservations
               </Link>
             )}
           </Card>

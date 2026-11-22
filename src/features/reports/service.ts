@@ -53,10 +53,14 @@ import {
   LEASE_EXPIRY_BUCKETS,
   type LeaseExpiryBucketValue,
 } from "./calculations";
-import { buildReportCsv, buildReportCsvFilename } from "./csv";
+import { buildReportCsv } from "./csv";
+import { buildReportExcel } from "./export-excel";
+import { buildReportPdf } from "./export-pdf";
+import { buildReportWord } from "./export-word";
 import {
   AGING_BUCKETS,
   AGING_BUCKET_LABELS,
+  REPORT_EXPORT_CONTENT_TYPES,
   ReportExportQuerySchema,
   resolveReportFilters,
   type AgingBucketValue,
@@ -76,6 +80,7 @@ import {
   type RentRollExpiryBucketDto,
   type RentRollRoomTypeSummaryDto,
   type RentRollRowDto,
+  type ReportExportFormat,
   type ReportsOverviewDto,
   type ReportTypeValue,
   type ResolvedReportFilters,
@@ -83,6 +88,10 @@ import {
   type TransientRoomTypeSummaryDto,
   type TransientStatusSummaryDto,
 } from "./schemas";
+import {
+  buildReportExportFilename,
+  buildSharedReportDocument,
+} from "./template";
 
 const ZERO = BigInt(0);
 const REPORT_EXPORT_MAX_PER_WINDOW = 30;
@@ -101,26 +110,6 @@ function getAgingBucket(daysPastDue: number): AgingBucketValue {
   if (daysPastDue <= 60) return "31_60";
   if (daysPastDue <= 90) return "61_90";
   return "91_PLUS";
-}
-
-function summarizeReportRowCount(
-  reportType: ReportTypeValue,
-  overview: ReportsOverviewDto,
-): number {
-  switch (reportType) {
-    case "occupancy":
-      return overview.occupancy.rows.length;
-    case "rent-roll":
-      return overview.rentRoll.rows.length;
-    case "receivables-aging":
-      return overview.receivablesAging.rows.length;
-    case "collections":
-      return overview.collections.rows.length;
-    case "transient-revenue":
-      return overview.transientRevenue.rows.length;
-    case "maintenance":
-      return overview.maintenance.rows.length;
-  }
 }
 
 async function consumeReportExportLimit(ownerUserId: string): Promise<number> {
@@ -1683,27 +1672,34 @@ export async function getReportsOverview(
 }
 
 /**
- * Generates a bounded CSV export for one report, enforces the database-backed
- * rate limit, and writes an identifier-only `report.exported` audit entry before
- * returning the attachment content.
+ * Generates a bounded report export in CSV, Excel (`.xlsx`), Word (`.docx`), or
+ * PDF (`.pdf`) using Daisy's shared report template, enforces the DB-backed export
+ * rate limit, and records an identifier-only `report.exported` audit entry.
  */
-export async function exportReportCsv(
+export async function exportReport(
   ownerUserId: string,
   rawReportType: unknown,
+  rawFormat: unknown = "csv",
   rawFilters: Record<string, unknown> = {},
   nowUtc: Date = new Date(),
 ): Promise<{
   reportType: ReportTypeValue;
+  format: ReportExportFormat;
   filename: string;
-  csv: string;
+  contentType: string;
+  bytes: Uint8Array;
   rowCount: number;
   auditLogId: string;
 }> {
-  const parsedType = ReportExportQuerySchema.safeParse({
+  const parsedQuery = ReportExportQuerySchema.safeParse({
     reportType: rawReportType,
+    format: rawFormat,
   });
-  if (!parsedType.success) {
-    throw new ValidationError("Select a valid report to export.");
+  if (!parsedQuery.success) {
+    throw new ValidationError(
+      parsedQuery.error.issues[0]?.message ??
+        "Select a valid report and export format.",
+    );
   }
 
   let filters: ResolvedReportFilters;
@@ -1723,19 +1719,28 @@ export async function exportReportCsv(
     );
   }
 
-  const reportType = parsedType.data.reportType;
+  const { reportType, format } = parsedQuery.data;
 
-  return getDatabase().$transaction(
+  const { overview, doc, auditLogId } = await getDatabase().$transaction(
     async (tx) => {
-      const overview = await computeReportsOverviewInTx(
-        tx,
-        ownerUserId,
-        filters,
-        nowUtc,
+      const [overviewResult, businessSettings] = await Promise.all([
+        computeReportsOverviewInTx(tx, ownerUserId, filters, nowUtc),
+        tx.businessSettings.findUnique({
+          where: { ownerUserId },
+          select: {
+            businessName: true,
+            businessAddress: true,
+            businessPhone: true,
+            tin: true,
+          },
+        }),
+      ]);
+
+      const reportDoc = buildSharedReportDocument(
+        reportType,
+        overviewResult,
+        businessSettings ?? undefined,
       );
-      const rowCount = summarizeReportRowCount(reportType, overview);
-      const csv = buildReportCsv(reportType, overview);
-      const filename = buildReportCsvFilename(reportType, overview.filters);
 
       const auditEntry = await writeAuditEntry(tx, {
         ownerUserId,
@@ -1747,19 +1752,18 @@ export async function exportReportCsv(
         entityId: reportType,
         metadata: {
           reportType,
-          asOfDate: overview.filters.asOfDate,
-          fromDate: overview.filters.fromDate,
-          toDate: overview.filters.toDate,
-          building: overview.filters.building,
-          rowCount,
+          format,
+          asOfDate: overviewResult.filters.asOfDate,
+          fromDate: overviewResult.filters.fromDate,
+          toDate: overviewResult.filters.toDate,
+          building: overviewResult.filters.building,
+          rowCount: reportDoc.rowCount,
         },
       });
 
       return {
-        reportType,
-        filename,
-        csv,
-        rowCount,
+        overview: overviewResult,
+        doc: reportDoc,
         auditLogId: auditEntry.id,
       };
     },
@@ -1769,4 +1773,63 @@ export async function exportReportCsv(
       timeout: 15000,
     },
   );
+
+  let bytes: Uint8Array;
+  switch (format) {
+    case "xlsx":
+      bytes = await buildReportExcel(doc);
+      break;
+    case "docx":
+      bytes = await buildReportWord(doc);
+      break;
+    case "pdf":
+      bytes = await buildReportPdf(doc);
+      break;
+    case "csv":
+      bytes = new TextEncoder().encode(buildReportCsv(reportType, overview));
+      break;
+  }
+
+  return {
+    reportType,
+    format,
+    filename: buildReportExportFilename(reportType, overview.filters, format),
+    contentType: REPORT_EXPORT_CONTENT_TYPES[format],
+    bytes,
+    rowCount: doc.rowCount,
+    auditLogId,
+  };
+}
+
+/**
+ * Generates a bounded CSV export for one report, enforces the database-backed
+ * rate limit, and writes an identifier-only `report.exported` audit entry before
+ * returning the attachment content.
+ */
+export async function exportReportCsv(
+  ownerUserId: string,
+  rawReportType: unknown,
+  rawFilters: Record<string, unknown> = {},
+  nowUtc: Date = new Date(),
+): Promise<{
+  reportType: ReportTypeValue;
+  filename: string;
+  csv: string;
+  rowCount: number;
+  auditLogId: string;
+}> {
+  const result = await exportReport(
+    ownerUserId,
+    rawReportType,
+    "csv",
+    rawFilters,
+    nowUtc,
+  );
+  return {
+    reportType: result.reportType,
+    filename: result.filename,
+    csv: new TextDecoder().decode(result.bytes),
+    rowCount: result.rowCount,
+    auditLogId: result.auditLogId,
+  };
 }

@@ -13,7 +13,10 @@ import { PaymentCreateForm } from "@/components/features/payments/payment-create
 import { PaymentsWorkspace } from "@/components/features/payments/payments-workspace";
 import { RoomsWorkspace } from "@/components/features/rooms/rooms-workspace";
 import { TenantsWorkspace } from "@/components/features/tenants/tenants-workspace";
-import { TransientsWorkspace } from "@/components/features/transients/transients-workspace";
+import {
+  TransientsWorkspace,
+  type TransientWorkspaceSection,
+} from "@/components/features/transients/transients-workspace";
 import { WorkspaceShell } from "@/components/layout/workspace-shell";
 import { Alert } from "@/components/ui/alert";
 import { buttonClasses } from "@/components/ui/button";
@@ -51,11 +54,19 @@ import { DAISY_OFFLINE_VAULT_EVENT } from "@/offline/workspace-bridge";
 import { OfflineVaultUnlockCard } from "./offline-vault-unlock";
 import { OfflineVaultWorkspace } from "./offline-vault-workspace";
 
+function resolveTransientOfflineSection(
+  pathname: string,
+): TransientWorkspaceSection {
+  if (pathname === "/transients/requests") return "requests";
+  return "stays";
+}
+
 function resolveOfflineShellTitle(pathname: string): string {
   if (pathname === "/") return "Dashboard";
   if (pathname.startsWith("/tenants")) return "Tenants";
   if (pathname.startsWith("/transients/rooms")) return "Transient rooms";
-  if (pathname.startsWith("/transients")) return "Transients";
+  if (pathname === "/transients/requests") return "Booking requests";
+  if (pathname.startsWith("/transients")) return "Stays & reservations";
   if (pathname.startsWith("/payments/new")) return "Record payment";
   if (pathname.startsWith("/payments")) return "Payments";
   if (pathname.startsWith("/maintenance/new")) return "Log maintenance";
@@ -80,6 +91,7 @@ type OfflineRouteData =
     }
   | {
       kind: "transients";
+      section: TransientWorkspaceSection;
       overview: TransientsOverviewDto;
       syncBadges: Record<string, OfflineEntitySyncBadge>;
       lastSyncedAt: string | null;
@@ -124,7 +136,14 @@ type OfflineRouteData =
 function isSupportedOfflineDomainRoute(pathname: string): boolean {
   if (pathname === "/") return true;
   if (pathname === "/tenants") return true;
-  if (pathname === "/transients") return true;
+  if (
+    pathname === "/transients" ||
+    pathname === "/transients/stays" ||
+    pathname === "/transients/requests" ||
+    pathname === "/transients/guests"
+  ) {
+    return true;
+  }
   if (pathname === "/transients/rooms") return true;
   if (pathname === "/payments" || pathname === "/payments/new") return true;
   if (pathname.startsWith("/maintenance")) return true;
@@ -170,9 +189,18 @@ export function OfflineRouteFallback() {
         setRouteData({ kind: "tenants", ...res });
         return;
       }
-      if (pathname === "/transients") {
+      if (
+        pathname === "/transients" ||
+        pathname === "/transients/stays" ||
+        pathname === "/transients/requests" ||
+        pathname === "/transients/guests"
+      ) {
         const res = await loadTransientsOverviewFromVault(db, key);
-        setRouteData({ kind: "transients", ...res });
+        setRouteData({
+          kind: "transients",
+          section: resolveTransientOfflineSection(pathname),
+          ...res,
+        });
         return;
       }
       if (pathname === "/transients/rooms" || pathname === "/rooms") {
@@ -285,6 +313,7 @@ export function OfflineRouteFallback() {
           />
         ) : routeData.kind === "transients" ? (
           <TransientsWorkspace
+            section={routeData.section}
             initialOverview={routeData.overview}
             offlineMode
             initialLastSyncedAt={routeData.lastSyncedAt}
@@ -398,10 +427,10 @@ export function OfflineRouteFallback() {
             Tenants
           </Link>
           <Link
-            href="/transients"
+            href="/transients/stays"
             className={buttonClasses({ variant: "secondary", size: "md" })}
           >
-            Transients
+            Stays &amp; reservations
           </Link>
           <Link
             href="/payments"

@@ -5,7 +5,6 @@ import Image from "next/image";
 import { Alert } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { Card } from "@/components/ui/card";
 import {
   EmptyState,
   EmptyStateActions,
@@ -13,7 +12,7 @@ import {
   EmptyStateTitle,
 } from "@/components/ui/empty-state";
 import { Field } from "@/components/ui/field";
-import { Input } from "@/components/ui/input";
+import { DatePicker } from "@/components/ui/date-picker";
 import {
   SearchFilterBar,
   SearchFilterInput,
@@ -321,15 +320,13 @@ export function AuditLogExplorer({
 
           <Field id="audit-from" label="From date">
             {(props) => (
-              <Input
+              <DatePicker
                 {...props}
-                variant="filter"
-                type="date"
                 value={filters.fromDate}
-                onChange={(event) =>
+                onValueChange={(next) =>
                   setFilters((prev) => ({
                     ...prev,
-                    fromDate: event.target.value,
+                    fromDate: next,
                   }))
                 }
               />
@@ -338,15 +335,13 @@ export function AuditLogExplorer({
 
           <Field id="audit-to" label="To date">
             {(props) => (
-              <Input
+              <DatePicker
                 {...props}
-                variant="filter"
-                type="date"
                 value={filters.toDate}
-                onChange={(event) =>
+                onValueChange={(next) =>
                   setFilters((prev) => ({
                     ...prev,
-                    toDate: event.target.value,
+                    toDate: next,
                   }))
                 }
               />
@@ -418,36 +413,34 @@ export function AuditLogExplorer({
             </span>
           </div>
 
-          <ul className="grid gap-3 p-3 md:hidden">
+          <ul className="divide-y divide-border md:hidden">
             {paginatedEntries.map((entry) => (
-              <li key={entry.id}>
-                <Card className="grid gap-2.5 p-4">
-                  <div className="flex flex-wrap items-center justify-between gap-2">
-                    <Badge tone={AREA_BADGE_TONE[entry.area] ?? "neutral"}>
-                      {AUDIT_AREA_LABELS[
-                        entry.area as keyof typeof AUDIT_AREA_LABELS
-                      ] ?? entry.area}
-                    </Badge>
-                    <span className="text-xs text-muted-foreground tabular-nums">
-                      {formatManilaDateTime(new Date(entry.createdAt))}
-                    </span>
+              <li key={entry.id} className="grid gap-2.5 p-4">
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <Badge tone={AREA_BADGE_TONE[entry.area] ?? "neutral"}>
+                    {AUDIT_AREA_LABELS[
+                      entry.area as keyof typeof AUDIT_AREA_LABELS
+                    ] ?? entry.area}
+                  </Badge>
+                  <span className="text-xs text-muted-foreground tabular-nums">
+                    {formatManilaDateTime(new Date(entry.createdAt))}
+                  </span>
+                </div>
+                <p className="text-xs font-medium text-foreground">
+                  {formatActivityLabel(entry.action)}
+                </p>
+                <div className="flex flex-wrap items-center justify-between gap-2 text-xs text-muted-foreground">
+                  <div className="grid gap-0.5">
+                    <span>{formatActivityActor(entry.actorType)}</span>
+                    <span>{formatActivityLabel(entry.entityType)}</span>
                   </div>
-                  <p className="text-xs font-medium text-foreground">
-                    {formatActivityLabel(entry.action)}
-                  </p>
-                  <div className="flex flex-wrap items-center justify-between gap-2 text-xs text-muted-foreground">
-                    <div className="grid gap-0.5">
-                      <span>{formatActivityActor(entry.actorType)}</span>
-                      <span>{formatActivityLabel(entry.entityType)}</span>
-                    </div>
-                    {entry.sequence && (
-                      <span className="tabular-nums">#{entry.sequence}</span>
-                    )}
-                  </div>
-                  <p className="truncate rounded-control bg-background px-2.5 py-1.5 font-mono text-xs text-muted-foreground">
-                    {entry.entityId}
-                  </p>
-                </Card>
+                  {entry.sequence && (
+                    <span className="tabular-nums">#{entry.sequence}</span>
+                  )}
+                </div>
+                <p className="truncate font-mono text-xs text-muted-foreground">
+                  {entry.entityId}
+                </p>
               </li>
             ))}
           </ul>

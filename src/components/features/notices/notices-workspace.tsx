@@ -4,6 +4,7 @@ import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 
 import { useState, useTransition } from "react";
 import Image from "next/image";
+import Link from "next/link";
 import {
   OfflineSnapshotBanner,
   useOfflineSnapshotState,
@@ -39,11 +40,14 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { TablePagination } from "@/components/ui/table-pagination";
+import { toast } from "@/components/ui/toaster";
 import {
   archiveNoticeAction,
   restoreNoticeAction,
+  sendNoticeSmsAction,
 } from "@/features/notices/actions";
 import {
+  formatNoticeSmsText,
   NOTICE_AUDIENCE_LABELS,
   NOTICE_AUDIENCES,
   NOTICE_LIFECYCLE_LABELS,
@@ -51,6 +55,7 @@ import {
   type NoticeDto,
   type NoticeOverviewDto,
 } from "@/features/notices/schemas";
+import { estimateSmsSegments } from "@/features/sms/schemas";
 import { useTablePagination } from "@/hooks/use-table-pagination";
 import { useTableSort } from "@/hooks/use-table-sort";
 import { formatManilaDate } from "@/lib/dates";
@@ -217,31 +222,58 @@ export function NoticesWorkspace({
     null,
   );
   const [confirmError, setConfirmError] = useState<string | null>(null);
-  const [feedback, setFeedback] = useState<{
-    tone: "success" | "danger";
-    message: string;
-  } | null>(null);
+  const [smsTargetNotice, setSmsTargetNotice] = useState<NoticeDto | null>(
+    null,
+  );
+  const [smsConfirmError, setSmsConfirmError] = useState<string | null>(null);
+  const [sendingSms, setSendingSms] = useState(false);
+  const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [refreshing, startRefresh] = useTransition();
+
+  async function handleCopyNotice(notice: NoticeDto) {
+    const text = `${notice.title}\n\n${notice.body}`;
+    try {
+      await navigator.clipboard.writeText(text);
+      toast.success("Notice copied to clipboard.");
+    } catch {
+      toast.error("Could not copy to clipboard.");
+    }
+  }
+
+  async function handleSendNoticeSms(notice: NoticeDto) {
+    if (sendingSms) return;
+    setSendingSms(true);
+    setSmsConfirmError(null);
+    try {
+      const result = await sendNoticeSmsAction({ noticeId: notice.id });
+      if (result.status === "error") {
+        setSmsConfirmError(result.message);
+        return;
+      }
+      if (result.status === "saved") {
+        setSmsTargetNotice(null);
+        toast.success(result.message);
+      }
+    } finally {
+      setSendingSms(false);
+    }
+  }
 
   async function reloadNotices() {
     startRefresh(async () => {
       try {
         await reload();
       } catch (error) {
-        setFeedback({
-          tone: "danger",
-          message:
-            error instanceof Error
-              ? error.message
-              : "Could not refresh notices.",
-        });
+        setErrorMessage(
+          error instanceof Error ? error.message : "Could not refresh notices.",
+        );
       }
     });
   }
 
   function handleArchiveToggle(notice: NoticeDto) {
     setBusyNoticeId(notice.id);
-    setFeedback(null);
+    setErrorMessage(null);
     setConfirmError(null);
     startRefresh(async () => {
       try {
@@ -258,7 +290,7 @@ export function NoticesWorkspace({
           setConfirmError(result.message);
         } else if (result.status === "saved") {
           setConfirmingNotice(null);
-          setFeedback({ tone: "success", message: result.message });
+          toast.success(result.message);
           await reloadNotices();
         }
       } finally {
@@ -318,6 +350,26 @@ export function NoticesWorkspace({
       ...(!notice.archivedAt
         ? [
             {
+              id: "send-sms",
+              label: isOfflineView
+                ? "Send via SMS (online only)"
+                : !overview.smsConfigured
+                  ? "Send via SMS (connect Semaphore)"
+                  : notice.smsSentAt
+                    ? "Resend via SMS"
+                    : "Send via SMS",
+              disabled: isOfflineView || !overview.smsConfigured,
+              onSelect: () => {
+                setSmsConfirmError(null);
+                setSmsTargetNotice(notice);
+              },
+            },
+            {
+              id: "copy",
+              label: "Copy message",
+              onSelect: () => void handleCopyNotice(notice),
+            },
+            {
               id: "edit",
               label: isOfflineView ? "Edit (online only)" : "Edit",
               disabled: isOfflineView,
@@ -328,7 +380,13 @@ export function NoticesWorkspace({
               },
             },
           ]
-        : []),
+        : [
+            {
+              id: "copy",
+              label: "Copy message",
+              onSelect: () => void handleCopyNotice(notice),
+            },
+          ]),
       {
         id: notice.archivedAt ? "restore" : "archive",
         label: notice.archivedAt
@@ -357,8 +415,8 @@ export function NoticesWorkspace({
             Notices &amp; announcements
           </h1>
           <p className="text-sm leading-6 text-muted-foreground">
-            Publish property-wide, room, or individual tenant notices with
-            effective date ranges.
+            Write announcements for everyone, a room, or a tenant, and send them
+            by text via Semaphore.
           </p>
         </div>
 
@@ -396,12 +454,23 @@ export function NoticesWorkspace({
         onSyncNow={reloadNotices}
       />
 
-      {feedback && (
-        <Alert
-          tone={feedback.tone === "success" ? "success" : "danger"}
-          role={feedback.tone === "success" ? "status" : "alert"}
-        >
-          {feedback.message}
+      {errorMessage && (
+        <Alert tone="danger" role="alert">
+          {errorMessage}
+        </Alert>
+      )}
+
+      {!isOfflineView && !overview.smsConfigured && (
+        <Alert tone="info">
+          Connect your Semaphore account in{" "}
+          <Link
+            href="/settings/sms"
+            className="font-medium underline underline-offset-2"
+          >
+            Overdue SMS settings
+          </Link>{" "}
+          to text notices directly to tenants. You can still copy any notice for
+          Messenger or Viber.
         </Alert>
       )}
 
@@ -562,9 +631,20 @@ export function NoticesWorkspace({
                       {formatAudienceTarget(notice)}
                     </p>
                   </div>
-                  <Badge tone={NOTICE_LIFECYCLE_TONE[notice.lifecycleStatus]}>
-                    {NOTICE_LIFECYCLE_LABELS[notice.lifecycleStatus]}
-                  </Badge>
+                  <div className="grid justify-items-end gap-1">
+                    <Badge tone={NOTICE_LIFECYCLE_TONE[notice.lifecycleStatus]}>
+                      {NOTICE_LIFECYCLE_LABELS[notice.lifecycleStatus]}
+                    </Badge>
+                    {notice.smsSentAt ? (
+                      <span className="text-[11px] text-muted-foreground tabular-nums">
+                        Texted to {notice.smsSentCount}
+                      </span>
+                    ) : notice.lifecycleStatus === "SCHEDULED" ? (
+                      <span className="text-[11px] text-muted-foreground">
+                        Auto-SMS scheduled
+                      </span>
+                    ) : null}
+                  </div>
                 </div>
 
                 <p className="line-clamp-3 text-xs leading-5 text-foreground">
@@ -631,11 +711,24 @@ export function NoticesWorkspace({
                       {formatManilaDate(notice.endDateManila)}
                     </TableCell>
                     <TableCell>
-                      <Badge
-                        tone={NOTICE_LIFECYCLE_TONE[notice.lifecycleStatus]}
-                      >
-                        {NOTICE_LIFECYCLE_LABELS[notice.lifecycleStatus]}
-                      </Badge>
+                      <div className="grid gap-1">
+                        <div>
+                          <Badge
+                            tone={NOTICE_LIFECYCLE_TONE[notice.lifecycleStatus]}
+                          >
+                            {NOTICE_LIFECYCLE_LABELS[notice.lifecycleStatus]}
+                          </Badge>
+                        </div>
+                        {notice.smsSentAt ? (
+                          <span className="text-xs text-muted-foreground tabular-nums">
+                            Texted to {notice.smsSentCount}
+                          </span>
+                        ) : notice.lifecycleStatus === "SCHEDULED" ? (
+                          <span className="text-xs text-muted-foreground">
+                            Auto-SMS scheduled
+                          </span>
+                        ) : null}
+                      </div>
                     </TableCell>
                     <TableCell className="text-right">
                       <RowActionMenu
@@ -663,16 +756,49 @@ export function NoticesWorkspace({
           todayManila={overview.todayManila}
           rooms={overview.rooms}
           tenants={overview.tenants}
+          smsConfigured={overview.smsConfigured}
+          businessName={overview.businessName}
           onClose={() => {
             setDialogOpen(false);
             setEditingNotice(null);
           }}
           onSaved={async (message) => {
-            setFeedback({ tone: "success", message });
+            toast.success(message);
             await reloadNotices();
           }}
         />
       )}
+      <ConfirmDialog
+        open={smsTargetNotice !== null}
+        onClose={() => {
+          if (sendingSms) return;
+          setSmsConfirmError(null);
+          setSmsTargetNotice(null);
+        }}
+        onConfirm={() => {
+          if (smsTargetNotice) void handleSendNoticeSms(smsTargetNotice);
+        }}
+        title={
+          smsTargetNotice
+            ? `Send "${smsTargetNotice.title}" via SMS?`
+            : "Send notice via SMS?"
+        }
+        description={(() => {
+          if (!smsTargetNotice) return undefined;
+          const preview = formatNoticeSmsText({
+            title: smsTargetNotice.title,
+            body: smsTargetNotice.body,
+            businessName: overview.businessName,
+          });
+          const est = estimateSmsSegments(preview);
+          const audienceText = formatAudienceTarget(smsTargetNotice);
+          return `Audience: ${audienceText}. Preview (${est.length} characters · ${est.segments} ${est.segments === 1 ? "text credit" : "text credits"} per recipient): "${preview}"`;
+        })()}
+        errorMessage={smsConfirmError}
+        confirmLabel="Send text"
+        confirmVariant="primary"
+        loading={sendingSms}
+      />
       <ConfirmDialog
         open={confirmingNotice !== null}
         onClose={() => {

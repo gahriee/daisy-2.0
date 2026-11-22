@@ -8,9 +8,11 @@ import { Button } from "@/components/ui/button";
 import { Dialog } from "@/components/ui/dialog";
 import { TableEmptyState } from "@/components/ui/empty-state";
 import { Field } from "@/components/ui/field";
+import { DatePicker } from "@/components/ui/date-picker";
 import { Input } from "@/components/ui/input";
 import { Select } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
+import { toast, type SavedFeedbackTone } from "@/components/ui/toaster";
 import {
   assignTenantToBedAction,
   createTenantAction,
@@ -67,7 +69,7 @@ export function CreateTenantDialog({
   offlineMode?: boolean;
   onClose: () => void;
   onRequireVaultUnlock?: () => void;
-  onSaved: (message: string) => void | Promise<void>;
+  onSaved: (message: string, tone?: SavedFeedbackTone) => void | Promise<void>;
 }) {
   const [clientId, setClientId] = useState(() =>
     typeof crypto !== "undefined" && typeof crypto.randomUUID === "function"
@@ -125,7 +127,10 @@ export function CreateTenantDialog({
           });
           if (res.delivery === "needs_attention") {
             onClose();
-            await onSaved(`Tenant saved in Needs attention: ${res.reason}`);
+            await onSaved(
+              `Tenant saved in Needs attention: ${res.reason}`,
+              "warning",
+            );
             return { status: "idle" };
           }
           if (
@@ -135,7 +140,10 @@ export function CreateTenantDialog({
             setClientId(crypto.randomUUID());
           }
           onClose();
-          await onSaved(res.message);
+          await onSaved(
+            res.message,
+            res.delivery === "queued" ? "info" : "success",
+          );
           return { status: "saved", message: res.message, tenantId: entityId };
         } catch (error) {
           if (error instanceof OfflineVaultLockedError) {
@@ -303,7 +311,7 @@ export function EditTenantDialog({
   offlineMode?: boolean;
   onClose: () => void;
   onRequireVaultUnlock?: () => void;
-  onSaved: (message: string) => void | Promise<void>;
+  onSaved: (message: string, tone?: SavedFeedbackTone) => void | Promise<void>;
 }) {
   const [state, submitAction, pending] = useActionState(
     async (
@@ -357,10 +365,16 @@ export function EditTenantDialog({
           });
           onClose();
           if (res.delivery === "needs_attention") {
-            await onSaved(`Changes saved in Needs attention: ${res.reason}`);
+            await onSaved(
+              `Changes saved in Needs attention: ${res.reason}`,
+              "warning",
+            );
             return { status: "idle" };
           }
-          await onSaved(res.message);
+          await onSaved(
+            res.message,
+            res.delivery === "queued" ? "info" : "success",
+          );
           return { status: "saved", message: res.message, tenantId: tenant.id };
         } catch (error) {
           if (error instanceof OfflineVaultLockedError) {
@@ -501,7 +515,7 @@ function AssignBedForm({
   tenant: TenantDto;
   beds: AssignableBedOptionDto[];
   onClose: () => void;
-  onSaved: (message: string) => void | Promise<void>;
+  onSaved: (message: string, tone?: SavedFeedbackTone) => void | Promise<void>;
 }) {
   const roomUnits = beds.filter(
     (bed, idx, arr) => arr.findIndex((b) => b.roomId === bed.roomId) === idx,
@@ -612,10 +626,10 @@ function AssignBedForm({
           }
         >
           {(fieldProps) => (
-            <Input
+            <DatePicker
               {...fieldProps}
+              required
               name="startDateManila"
-              type="date"
               defaultValue={todayManila}
             />
           )}
@@ -631,10 +645,10 @@ function AssignBedForm({
           }
         >
           {(fieldProps) => (
-            <Input
+            <DatePicker
               {...fieldProps}
+              required
               name="endDateManila"
-              type="date"
               defaultValue={defaultEndManila}
             />
           )}
@@ -699,7 +713,7 @@ export function AssignBedDialog({
   tenant: TenantDto | null;
   beds: AssignableBedOptionDto[];
   onClose: () => void;
-  onSaved: (message: string) => void | Promise<void>;
+  onSaved: (message: string, tone?: SavedFeedbackTone) => void | Promise<void>;
 }) {
   return (
     <Dialog
@@ -728,7 +742,7 @@ function MoveOutForm({
 }: {
   assignment: TenantAssignmentDto;
   onClose: () => void;
-  onSaved: (message: string) => void | Promise<void>;
+  onSaved: (message: string, tone?: SavedFeedbackTone) => void | Promise<void>;
 }) {
   const [mode, setMode] = useState<"complete" | "cancel">("complete");
   const todayManila = toManilaDate(new Date());
@@ -789,10 +803,10 @@ function MoveOutForm({
           }
         >
           {(fieldProps) => (
-            <Input
+            <DatePicker
               {...fieldProps}
+              required
               name="actualMoveOutDateManila"
-              type="date"
               defaultValue={todayManila}
             />
           )}
@@ -828,7 +842,7 @@ export function MoveOutAssignmentDialog({
   assignment: TenantAssignmentDto | null;
   tenantName: string;
   onClose: () => void;
-  onSaved: (message: string) => void | Promise<void>;
+  onSaved: (message: string, tone?: SavedFeedbackTone) => void | Promise<void>;
 }) {
   return (
     <Dialog
@@ -885,17 +899,11 @@ function TenantNotesForm({
     setConfirmingNote(note);
     onConfirmOpenChange?.(note !== null);
   }
-  const [noteFeedback, setNoteFeedback] = useState<{
-    tone: "success" | "danger";
-    message: string;
-  } | null>(null);
-
   const [state, submitAction, pending] = useActionState(
     async (
       prev: TenantNoteActionResult,
       formData: FormData,
     ): Promise<TenantNoteActionResult> => {
-      setNoteFeedback(null);
       const res = await createTenantNoteAction(prev, formData);
       if (res.status === "saved" && res.note) {
         const addedNote = res.note;
@@ -904,7 +912,7 @@ function TenantNotesForm({
           addedNote,
           ...current.filter((entry) => entry.id !== addedNote.id),
         ]);
-        setNoteFeedback({ tone: "success", message: res.message });
+        toast.success(res.message);
         await onNotesChanged();
       }
       return res;
@@ -914,7 +922,6 @@ function TenantNotesForm({
 
   async function handleDelete(noteId: string) {
     if (deletingId || pending || isArchived) return;
-    setNoteFeedback(null);
     setDeleteError(null);
     setDeletingId(noteId);
     try {
@@ -925,7 +932,7 @@ function TenantNotesForm({
       if (res.status === "saved") {
         setDeleteTarget(null);
         setItems((current) => current.filter((entry) => entry.id !== noteId));
-        setNoteFeedback({ tone: "success", message: res.message });
+        toast.success(res.message);
         await onNotesChanged();
       } else if (res.status === "error") {
         setDeleteError(res.message);
@@ -939,15 +946,6 @@ function TenantNotesForm({
 
   return (
     <div className="grid gap-4">
-      {noteFeedback && (
-        <Alert
-          tone={noteFeedback.tone}
-          role={noteFeedback.tone === "danger" ? "alert" : "status"}
-        >
-          {noteFeedback.message}
-        </Alert>
-      )}
-
       {state.status === "error" && (
         <Alert tone="danger" role="alert">
           {state.message}
@@ -992,7 +990,7 @@ function TenantNotesForm({
           Recorded notes ({items.length})
         </span>
         {items.length === 0 ? (
-          <div className="rounded-control border border-border bg-background/50">
+          <div className="border-t border-border">
             <TableEmptyState
               illustrationSize="xs"
               className="py-6 sm:py-6"
@@ -1001,12 +999,9 @@ function TenantNotesForm({
             />
           </div>
         ) : (
-          <ul className="grid max-h-72 gap-2 overflow-y-auto pr-1">
+          <ul className="max-h-72 divide-y divide-border overflow-y-auto border-t border-border pr-1">
             {items.map((note) => (
-              <li
-                key={note.id}
-                className="grid gap-1.5 rounded-control border border-border bg-background/60 p-3"
-              >
+              <li key={note.id} className="grid gap-1.5 py-3 last:pb-0">
                 <div className="flex items-center justify-between gap-2">
                   <time
                     dateTime={note.createdAt}

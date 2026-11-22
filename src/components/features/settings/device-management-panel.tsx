@@ -21,6 +21,7 @@ import {
 } from "@/components/ui/search-filter";
 import { Select } from "@/components/ui/select";
 import { Separator } from "@/components/ui/separator";
+import { toast } from "@/components/ui/toaster";
 import {
   Table,
   TableBody,
@@ -113,7 +114,6 @@ export function DeviceManagementPanel({
   const [devices, setDevices] = useState<ClientDeviceSummary[]>(initialDevices);
   const [label, setLabel] = useState("");
   const [labelError, setLabelError] = useState("");
-  const [statusMessage, setStatusMessage] = useState("");
   const [errorMessage, setErrorMessage] = useState("");
   const [registering, setRegistering] = useState(false);
   const [revokingId, setRevokingId] = useState<string | null>(null);
@@ -162,7 +162,6 @@ export function DeviceManagementPanel({
     event.preventDefault();
     if (registering) return;
     setLabelError("");
-    setStatusMessage("");
     setErrorMessage("");
 
     const trimmed = label.trim();
@@ -189,11 +188,11 @@ export function DeviceManagementPanel({
         return;
       }
       setLabel("");
-      setStatusMessage(
-        data.reused
-          ? `This browser is already trusted as ${data.label}.`
-          : `Added this browser as ${data.label}.`,
-      );
+      if (data.reused) {
+        toast.info(`This browser is already trusted as ${data.label}.`);
+      } else {
+        toast.success(`Added this browser as ${data.label}.`);
+      }
       await refreshDevices();
     } catch {
       setErrorMessage("Connection stopped before adding this device.");
@@ -208,7 +207,6 @@ export function DeviceManagementPanel({
 
   async function handleRevoke(deviceId: string) {
     if (revokingId) return;
-    setStatusMessage("");
     setErrorMessage("");
     setRevokeError(null);
     setRevokingId(deviceId);
@@ -225,7 +223,7 @@ export function DeviceManagementPanel({
         return;
       }
       setConfirmingDevice(null);
-      setStatusMessage(
+      toast.success(
         "Device access removed. This device can no longer save offline changes or upload photos. You will stay signed in.",
       );
       await refreshDevices();
@@ -256,11 +254,6 @@ export function DeviceManagementPanel({
           </Badge>
         </div>
 
-        {statusMessage && (
-          <Alert tone="success" role="status">
-            {statusMessage}
-          </Alert>
-        )}
         {errorMessage && (
           <Alert tone="danger" role="alert">
             {errorMessage}
@@ -433,50 +426,46 @@ export function DeviceManagementPanel({
             </span>
           </div>
 
-          <ul className="grid gap-3 p-3 md:hidden">
+          <ul className="divide-y divide-border md:hidden">
             {paginatedDevices.map((device) => {
               const isRevoked = device.revokedAt !== null;
               return (
-                <li key={device.id}>
-                  <Card className="grid gap-3 p-4">
-                    <div className="flex flex-wrap items-center justify-between gap-2">
-                      <span className="font-medium text-foreground">
-                        {device.label}
-                      </span>
-                      <div className="flex flex-wrap items-center gap-1.5">
-                        {device.isCurrent && <Badge tone="info">Current</Badge>}
-                        <Badge tone={isRevoked ? "danger" : "success"}>
-                          {isRevoked ? "Removed" : "Active"}
-                        </Badge>
-                      </div>
+                <li key={device.id} className="grid gap-3 p-4">
+                  <div className="flex flex-wrap items-center justify-between gap-2">
+                    <span className="font-medium text-foreground">
+                      {device.label}
+                    </span>
+                    <div className="flex flex-wrap items-center gap-1.5">
+                      {device.isCurrent && <Badge tone="info">Current</Badge>}
+                      <Badge tone={isRevoked ? "danger" : "success"}>
+                        {isRevoked ? "Removed" : "Active"}
+                      </Badge>
                     </div>
-                    <div className="grid gap-0.5 text-xs text-muted-foreground tabular-nums">
-                      <span>Added {formatTimestamp(device.createdAt)}</span>
-                      <span>
-                        Last seen {formatTimestamp(device.lastSeenAt)}
-                      </span>
-                      {isRevoked && (
-                        <span>Removed {formatTimestamp(device.revokedAt)}</span>
-                      )}
-                    </div>
-                    {!isRevoked && (
-                      <div className="flex justify-end">
-                        <Button
-                          variant="secondary"
-                          className="text-danger"
-                          size="sm"
-                          loading={revokingId === device.id}
-                          disabled={revokingId !== null}
-                          onClick={() => {
-                            setRevokeError(null);
-                            setConfirmingDevice(device);
-                          }}
-                        >
-                          {revokingId === device.id ? "Removing…" : "Remove"}
-                        </Button>
-                      </div>
+                  </div>
+                  <div className="grid gap-0.5 text-xs text-muted-foreground tabular-nums">
+                    <span>Added {formatTimestamp(device.createdAt)}</span>
+                    <span>Last seen {formatTimestamp(device.lastSeenAt)}</span>
+                    {isRevoked && (
+                      <span>Removed {formatTimestamp(device.revokedAt)}</span>
                     )}
-                  </Card>
+                  </div>
+                  {!isRevoked && (
+                    <div className="flex justify-end">
+                      <Button
+                        variant="secondary"
+                        className="text-danger"
+                        size="sm"
+                        loading={revokingId === device.id}
+                        disabled={revokingId !== null}
+                        onClick={() => {
+                          setRevokeError(null);
+                          setConfirmingDevice(device);
+                        }}
+                      >
+                        {revokingId === device.id ? "Removing…" : "Remove"}
+                      </Button>
+                    </div>
+                  )}
                 </li>
               );
             })}

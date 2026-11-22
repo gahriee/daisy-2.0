@@ -77,11 +77,12 @@ function revalidateInventoryPaths(roomId?: string) {
   if (roomId) {
     revalidatePath(`/rooms/${roomId}`);
     revalidatePath(`/transients/rooms/${roomId}`);
-    revalidatePath(`/transients/listings/${roomId}`);
   }
   revalidatePath("/rooms/types");
   revalidatePath("/transients/rooms/types");
   revalidatePath("/transients");
+  revalidatePath("/transients", "layout");
+  revalidatePath("/transients/stays");
   revalidatePath("/book");
   revalidatePath("/tenants");
   revalidatePath("/audit");
@@ -238,6 +239,9 @@ export async function createRoomAction(
         ? { transientDailyRate: readStr(formData, "transientDailyRate") }
         : {}),
       notes: readStr(formData, "notes"),
+      isTransientPublished: formData.get("isTransientPublished") === "on",
+      transientTitle: readStr(formData, "transientTitle"),
+      transientDescription: readStr(formData, "transientDescription"),
       ...(photos !== undefined ? { photos } : {}),
     });
     if (!parsed.success) {
@@ -267,6 +271,7 @@ export async function updateRoomAction(
     const hasBuilding = formData.has("building");
     const hasBaseMonthly = formData.has("baseMonthlyRate");
     const hasDailyRate = formData.has("transientDailyRate");
+    const hasPublicListingFields = formData.has("hasPublicListingFields");
     const parsed = UpdateRoomSchema.safeParse({
       roomId: readStr(formData, "roomId"),
       expectedVersion: readStr(formData, "expectedVersion"),
@@ -282,6 +287,17 @@ export async function updateRoomAction(
         ? { transientDailyRate: readStr(formData, "transientDailyRate") }
         : {}),
       notes: readStr(formData, "notes"),
+      ...(hasPublicListingFields || formData.has("isTransientPublished")
+        ? {
+            isTransientPublished: formData.get("isTransientPublished") === "on",
+          }
+        : {}),
+      ...(hasPublicListingFields || formData.has("transientTitle")
+        ? { transientTitle: readStr(formData, "transientTitle") }
+        : {}),
+      ...(hasPublicListingFields || formData.has("transientDescription")
+        ? { transientDescription: readStr(formData, "transientDescription") }
+        : {}),
       ...(photos !== undefined ? { photos } : {}),
     });
     if (!parsed.success) {

@@ -11,10 +11,8 @@ export const instant = false;
 
 export default async function PaymentDetailPage({
   params,
-  searchParams,
 }: {
   params: Promise<{ paymentId: string }>;
-  searchParams: Promise<{ created?: string }>;
 }) {
   await connection();
   let authenticated = false;
@@ -29,7 +27,7 @@ export default async function PaymentDetailPage({
     redirect("/auth/sign-in");
   }
 
-  const [{ paymentId }, rawSearch] = await Promise.all([params, searchParams]);
+  const { paymentId } = await params;
   if (!z.string().uuid().safeParse(paymentId).success) {
     notFound();
   }
@@ -52,10 +50,7 @@ export default async function PaymentDetailPage({
       }
       profile={profile}
     >
-      <PaymentDetailView
-        payment={payment}
-        justCreated={rawSearch.created === "1"}
-      />
+      <PaymentDetailView payment={payment} />
     </WorkspaceShell>
   );
 }

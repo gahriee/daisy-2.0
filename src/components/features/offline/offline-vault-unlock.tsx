@@ -9,6 +9,7 @@ import { Card } from "@/components/ui/card";
 import { Dialog } from "@/components/ui/dialog";
 import { Field } from "@/components/ui/field";
 import { Input } from "@/components/ui/input";
+import { toast } from "@/components/ui/toaster";
 import { formatManilaDateTime } from "@/lib/dates";
 import {
   getBrowserOfflineDb,
@@ -70,9 +71,7 @@ export function VaultPassphraseForm({
   const baseId = useId();
   const passwordInputRef = useRef<HTMLInputElement>(null);
   const [vaultConfigured, setVaultConfigured] = useState<boolean | null>(null);
-  const [generatedPassphrase, setGeneratedPassphrase] = useState<string>(() =>
-    generateVaultPassphrase(),
-  );
+  const [generatedPassphrase, setGeneratedPassphrase] = useState<string>("");
   const [passphrase, setPassphrase] = useState("");
   const [showPassphrase, setShowPassphrase] = useState(false);
   const [copied, setCopied] = useState(false);
@@ -86,6 +85,9 @@ export function VaultPassphraseForm({
         const state = await getOfflineVaultClientState();
         if (!active) return;
         setVaultConfigured(state.vaultConfigured);
+        if (!state.vaultConfigured) {
+          setGeneratedPassphrase((prev) => prev || generateVaultPassphrase());
+        }
         onConfiguredChange?.(state.vaultConfigured);
       } catch {
         if (active) setVaultConfigured(true);
@@ -109,6 +111,7 @@ export function VaultPassphraseForm({
     try {
       await navigator.clipboard.writeText(generatedPassphrase);
       setCopied(true);
+      toast.success("Offline password copied.");
       window.setTimeout(() => setCopied(false), 2000);
     } catch {
       setErrorMessage(
@@ -352,7 +355,12 @@ export function OfflineVaultUnlockCard({
       </div>
       <VaultPassphraseForm
         onConfiguredChange={setConfigured}
-        onUnlocked={async () => {
+        onUnlocked={async ({ initializedNew }) => {
+          toast.success(
+            initializedNew
+              ? "Offline password saved on this browser."
+              : "Offline copy unlocked.",
+          );
           await onUnlocked?.();
         }}
       />
@@ -392,7 +400,12 @@ export function OfflineVaultUnlockDialog({
         showCancel
         onCancel={onClose}
         onConfiguredChange={setConfigured}
-        onUnlocked={async () => {
+        onUnlocked={async ({ initializedNew }) => {
+          toast.success(
+            initializedNew
+              ? "Offline password saved on this browser."
+              : "Offline copy unlocked.",
+          );
           onClose();
           await onUnlocked?.();
         }}

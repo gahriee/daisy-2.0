@@ -199,7 +199,7 @@ export function AddAdjustmentDialog({
             </Alert>
           )}
 
-          <div className="grid gap-0.5 rounded-control border border-border bg-background/60 p-3 text-xs text-muted-foreground tabular-nums">
+          <div className="grid gap-0.5 border-y border-border py-2.5 text-xs text-muted-foreground tabular-nums">
             <span>Current total: {formatPhpCurrency(invoice.totalAmount)}</span>
             <span>Paid: {formatPhpCurrency(invoice.paidAmount)}</span>
             <span>
@@ -348,7 +348,7 @@ export function VoidInvoiceDialog({
             </Alert>
           )}
 
-          <div className="grid gap-0.5 rounded-control border border-border bg-background/60 p-3 text-sm tabular-nums">
+          <div className="grid gap-0.5 border-y border-border py-2.5 text-sm tabular-nums">
             <span className="font-semibold text-foreground">
               {invoice.invoiceNumber ?? "Draft invoice"}
             </span>

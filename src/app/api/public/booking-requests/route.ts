@@ -11,6 +11,7 @@ import {
   errorToResponse,
   readBoundedJson,
 } from "@/server/http/route-helpers";
+import { notifyOwnerPushSafe } from "@/server/notifications/web-push";
 
 /**
  * Public same-origin POST endpoint for transient booking requests. Enforces
@@ -39,6 +40,13 @@ export async function POST(request: Request) {
 
     const ownerUserId = resolvePublicOwnerUserId();
     const ack = await submitPublicBookingRequest(ownerUserId, body);
+
+    await notifyOwnerPushSafe(ownerUserId, {
+      title: "New booking request",
+      body: `Request ${ack.referenceCode} is waiting for your review.`,
+      url: "/transients/requests",
+      tag: `booking-request-${ack.referenceCode}`,
+    });
 
     return Response.json(ack, {
       status: 201,

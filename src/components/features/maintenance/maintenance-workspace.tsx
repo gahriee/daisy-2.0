@@ -36,6 +36,7 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { TablePagination } from "@/components/ui/table-pagination";
+import { toast } from "@/components/ui/toaster";
 import {
   MAINTENANCE_CATEGORY_LABELS,
   MAINTENANCE_PRIORITIES,
@@ -225,10 +226,7 @@ export function MaintenanceWorkspace({
   const [searchQuery, setSearchQuery] = useState("");
   const [statusFilter, setStatusFilter] = useState("ACTIVE_QUEUE");
   const [priorityFilter, setPriorityFilter] = useState("ALL");
-  const [feedback, setFeedback] = useState<{
-    tone: "success" | "danger";
-    message: string;
-  } | null>(null);
+  const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [refreshing, startRefresh] = useTransition();
 
   async function applyVaultState(
@@ -313,13 +311,11 @@ export function MaintenanceWorkspace({
       } catch (error) {
         await applyVaultState(serverOverview);
         if (navigator.onLine) {
-          setFeedback({
-            tone: "danger",
-            message:
-              error instanceof Error
-                ? error.message
-                : "Could not refresh maintenance requests.",
-          });
+          setErrorMessage(
+            error instanceof Error
+              ? error.message
+              : "Could not refresh maintenance requests.",
+          );
         }
       }
     });
@@ -329,36 +325,30 @@ export function MaintenanceWorkspace({
     badge: OfflineEntitySyncBadge,
     action: "keep_mine" | "discard",
   ) {
-    setFeedback(null);
+    setErrorMessage(null);
     startRefresh(async () => {
       try {
         if (action === "keep_mine") {
           await resolveNeedsAttentionKeepMine(badge.opId);
-          setFeedback({
-            tone: "success",
-            message: navigator.onLine
+          toast.info(
+            navigator.onLine
               ? "Marked your repair draft to try saving again."
               : "Marked your repair draft to save once online.",
-          });
+          );
         } else {
           await resolveNeedsAttentionDiscard(badge.opId);
-          setFeedback({
-            tone: "success",
-            message: "Removed saved repair draft.",
-          });
+          toast.success("Removed saved repair draft.");
         }
         await reloadMaintenance();
       } catch (error) {
         if (error instanceof OfflineVaultLockedError) {
           setUnlockPromptOpen(true);
         } else {
-          setFeedback({
-            tone: "danger",
-            message:
-              error instanceof Error
-                ? error.message
-                : "Could not resolve maintenance draft.",
-          });
+          setErrorMessage(
+            error instanceof Error
+              ? error.message
+              : "Could not resolve maintenance draft.",
+          );
         }
       }
     });
@@ -465,12 +455,9 @@ export function MaintenanceWorkspace({
         onSyncNow={() => void reloadMaintenance()}
       />
 
-      {feedback && (
-        <Alert
-          tone={feedback.tone === "success" ? "success" : "danger"}
-          role={feedback.tone === "success" ? "status" : "alert"}
-        >
-          {feedback.message}
+      {errorMessage && (
+        <Alert tone="danger" role="alert">
+          {errorMessage}
         </Alert>
       )}
 

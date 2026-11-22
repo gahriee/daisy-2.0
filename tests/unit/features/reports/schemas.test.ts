@@ -51,5 +51,35 @@ describe("resolveReportFilters", () => {
       ReportExportQuerySchema.safeParse({ reportType: "unknown-report" })
         .success,
     ).toBe(false);
+
+    expect(ReportExportQuerySchema.parse({ reportType: "occupancy" })).toEqual({
+      reportType: "occupancy",
+      format: "csv",
+    });
+    expect(
+      ReportExportQuerySchema.parse({
+        reportType: "collections",
+        format: "xlsx",
+      }),
+    ).toEqual({
+      reportType: "collections",
+      format: "xlsx",
+    });
+    expect(
+      ReportExportQuerySchema.parse({ reportType: "rent-roll", format: "docx" })
+        .format,
+    ).toBe("docx");
+    expect(
+      ReportExportQuerySchema.parse({
+        reportType: "maintenance",
+        format: "pdf",
+      }).format,
+    ).toBe("pdf");
+    expect(
+      ReportExportQuerySchema.safeParse({
+        reportType: "occupancy",
+        format: "html",
+      }).success,
+    ).toBe(false);
   });
 });

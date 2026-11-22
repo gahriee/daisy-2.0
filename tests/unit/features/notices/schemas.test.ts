@@ -1,6 +1,8 @@
 import { describe, expect, it } from "vitest";
 import {
   CreateNoticeSchema,
+  formatNoticeSmsText,
+  SendNoticeSmsSchema,
   UpdateNoticeSchema,
 } from "../../../../src/features/notices/schemas";
 
@@ -70,5 +72,31 @@ describe("notices Zod schemas", () => {
       endDateManila: "2026-11-19",
     });
     expect(badUpdate.success).toBe(false);
+  });
+
+  it("validates SendNoticeSmsSchema and formats SMS notice text cleanly", () => {
+    expect(SendNoticeSmsSchema.safeParse({ noticeId: NOTICE_ID }).success).toBe(
+      true,
+    );
+    expect(SendNoticeSmsSchema.safeParse({ noticeId: "bad-id" }).success).toBe(
+      false,
+    );
+
+    const formatted = formatNoticeSmsText({
+      title: "  Water tank cleaning ",
+      body: "Water will be paused 9-11 AM.  ",
+      businessName: "Delings Boarding Haus",
+    });
+    expect(formatted).toBe(
+      "Water tank cleaning: Water will be paused 9-11 AM. - Delings Boarding Haus",
+    );
+
+    const clipped = formatNoticeSmsText({
+      title: "Long notice",
+      body: "A".repeat(1200),
+      businessName: "Daisy",
+    });
+    expect(clipped.length).toBeLessThanOrEqual(900);
+    expect(clipped.endsWith("… - Daisy")).toBe(true);
   });
 });

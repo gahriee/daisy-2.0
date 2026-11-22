@@ -186,6 +186,7 @@ model Owner {
   auditLogs                  AuditLog[]
   notifReads                 NotificationRead[]
   notifDismissals            NotificationDismissal[]
+  pushSubscriptions          PushSubscription[]
   roomTypes                  RoomType[]
   rooms                      Room[]
   roomPhotoIntents           RoomPhotoIntent[]
@@ -214,6 +215,7 @@ model Owner {
   maintenanceAttachIntents   MaintenanceAttachmentIntent[]
   maintenanceAttachments     MaintenanceAttachment[]
   notices                    Notice[]
+  overdueSmsLogs             OverdueSmsLog[]
 }
 
 model BusinessSettings {
@@ -235,6 +237,13 @@ model BusinessSettings {
   checkInTimeManila      String?
   checkOutTimeManila     String?
   transientPolicyNote    String?
+  smsOverdueEnabled      Boolean            @default(false)
+  smsOverdueFrequencyDays Int               @default(1)
+  smsOverdueSendTimeManila String           @default("09:00")
+  smsApiKeyEncrypted     String?
+  smsApiKeyLast4         String?
+  smsSenderName          String?
+  smsOverdueTemplate     String?
   offlineUnlockMaxDays   Int                @default(7)
   proofMaxBytes          Int                @default(5242880)
   proofMaxFilesPerRecord Int                @default(5)
@@ -332,6 +341,21 @@ model NotificationDismissal {
   dismissedAt     DateTime @default(now()) @db.Timestamptz(3)
 
   @@id([ownerUserId, notificationKey])
+}
+
+model PushSubscription {
+  id          String    @id @default(uuid()) @db.Uuid
+  ownerUserId String
+  owner       Owner     @relation(fields: [ownerUserId], references: [id], onDelete: Restrict)
+  endpoint    String    @unique
+  p256dh      String
+  auth        String
+  deviceLabel String?
+  lastUsedAt  DateTime? @db.Timestamptz(3)
+  createdAt   DateTime  @default(now()) @db.Timestamptz(3)
+  updatedAt   DateTime  @updatedAt @db.Timestamptz(3)
+
+  @@index([ownerUserId, createdAt])
 }
 
 model SecurityEvent {
@@ -681,6 +705,7 @@ model Invoice {
   items                   InvoiceItem[]
   adjustments             InvoiceAdjustment[]
   paymentAllocations      PaymentAllocation[]
+  overdueSmsLogs          OverdueSmsLog[]
 
   @@index([ownerUserId, status, dueDate])
   @@index([ownerUserId, tenantId, createdAt])
@@ -719,6 +744,26 @@ model InvoiceAdjustment {
   createdByActorId   String
   createdAt          DateTime              @default(now()) @db.Timestamptz(3)
 
+  @@index([ownerUserId, invoiceId, createdAt])
+}
+
+model OverdueSmsLog {
+  id                String   @id @default(uuid()) @db.Uuid
+  ownerUserId       String
+  owner             Owner    @relation(fields: [ownerUserId], references: [id], onDelete: Restrict)
+  invoiceId         String   @db.Uuid
+  invoice           Invoice  @relation(fields: [invoiceId], references: [id], onDelete: Cascade)
+  tenantId          String   @db.Uuid
+  notifiedDateManila String
+  status            String
+  providerMessageId String?
+  errorCode         String?
+  actorType         String
+  actorId           String
+  createdAt         DateTime @default(now()) @db.Timestamptz(3)
+
+  @@unique([ownerUserId, invoiceId, notifiedDateManila])
+  @@index([ownerUserId, notifiedDateManila, createdAt])
   @@index([ownerUserId, invoiceId, createdAt])
 }
 
@@ -1024,6 +1069,8 @@ model Notice {
   endDateManila   String
   startDate       DateTime       @db.Timestamptz(3)
   endDate         DateTime       @db.Timestamptz(3)
+  smsSentAt       DateTime?      @db.Timestamptz(3)
+  smsSentCount    Int            @default(0)
   archivedAt      DateTime?      @db.Timestamptz(3)
   createdAt       DateTime       @default(now()) @db.Timestamptz(3)
   updatedAt       DateTime       @updatedAt @db.Timestamptz(3)

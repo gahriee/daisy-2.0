@@ -157,9 +157,51 @@ export function resolveReportFilters(
   };
 }
 
+export const REPORT_EXPORT_FORMATS = ["csv", "xlsx", "docx", "pdf"] as const;
+export type ReportExportFormat = (typeof REPORT_EXPORT_FORMATS)[number];
+
+export const REPORT_EXPORT_DOCUMENT_FORMATS = ["xlsx", "docx", "pdf"] as const;
+export type ReportExportDocumentFormat =
+  (typeof REPORT_EXPORT_DOCUMENT_FORMATS)[number];
+
+export const REPORT_EXPORT_FORMAT_LABELS: Record<ReportExportFormat, string> = {
+  csv: "CSV",
+  xlsx: "Excel",
+  docx: "Word",
+  pdf: "PDF",
+};
+
+export const REPORT_EXPORT_FORMAT_DESCRIPTIONS: Record<
+  ReportExportDocumentFormat,
+  string
+> = {
+  xlsx: "Spreadsheet workbook (.xlsx)",
+  docx: "Formatted document (.docx)",
+  pdf: "Print-ready report (.pdf)",
+};
+
+export const REPORT_EXPORT_CONTENT_TYPES: Record<ReportExportFormat, string> = {
+  csv: "text/csv; charset=utf-8",
+  xlsx: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+  docx: "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+  pdf: "application/pdf",
+};
+
 export const ReportExportQuerySchema = z.object({
   reportType: z.enum(REPORT_TYPES),
+  format: z.preprocess(
+    (value) =>
+      value === null || value === undefined || value === "" ? "csv" : value,
+    z.enum(REPORT_EXPORT_FORMATS),
+  ),
 });
+
+export type ReportBusinessProfile = {
+  businessName: string;
+  businessAddress?: string | null;
+  businessPhone?: string | null;
+  tin?: string | null;
+};
 
 export type OccupancyRoomRowDto = {
   roomId: string;

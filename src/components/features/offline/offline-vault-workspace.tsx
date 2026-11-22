@@ -16,6 +16,7 @@ import { TableEmptyState } from "@/components/ui/empty-state";
 import { Field } from "@/components/ui/field";
 import { Input } from "@/components/ui/input";
 import { MetricCard } from "@/components/ui/metric-card";
+import { toast } from "@/components/ui/toaster";
 import {
   Table,
   TableBody,
@@ -139,7 +140,6 @@ export function OfflineVaultWorkspace() {
   const [draftTenantName, setDraftTenantName] = useState("");
   const [draftTenantPhone, setDraftTenantPhone] = useState("");
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
-  const [statusNotice, setStatusNotice] = useState<string | null>(null);
   const [busy, startBusy] = useTransition();
 
   async function reloadMetadataAndUnlockedViews() {
@@ -222,12 +222,11 @@ export function OfflineVaultWorkspace() {
     setUnlocked(false);
     setProjections([]);
     setNeedsAttention([]);
-    setStatusNotice("Offline copy locked for privacy.");
+    toast.info("Offline copy locked for privacy.");
   }
 
   function handleSyncNow() {
     setErrorMessage(null);
-    setStatusNotice(null);
 
     startBusy(async () => {
       try {
@@ -246,15 +245,13 @@ export function OfflineVaultWorkspace() {
         await reloadMetadataAndUnlockedViews();
 
         if (res.status === "already_running") {
-          setStatusNotice(
-            "Another browser tab is already updating this device.",
-          );
+          toast.info("Another browser tab is already updating this device.");
         } else if (res.status === "rate_limited") {
           setErrorMessage(
             `Too many updates at once. Try again in ${res.retryAfterSeconds ?? 10} seconds.`,
           );
         } else {
-          setStatusNotice(
+          toast.success(
             `Saved ${res.appliedCount} pending change(s) and received ${res.pulledCount} update(s).`,
           );
         }
@@ -270,7 +267,6 @@ export function OfflineVaultWorkspace() {
   function handleQueueTenantDraft(event: React.FormEvent) {
     event.preventDefault();
     setErrorMessage(null);
-    setStatusNotice(null);
 
     startBusy(async () => {
       try {
@@ -302,7 +298,7 @@ export function OfflineVaultWorkspace() {
         setDraftTenantName("");
         setDraftTenantPhone("");
         await reloadMetadataAndUnlockedViews();
-        setStatusNotice(
+        toast.info(
           "Saved on this device. Tap Update now when online to confirm.",
         );
       } catch (error) {
@@ -317,7 +313,6 @@ export function OfflineVaultWorkspace() {
 
   function handleKeepMine(opId: string) {
     setErrorMessage(null);
-    setStatusNotice(null);
     startBusy(async () => {
       try {
         const db = getBrowserOfflineDb();
@@ -327,7 +322,7 @@ export function OfflineVaultWorkspace() {
           newOpId: crypto.randomUUID(),
         });
         await reloadMetadataAndUnlockedViews();
-        setStatusNotice(
+        toast.info(
           "Marked your saved change to try again. Tap Update now when ready.",
         );
       } catch (error) {
@@ -342,14 +337,13 @@ export function OfflineVaultWorkspace() {
 
   function handleDiscard(opId: string) {
     setErrorMessage(null);
-    setStatusNotice(null);
     startBusy(async () => {
       try {
         const db = getBrowserOfflineDb();
         const key = getVaultCustody().getKey();
         await discardNeedsAttentionOperation(db, key, opId);
         await reloadMetadataAndUnlockedViews();
-        setStatusNotice(
+        toast.success(
           "Removed your draft and restored the latest saved record.",
         );
       } catch (error) {
@@ -453,12 +447,6 @@ export function OfflineVaultWorkspace() {
       {errorMessage && (
         <Alert tone="danger" role="alert">
           {errorMessage}
-        </Alert>
-      )}
-
-      {statusNotice && (
-        <Alert tone="success" role="status">
-          {statusNotice}
         </Alert>
       )}
 

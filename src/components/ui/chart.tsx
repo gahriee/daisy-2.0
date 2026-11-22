@@ -74,9 +74,194 @@ export function formatCompactPhpAxis(value: number): string {
 }
 
 export type SupportedApexChartType =
-  "bar" | "area" | "line" | "donut" | "pie" | "radialBar";
+  | "bar"
+  | "area"
+  | "line"
+  | "donut"
+  | "pie"
+  | "radialBar";
 
 type ChartSeries = NonNullable<ApexOptions["series"]>;
+
+type TooltipFormatterContext = {
+  series: unknown;
+  seriesIndex: number;
+  dataPointIndex: number;
+  w: {
+    globals?: {
+      labels?: string[];
+      categoryLabels?: string[];
+      seriesNames?: string[];
+      colors?: string[];
+      collapsedSeriesIndices?: number[];
+    };
+    config?: {
+      xaxis?: {
+        categories?: unknown[];
+      };
+    };
+  };
+};
+
+function escapeTooltipHtml(raw: string): string {
+  return raw
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#39;");
+}
+
+function sanitizeTooltipColor(color: unknown, fallback: string): string {
+  if (typeof color !== "string") return fallback;
+  const trimmed = color.trim();
+  return /^#[0-9a-fA-F]{3,8}$/.test(trimmed) ? trimmed : fallback;
+}
+
+function resolveTooltipYFormatter(
+  tooltipY: ApexOptions["tooltip"] extends { y?: infer Y } ? Y : unknown,
+  seriesIndex: number,
+): ((val: number, opts?: unknown) => string) | undefined {
+  if (!tooltipY) return undefined;
+  const entry = Array.isArray(tooltipY)
+    ? (tooltipY[seriesIndex] ?? tooltipY[0])
+    : tooltipY;
+  if (
+    entry &&
+    typeof entry === "object" &&
+    "formatter" in entry &&
+    typeof entry.formatter === "function"
+  ) {
+    return entry.formatter as (val: number, opts?: unknown) => string;
+  }
+  return undefined;
+}
+
+function buildUnifiedTooltipHtml(
+  type: SupportedApexChartType,
+  options: Omit<ApexOptions, "series">,
+  ctx: TooltipFormatterContext,
+): string {
+  const { series, seriesIndex, dataPointIndex, w } = ctx;
+  const globals = w.globals ?? {};
+  const palette = options.colors ?? [...DAISY_CHART_SEQUENCE];
+
+  if (type === "donut" || type === "pie") {
+    const flatSeries = Array.isArray(series) ? series : [];
+    const rawVal = Number(flatSeries[seriesIndex] ?? 0);
+    const total = flatSeries.reduce(
+      (sum, item) => sum + (Number.isFinite(Number(item)) ? Number(item) : 0),
+      0,
+    );
+    const sharePercent =
+      total > 0 && Number.isFinite(rawVal)
+        ? `${((rawVal / total) * 100).toFixed(1)}%`
+        : "0.0%";
+    const sliceLabel =
+      globals.labels?.[seriesIndex] ??
+      (Array.isArray(options.labels)
+        ? options.labels[seriesIndex]
+        : undefined) ??
+      "Category";
+    const formatter = resolveTooltipYFormatter(options.tooltip?.y, seriesIndex);
+    const formattedValue = formatter
+      ? String(formatter(rawVal, ctx) ?? rawVal)
+      : String(rawVal);
+    const dotColor = sanitizeTooltipColor(
+      globals.colors?.[seriesIndex] ?? palette[seriesIndex % palette.length],
+      DAISY_CHART_COLORS.info,
+    );
+    const rowTitle =
+      options.plotOptions?.pie?.donut?.labels?.total?.label ?? "Total";
+
+    return `
+      <div class="daisy-chart-tooltip">
+        <div class="daisy-chart-tooltip-title">${escapeTooltipHtml(String(sliceLabel))}</div>
+        <div class="daisy-chart-tooltip-body">
+          <div class="daisy-chart-tooltip-row">
+            <span class="daisy-chart-tooltip-label">
+              <span class="daisy-chart-tooltip-dot" style="background:${dotColor}"></span>
+              <span>${escapeTooltipHtml(String(rowTitle))}</span>
+            </span>
+            <span class="daisy-chart-tooltip-metrics">
+              <span class="daisy-chart-tooltip-value">${escapeTooltipHtml(formattedValue)}</span>
+              <span class="daisy-chart-tooltip-share">(${escapeTooltipHtml(sharePercent)})</span>
+            </span>
+          </div>
+        </div>
+      </div>
+    `;
+  }
+
+  const configuredCategories = Array.isArray(w.config?.xaxis?.categories)
+    ? w.config.xaxis.categories
+    : Array.isArray(options.xaxis?.categories)
+      ? options.xaxis.categories
+      : [];
+  const rawCategory =
+    configuredCategories[dataPointIndex] ??
+    globals.categoryLabels?.[dataPointIndex] ??
+    globals.labels?.[dataPointIndex] ??
+    "";
+  const xFormatter = options.tooltip?.x?.formatter;
+  const titleText =
+    typeof xFormatter === "function"
+      ? String(xFormatter(rawCategory as number, ctx) ?? rawCategory)
+      : String(rawCategory);
+
+  const seriesList = Array.isArray(series)
+    ? (series as unknown as unknown[][])
+    : [];
+  const collapsed = new Set(globals.collapsedSeriesIndices ?? []);
+  const isShared = Boolean(options.tooltip?.shared) && seriesList.length > 1;
+  const isDistributed = Boolean(options.plotOptions?.bar?.distributed);
+
+  const candidateIndices = isShared
+    ? seriesList.map((_, idx) => idx).filter((idx) => !collapsed.has(idx))
+    : [seriesIndex];
+
+  const rowsHtml = candidateIndices
+    .map((sIdx) => {
+      const point = seriesList[sIdx]?.[dataPointIndex];
+      if (point === null || point === undefined) return "";
+      const numVal = Number(point);
+      const formatter = resolveTooltipYFormatter(options.tooltip?.y, sIdx);
+      const formattedVal = formatter
+        ? String(
+            formatter(numVal, {
+              ...ctx,
+              seriesIndex: sIdx,
+            }) ?? numVal,
+          )
+        : String(point);
+      const seriesName = globals.seriesNames?.[sIdx] || "Value";
+      const colorLookupIdx = isDistributed ? dataPointIndex : sIdx;
+      const dotColor = sanitizeTooltipColor(
+        globals.colors?.[colorLookupIdx] ??
+          palette[colorLookupIdx % palette.length],
+        DAISY_CHART_COLORS.info,
+      );
+
+      return `
+        <div class="daisy-chart-tooltip-row">
+          <span class="daisy-chart-tooltip-label">
+            <span class="daisy-chart-tooltip-dot" style="background:${dotColor}"></span>
+            <span>${escapeTooltipHtml(String(seriesName))}</span>
+          </span>
+          <span class="daisy-chart-tooltip-value">${escapeTooltipHtml(formattedVal)}</span>
+        </div>
+      `;
+    })
+    .filter(Boolean)
+    .join("");
+
+  return `
+    <div class="daisy-chart-tooltip">
+      ${titleText ? `<div class="daisy-chart-tooltip-title">${escapeTooltipHtml(titleText)}</div>` : ""}
+      <div class="daisy-chart-tooltip-body">${rowsHtml}</div>
+    </div>
+  `;
+}
 
 type ApexChartProps = {
   type: SupportedApexChartType;
@@ -168,12 +353,18 @@ export function ApexChart({
         ...options.legend,
       },
       tooltip: {
+        ...options.tooltip,
         theme: "light",
+        fillSeriesColor: false,
         style: {
           fontSize: "12px",
           fontFamily: "var(--font-geist), system-ui, sans-serif",
+          ...options.tooltip?.style,
         },
-        ...options.tooltip,
+        custom:
+          options.tooltip?.custom ??
+          ((ctx: TooltipFormatterContext) =>
+            buildUnifiedTooltipHtml(type, options, ctx)),
       },
       dataLabels: {
         style: {

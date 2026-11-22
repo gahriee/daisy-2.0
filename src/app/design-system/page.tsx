@@ -2,7 +2,7 @@ import { DaisyBrand } from "@/components/layout/daisy-brand";
 import { WorkspaceShell } from "@/components/layout/workspace-shell";
 import { Alert } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
-import { Button } from "@/components/ui/button";
+import { ActionLink, BackLink, Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Checkbox } from "@/components/ui/checkbox";
 import {
@@ -17,6 +17,7 @@ import { Select } from "@/components/ui/select";
 import { Separator } from "@/components/ui/separator";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Textarea } from "@/components/ui/textarea";
+import { ToastPreview } from "./_components/toast-preview";
 
 export const metadata = { title: "Design system · Daisy" };
 
@@ -267,6 +268,8 @@ export default function DesignSystemPage() {
             </Button>
             <Button disabled>Unavailable</Button>
             <Button loading>Saving example</Button>
+            <ActionLink href="/reports">Analytics</ActionLink>
+            <BackLink href="/tenants">Tenants</BackLink>
           </div>
         </section>
         <Separator />
@@ -363,6 +366,12 @@ export default function DesignSystemPage() {
           <Alert role="note" tone="danger">
             Error example. Keep the draft and explain the next step.
           </Alert>
+          <div className="grid gap-2">
+            <p className="text-xs font-medium text-muted-foreground">
+              Action feedback toasts (mounted globally via Sonner)
+            </p>
+            <ToastPreview />
+          </div>
         </section>
         <section aria-labelledby="surfaces-title" className="grid gap-5">
           <h2 id="surfaces-title" className="text-xl font-semibold">

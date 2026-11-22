@@ -7,7 +7,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { Alert } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
-import { Button, buttonClasses } from "@/components/ui/button";
+import { BackLink, Button, buttonClasses } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { TableEmptyState } from "@/components/ui/empty-state";
 import {
@@ -20,6 +20,7 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { TablePagination } from "@/components/ui/table-pagination";
+import { toast } from "@/components/ui/toaster";
 import { issueDraftInvoiceAction } from "@/features/billing/actions";
 import { formatBillingPeriodLabel } from "@/features/billing/calculations";
 import {
@@ -88,29 +89,14 @@ const ADJUSTMENT_SORT_COLUMNS: Record<
 export function InvoiceDetailView({
   invoice,
   hasInvoicePrefix,
-  justCreated = false,
 }: {
   invoice: InvoiceDto;
   hasInvoicePrefix: boolean;
-  justCreated?: boolean;
 }) {
   const router = useRouter();
   const [issuing, startIssueTransition] = useTransition();
   const [adjustOpen, setAdjustOpen] = useState(false);
   const [voidOpen, setVoidOpen] = useState(false);
-  const [feedback, setFeedback] = useState<{
-    tone: "success" | "danger";
-    message: string;
-  } | null>(
-    justCreated
-      ? {
-          tone: "success",
-          message: invoice.invoiceNumber
-            ? `Invoice ${invoice.invoiceNumber} created and issued.`
-            : "Draft invoice saved.",
-        }
-      : null,
-  );
 
   const itemsSort = useTableSort(invoice.items, LINE_ITEM_SORT_COLUMNS);
   const itemsPage = useTablePagination(itemsSort.sortedRows, {
@@ -130,7 +116,6 @@ export function InvoiceDetailView({
 
   function handleIssue() {
     if (issuing) return;
-    setFeedback(null);
     setIssueError(null);
     startIssueTransition(async () => {
       const res = await issueDraftInvoiceAction({
@@ -139,7 +124,7 @@ export function InvoiceDetailView({
       });
       if (res.status === "saved") {
         setIssueConfirmOpen(false);
-        setFeedback({ tone: "success", message: res.message });
+        toast.success(res.message);
         router.refresh();
       } else if (res.status === "error") {
         setIssueError(res.message);
@@ -149,126 +134,118 @@ export function InvoiceDetailView({
 
   return (
     <div className="grid gap-5">
-      <header className="flex flex-wrap items-start justify-between gap-4">
-        <div className="grid gap-1.5">
-          <div className="flex flex-wrap items-center gap-2">
-            <h1 className="font-mono text-xl font-semibold tracking-tight text-foreground sm:text-2xl">
-              {invoice.invoiceNumber ?? "Draft invoice"}
-            </h1>
-            <Badge tone={INVOICE_BADGE_TONE[invoice.status]}>
-              {INVOICE_STATUS_LABELS[invoice.status]}
-            </Badge>
-            {invoice.isOverdue && <Badge tone="danger">Overdue</Badge>}
-            {invoice.billingPeriod && (
-              <Badge tone="neutral">
-                {formatBillingPeriodLabel(invoice.billingPeriod)}
+      <div className="grid gap-2">
+        <BackLink href="/billing">Billing</BackLink>
+        <header className="flex flex-wrap items-start justify-between gap-4">
+          <div className="grid gap-1.5">
+            <div className="flex flex-wrap items-center gap-2">
+              <h1 className="font-mono text-xl font-semibold tracking-tight text-foreground sm:text-2xl">
+                {invoice.invoiceNumber ?? "Draft invoice"}
+              </h1>
+              <Badge tone={INVOICE_BADGE_TONE[invoice.status]}>
+                {INVOICE_STATUS_LABELS[invoice.status]}
               </Badge>
-            )}
-          </div>
-          <div className="grid gap-0.5 text-sm text-muted-foreground">
-            <span>
-              {invoice.tenantId ? (
-                <Link
-                  href={`/tenants/${invoice.tenantId}`}
-                  className="font-medium text-foreground hover:text-primary"
-                >
-                  {invoice.snapshotTenantName ?? "Tenant"}
-                </Link>
-              ) : (
-                <span className="font-medium text-foreground">
-                  {invoice.snapshotTenantName ?? "Transient guest"}
-                </span>
+              {invoice.isOverdue && <Badge tone="danger">Overdue</Badge>}
+              {invoice.billingPeriod && (
+                <Badge tone="neutral">
+                  {formatBillingPeriodLabel(invoice.billingPeriod)}
+                </Badge>
               )}
-            </span>
-            <span className="tabular-nums">
-              Due {formatManilaDate(invoice.dueDateManila)}
-            </span>
-            <span className="tabular-nums">
-              Period {formatManilaDate(invoice.periodStartManila)} to{" "}
-              {formatManilaDate(addManilaDays(invoice.periodEndManila, -1))}
-            </span>
+            </div>
+            <div className="grid gap-0.5 text-sm text-muted-foreground">
+              <span>
+                {invoice.tenantId ? (
+                  <Link
+                    href={`/tenants/${invoice.tenantId}`}
+                    className="font-medium text-foreground hover:text-primary"
+                  >
+                    {invoice.snapshotTenantName ?? "Tenant"}
+                  </Link>
+                ) : (
+                  <span className="font-medium text-foreground">
+                    {invoice.snapshotTenantName ?? "Transient guest"}
+                  </span>
+                )}
+              </span>
+              <span className="tabular-nums">
+                Due {formatManilaDate(invoice.dueDateManila)}
+              </span>
+              <span className="tabular-nums">
+                Period {formatManilaDate(invoice.periodStartManila)} to{" "}
+                {formatManilaDate(addManilaDays(invoice.periodEndManila, -1))}
+              </span>
+            </div>
           </div>
-        </div>
 
-        <div className="flex flex-wrap items-center gap-2.5">
-          <Link
-            href="/billing"
-            className={buttonClasses({ variant: "secondary", size: "md" })}
-          >
-            Back to billing
-          </Link>
-          {invoice.status === "DRAFT" && (
-            <>
-              <Button
-                size="md"
-                loading={issuing}
-                disabled={!hasInvoicePrefix}
-                onClick={() => {
-                  setIssueError(null);
-                  setIssueConfirmOpen(true);
-                }}
-              >
-                Issue invoice
-              </Button>
-              <ConfirmDialog
-                open={issueConfirmOpen}
-                onClose={() => {
-                  if (!issuing) {
-                    setIssueError(null);
-                    setIssueConfirmOpen(false);
-                  }
-                }}
-                onConfirm={handleIssue}
-                title="Issue draft invoice?"
-                description="Issuing finalizes this draft bill, gives it an official number, and opens it for payment."
-                errorMessage={issueError}
-                confirmLabel="Issue invoice"
-                confirmVariant="primary"
-                loading={issuing}
-              />
-            </>
-          )}
-          {(invoice.status === "ISSUED" ||
+          {(invoice.status === "DRAFT" ||
+            invoice.status === "ISSUED" ||
             invoice.status === "PARTIALLY_PAID") && (
-            <>
-              <Link
-                href={`/payments/new?invoiceId=${invoice.id}`}
-                className={buttonClasses({
-                  variant: "primary",
-                  size: "md",
-                })}
-              >
-                Record payment
-              </Link>
-              <Button
-                size="md"
-                variant="secondary"
-                onClick={() => setAdjustOpen(true)}
-              >
-                Add adjustment
-              </Button>
-            </>
+            <div className="flex flex-wrap items-center gap-2.5">
+              {invoice.status === "DRAFT" && (
+                <>
+                  <Button
+                    size="md"
+                    loading={issuing}
+                    disabled={!hasInvoicePrefix}
+                    onClick={() => {
+                      setIssueError(null);
+                      setIssueConfirmOpen(true);
+                    }}
+                  >
+                    Issue invoice
+                  </Button>
+                  <ConfirmDialog
+                    open={issueConfirmOpen}
+                    onClose={() => {
+                      if (!issuing) {
+                        setIssueError(null);
+                        setIssueConfirmOpen(false);
+                      }
+                    }}
+                    onConfirm={handleIssue}
+                    title="Issue draft invoice?"
+                    description="Issuing finalizes this draft bill, gives it an official number, and opens it for payment."
+                    errorMessage={issueError}
+                    confirmLabel="Issue invoice"
+                    confirmVariant="primary"
+                    loading={issuing}
+                  />
+                </>
+              )}
+              {(invoice.status === "ISSUED" ||
+                invoice.status === "PARTIALLY_PAID") && (
+                <>
+                  <Link
+                    href={`/payments/new?invoiceId=${invoice.id}`}
+                    className={buttonClasses({
+                      variant: "primary",
+                      size: "md",
+                    })}
+                  >
+                    Record payment
+                  </Link>
+                  <Button
+                    size="md"
+                    variant="secondary"
+                    onClick={() => setAdjustOpen(true)}
+                  >
+                    Add adjustment
+                  </Button>
+                </>
+              )}
+              {(invoice.status === "DRAFT" || invoice.status === "ISSUED") && (
+                <Button
+                  size="md"
+                  variant="danger"
+                  onClick={() => setVoidOpen(true)}
+                >
+                  Void invoice
+                </Button>
+              )}
+            </div>
           )}
-          {(invoice.status === "DRAFT" || invoice.status === "ISSUED") && (
-            <Button
-              size="md"
-              variant="danger"
-              onClick={() => setVoidOpen(true)}
-            >
-              Void invoice
-            </Button>
-          )}
-        </div>
-      </header>
-
-      {feedback && (
-        <Alert
-          tone={feedback.tone}
-          role={feedback.tone === "danger" ? "alert" : "status"}
-        >
-          {feedback.message}
-        </Alert>
-      )}
+        </header>
+      </div>
 
       {invoice.voidReason && (
         <Alert tone="warning" role="status">
@@ -539,7 +516,7 @@ export function InvoiceDetailView({
         invoice={adjustOpen ? invoice : null}
         onClose={() => setAdjustOpen(false)}
         onSaved={(message) => {
-          setFeedback({ tone: "success", message });
+          toast.success(message);
           router.refresh();
         }}
       />
@@ -548,7 +525,7 @@ export function InvoiceDetailView({
         invoice={voidOpen ? invoice : null}
         onClose={() => setVoidOpen(false)}
         onSaved={(message) => {
-          setFeedback({ tone: "success", message });
+          toast.success(message);
           router.refresh();
         }}
       />

@@ -11,10 +11,8 @@ export const instant = false;
 
 export default async function MaintenanceDetailPage({
   params,
-  searchParams,
 }: {
   params: Promise<{ requestId: string }>;
-  searchParams: Promise<{ created?: string }>;
 }) {
   await connection();
   let authenticated = false;
@@ -29,7 +27,7 @@ export default async function MaintenanceDetailPage({
     redirect("/auth/sign-in");
   }
 
-  const [{ requestId }, rawSearch] = await Promise.all([params, searchParams]);
+  const { requestId } = await params;
   if (!z.string().uuid().safeParse(requestId).success) {
     notFound();
   }
@@ -49,7 +47,6 @@ export default async function MaintenanceDetailPage({
         request={detail.request}
         proofMaxMb={detail.proofMaxMb}
         proofMaxFilesPerRecord={detail.proofMaxFilesPerRecord}
-        justCreated={rawSearch.created === "1"}
       />
     </WorkspaceShell>
   );

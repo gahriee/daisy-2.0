@@ -4,17 +4,20 @@ import { useRef, useState, useTransition } from "react";
 import { Alert } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { Field } from "@/components/ui/field";
-import { Input } from "@/components/ui/input";
+import { DatePicker } from "@/components/ui/date-picker";
 import { SearchFilterBar } from "@/components/ui/search-filter";
 import { Select } from "@/components/ui/select";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { toast } from "@/components/ui/toaster";
 import {
   REPORT_BUILDING_FILTER_LABELS,
   REPORT_BUILDING_FILTERS,
+  REPORT_EXPORT_FORMAT_LABELS,
   REPORT_LABELS,
   REPORT_MAX_PERIOD_DAYS,
   REPORT_TYPES,
   type ReportBuildingFilter,
+  type ReportExportDocumentFormat,
   type ReportsOverviewDto,
   type ReportTypeValue,
 } from "@/features/reports/schemas";
@@ -23,6 +26,7 @@ import {
   formatManilaDate,
   isValidManilaDate,
 } from "@/lib/dates";
+import { ReportExportMenu } from "./report-export-menu";
 import {
   CollectionsReportPanel,
   ReceivablesAgingReportPanel,
@@ -35,25 +39,6 @@ import {
   MaintenanceReportPanel,
   TransientRevenueReportPanel,
 } from "./report-operations-tabs";
-
-function ExportIcon() {
-  return (
-    <svg
-      aria-hidden="true"
-      className="size-4 shrink-0"
-      viewBox="0 0 20 20"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="1.75"
-      strokeLinecap="round"
-      strokeLinejoin="round"
-    >
-      <path d="M10 3.25v9" />
-      <path d="m6.5 9.25 3.5 3.5 3.5-3.5" />
-      <path d="M4 14.5v1.25A1.25 1.25 0 0 0 5.25 17h9.5A1.25 1.25 0 0 0 16 15.75V14.5" />
-    </svg>
-  );
-}
 
 function RefreshIcon() {
   return (
@@ -101,9 +86,9 @@ export function ReportsWorkspace({
     defaultFilters.building,
   );
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
-  const [exportNotice, setExportNotice] = useState<string | null>(null);
   const [loadingReport, startLoad] = useTransition();
-  const [exporting, setExporting] = useState(false);
+  const [exportingFormat, setExportingFormat] =
+    useState<ReportExportDocumentFormat | null>(null);
   const abortRef = useRef<AbortController | null>(null);
 
   function buildSearchParams(target: ReportFilterState) {
@@ -143,7 +128,6 @@ export function ReportsWorkspace({
     }
 
     setErrorMessage(null);
-    setExportNotice(null);
     abortRef.current?.abort();
     const controller = new AbortController();
     abortRef.current = controller;
@@ -206,10 +190,9 @@ export function ReportsWorkspace({
     applyFilters(defaultFilters);
   }
 
-  async function handleExportCsv() {
+  async function handleExport(format: ReportExportDocumentFormat) {
     setErrorMessage(null);
-    setExportNotice(null);
-    setExporting(true);
+    setExportingFormat(format);
 
     try {
       const params = buildSearchParams({
@@ -219,6 +202,7 @@ export function ReportsWorkspace({
         building: overview.filters.building,
       });
       params.set("reportType", activeTab);
+      params.set("format", format);
 
       const res = await fetch(`/api/reports/export?${params.toString()}`, {
         cache: "no-store",
@@ -229,18 +213,19 @@ export function ReportsWorkspace({
           message?: string;
         } | null;
         throw new Error(
-          body?.error ?? body?.message ?? "Could not export CSV report.",
+          body?.error ??
+            body?.message ??
+            `Could not export ${REPORT_EXPORT_FORMAT_LABELS[format]} report.`,
         );
       }
 
-      const csvText = await res.text();
+      const blob = await res.blob();
       const disposition = res.headers.get("Content-Disposition") ?? "";
       const filenameMatch = /filename="([^"]+)"/.exec(disposition);
       const filename =
         filenameMatch?.[1] ??
-        `daisy-${activeTab}-${overview.filters.asOfDate}.csv`;
+        `daisy-${activeTab}-${overview.filters.asOfDate}.${format}`;
 
-      const blob = new Blob([csvText], { type: "text/csv;charset=utf-8" });
       const url = URL.createObjectURL(blob);
       const link = document.createElement("a");
       link.href = url;
@@ -250,13 +235,17 @@ export function ReportsWorkspace({
       link.remove();
       URL.revokeObjectURL(url);
 
-      setExportNotice(`Exported ${REPORT_LABELS[activeTab]} to ${filename}.`);
+      toast.success(
+        `Exported ${REPORT_LABELS[activeTab]} (${REPORT_EXPORT_FORMAT_LABELS[format]}) to ${filename}.`,
+      );
     } catch (error) {
       setErrorMessage(
-        error instanceof Error ? error.message : "Could not export CSV report.",
+        error instanceof Error
+          ? error.message
+          : `Could not export ${REPORT_EXPORT_FORMAT_LABELS[format]} report.`,
       );
     } finally {
-      setExporting(false);
+      setExportingFormat(null);
     }
   }
 
@@ -288,27 +277,18 @@ export function ReportsWorkspace({
             variant="secondary"
             size="md"
             loading={loadingReport}
-            disabled={loadingReport || exporting}
+            disabled={loadingReport || exportingFormat !== null}
             onClick={() => applyFilters()}
           >
             {!loadingReport && <RefreshIcon />}
             <span>{loadingReport ? "Updating..." : "Refresh"}</span>
           </Button>
-          <Button
-            type="button"
-            variant="primary"
-            size="md"
-            loading={exporting}
-            disabled={loadingReport || exporting}
-            onClick={() => void handleExportCsv()}
-          >
-            {!exporting && <ExportIcon />}
-            <span>
-              {exporting
-                ? "Exporting..."
-                : `Download ${REPORT_LABELS[activeTab]} spreadsheet`}
-            </span>
-          </Button>
+          <ReportExportMenu
+            reportLabel={REPORT_LABELS[activeTab]}
+            disabled={loadingReport}
+            exportingFormat={exportingFormat}
+            onSelectFormat={(format) => void handleExport(format)}
+          />
         </div>
       </header>
 
@@ -321,36 +301,36 @@ export function ReportsWorkspace({
         <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
           <Field id="report-as-of" label="As-of date">
             {(props) => (
-              <Input
+              <DatePicker
                 {...props}
-                type="date"
+                required
                 value={asOfDate}
-                onChange={(event) =>
-                  updateFilterAndRefresh({ asOfDate: event.target.value })
+                onValueChange={(next) =>
+                  updateFilterAndRefresh({ asOfDate: next })
                 }
               />
             )}
           </Field>
           <Field id="report-from" label="Period start">
             {(props) => (
-              <Input
+              <DatePicker
                 {...props}
-                type="date"
+                required
                 value={fromDate}
-                onChange={(event) =>
-                  updateFilterAndRefresh({ fromDate: event.target.value })
+                onValueChange={(next) =>
+                  updateFilterAndRefresh({ fromDate: next })
                 }
               />
             )}
           </Field>
           <Field id="report-to" label="Period end">
             {(props) => (
-              <Input
+              <DatePicker
                 {...props}
-                type="date"
+                required
                 value={toDate}
-                onChange={(event) =>
-                  updateFilterAndRefresh({ toDate: event.target.value })
+                onValueChange={(next) =>
+                  updateFilterAndRefresh({ toDate: next })
                 }
               />
             )}
@@ -381,12 +361,6 @@ export function ReportsWorkspace({
       {errorMessage && (
         <Alert tone="danger" role="alert">
           {errorMessage}
-        </Alert>
-      )}
-
-      {exportNotice && (
-        <Alert tone="success" role="status">
-          {exportNotice}
         </Alert>
       )}
 

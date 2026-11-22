@@ -3,12 +3,12 @@
 import { useState, useTransition } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { Alert } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
-import { Button, buttonClasses } from "@/components/ui/button";
+import { BackLink, Button, buttonClasses } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import { TableCardHeader } from "@/components/ui/table";
+import { toast } from "@/components/ui/toaster";
 import { archiveTenantContractAction } from "@/features/tenants/actions";
 import {
   CONTRACT_SCAN_MODE_LABELS,
@@ -26,31 +26,17 @@ function formatByteSize(bytes: number): string {
 export function TenantContractDetail({
   tenant,
   contract: initialContract,
-  justCreated = false,
 }: {
   tenant: Pick<TenantDto, "id" | "fullName">;
   contract: TenantContractDto;
-  justCreated?: boolean;
 }) {
   const router = useRouter();
   const [contract, setContract] = useState(initialContract);
   const [confirmOpen, setConfirmOpen] = useState(false);
   const [archiveError, setArchiveError] = useState<string | null>(null);
   const [archivePending, startArchive] = useTransition();
-  const [feedback, setFeedback] = useState<{
-    tone: "success" | "danger";
-    message: string;
-  } | null>(
-    justCreated
-      ? {
-          tone: "success",
-          message: "Signed contract saved privately for this tenant.",
-        }
-      : null,
-  );
 
   function handleArchive() {
-    setFeedback(null);
     setArchiveError(null);
     startArchive(async () => {
       const result = await archiveTenantContractAction({
@@ -61,10 +47,7 @@ export function TenantContractDetail({
       if (result.status === "saved" && result.contract) {
         setContract(result.contract);
         setConfirmOpen(false);
-        setFeedback({
-          tone: "success",
-          message: result.message ?? "Signed contract archived.",
-        });
+        toast.success(result.message ?? "Signed contract archived.");
         router.refresh();
       } else {
         setArchiveError(
@@ -78,52 +61,43 @@ export function TenantContractDetail({
 
   return (
     <div className="grid gap-5">
-      <header className="flex flex-wrap items-start justify-between gap-4">
-        <div className="grid gap-1">
-          <Link
-            href={`/tenants/${tenant.id}`}
-            className="text-sm font-medium text-muted-foreground transition-colors hover:text-foreground"
-          >
-            &larr; Back to {tenant.fullName}
-          </Link>
-          <div className="flex flex-wrap items-center gap-2.5">
-            <h1 className="text-xl font-semibold tracking-tight text-foreground sm:text-2xl">
-              {contract.title}
-            </h1>
-            <Badge tone={contract.archivedAt ? "neutral" : "success"}>
-              {contract.archivedAt ? "Archived" : "Stored"}
-            </Badge>
+      <div className="grid gap-2">
+        <BackLink href={`/tenants/${tenant.id}`}>{tenant.fullName}</BackLink>
+        <header className="flex flex-wrap items-start justify-between gap-4">
+          <div className="grid gap-1">
+            <div className="flex flex-wrap items-center gap-2.5">
+              <h1 className="text-xl font-semibold tracking-tight text-foreground sm:text-2xl">
+                {contract.title}
+              </h1>
+              <Badge tone={contract.archivedAt ? "neutral" : "success"}>
+                {contract.archivedAt ? "Archived" : "Stored"}
+              </Badge>
+            </div>
+            <p className="text-sm text-muted-foreground">
+              Private signed agreement record for {tenant.fullName}.
+            </p>
           </div>
-          <p className="text-sm text-muted-foreground">
-            Private signed agreement record for {tenant.fullName}.
-          </p>
-        </div>
 
-        <div className="flex flex-wrap items-center gap-2">
-          <Link
-            href={`/tenants/${tenant.id}/contracts/new`}
-            className={buttonClasses({ variant: "secondary", size: "md" })}
-          >
-            Add contract
-          </Link>
-          {!contract.archivedAt && (
-            <Button
-              type="button"
-              variant="danger"
-              size="md"
-              onClick={() => setConfirmOpen(true)}
+          <div className="flex flex-wrap items-center gap-2">
+            <Link
+              href={`/tenants/${tenant.id}/contracts/new`}
+              className={buttonClasses({ variant: "secondary", size: "md" })}
             >
-              Archive contract
-            </Button>
-          )}
-        </div>
-      </header>
-
-      {feedback && (
-        <Alert tone={feedback.tone} role="status">
-          {feedback.message}
-        </Alert>
-      )}
+              Add contract
+            </Link>
+            {!contract.archivedAt && (
+              <Button
+                type="button"
+                variant="danger"
+                size="md"
+                onClick={() => setConfirmOpen(true)}
+              >
+                Archive contract
+              </Button>
+            )}
+          </div>
+        </header>
+      </div>
 
       <Card className="grid gap-4 p-5 sm:p-6">
         <dl className="grid grid-cols-1 gap-4 text-sm sm:grid-cols-2 lg:grid-cols-4">
@@ -195,13 +169,13 @@ export function TenantContractDetail({
                 </a>
               }
             />
-            <div className="p-4 sm:p-5">
+            <div className="bg-surface-muted p-4 sm:p-5">
               {page.mimeType === "application/pdf" ? (
                 <object
                   data={page.url}
                   type="application/pdf"
                   aria-label={page.fileName}
-                  className="h-[560px] w-full rounded-control border border-border bg-background"
+                  className="h-[560px] w-full rounded-control bg-background"
                 >
                   <div className="p-6 text-sm text-muted-foreground">
                     Inline PDF preview is unavailable in this browser. Use Open
@@ -209,7 +183,7 @@ export function TenantContractDetail({
                   </div>
                 </object>
               ) : (
-                <div className="flex justify-center rounded-control border border-border bg-white p-2 sm:p-4">
+                <div className="flex justify-center">
                   {/* eslint-disable-next-line @next/next/no-img-element */}
                   <img
                     src={page.url}
@@ -218,7 +192,7 @@ export function TenantContractDetail({
                         ? `${page.label} (Page ${page.pageOrder})`
                         : `Signed contract page ${page.pageOrder}`
                     }
-                    className="max-h-[780px] w-auto max-w-full rounded object-contain"
+                    className="max-h-[780px] w-auto max-w-full rounded-control object-contain"
                   />
                 </div>
               )}

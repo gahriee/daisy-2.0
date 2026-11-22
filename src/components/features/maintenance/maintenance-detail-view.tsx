@@ -10,12 +10,13 @@ import {
 } from "@/components/features/offline/offline-vault-unlock";
 import { Alert } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
-import { Button, buttonClasses } from "@/components/ui/button";
+import { BackLink, Button, buttonClasses } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import { TableEmptyState } from "@/components/ui/empty-state";
 import { Field } from "@/components/ui/field";
 import { CompactFormScope } from "@/components/ui/form-density";
+import { DatePicker } from "@/components/ui/date-picker";
 import { Input } from "@/components/ui/input";
 import { Select } from "@/components/ui/select";
 import {
@@ -29,6 +30,7 @@ import {
 } from "@/components/ui/table";
 import { TablePagination } from "@/components/ui/table-pagination";
 import { Textarea } from "@/components/ui/textarea";
+import { toast } from "@/components/ui/toaster";
 import {
   addMaintenanceUpdateAction,
   archiveMaintenanceRequestAction,
@@ -101,7 +103,6 @@ export function MaintenanceDetailView({
   request,
   proofMaxMb,
   proofMaxFilesPerRecord,
-  justCreated = false,
   offlineMode = false,
   syncBadge,
   onRefreshVault,
@@ -109,7 +110,6 @@ export function MaintenanceDetailView({
   request: MaintenanceRequestDto;
   proofMaxMb: number;
   proofMaxFilesPerRecord: number;
-  justCreated?: boolean;
   offlineMode?: boolean;
   syncBadge?: OfflineEntitySyncBadge;
   onRefreshVault?: () => void | Promise<void>;
@@ -128,17 +128,7 @@ export function MaintenanceDetailView({
     addManilaDays(toManilaDate(new Date()), 3),
   );
   const [holdNotes, setHoldNotes] = useState("");
-  const [feedback, setFeedback] = useState<{
-    tone: "success" | "danger";
-    message: string;
-  } | null>(
-    justCreated
-      ? {
-          tone: "success",
-          message: `Logged maintenance request for Room ${request.roomNumber}.`,
-        }
-      : null,
-  );
+  const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [pending, startTransition] = useTransition();
 
   const isArchived = request.archivedAt !== null;
@@ -168,13 +158,10 @@ export function MaintenanceDetailView({
   function handleUpdateSubmit(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
     if (pending) return;
-    setFeedback(null);
+    setErrorMessage(null);
 
     if (uploader.uploading) {
-      setFeedback({
-        tone: "danger",
-        message: "Wait for attachment uploads to finish.",
-      });
+      setErrorMessage("Wait for attachment uploads to finish.");
       return;
     }
 
@@ -192,12 +179,10 @@ export function MaintenanceDetailView({
           attachmentIntentIds: uploader.readyIntentIds,
         });
         if (!parsed.success) {
-          setFeedback({
-            tone: "danger",
-            message:
-              parsed.error.issues[0]?.message ??
+          setErrorMessage(
+            parsed.error.issues[0]?.message ??
               "Enter an update note, status change, or attachment.",
-          });
+          );
           return;
         }
         try {
@@ -246,11 +231,14 @@ export function MaintenanceDetailView({
           setStatusTo("");
           setNote("");
           uploader.reset();
-          setFeedback({
-            tone: res.delivery === "needs_attention" ? "danger" : "success",
-            message:
-              res.delivery === "needs_attention" ? res.reason : res.message,
-          });
+          if (res.delivery === "needs_attention") {
+            setErrorMessage(res.reason);
+            toast.warning(res.reason);
+          } else if (res.delivery === "queued") {
+            toast.info(res.message);
+          } else {
+            toast.success(res.message);
+          }
           await onRefreshVault?.();
           if (navigator.onLine && !offlineMode) {
             router.refresh();
@@ -259,13 +247,11 @@ export function MaintenanceDetailView({
           if (error instanceof OfflineVaultLockedError) {
             setUnlockPromptOpen(true);
           }
-          setFeedback({
-            tone: "danger",
-            message:
-              error instanceof Error
-                ? error.message
-                : "Could not save update offline.",
-          });
+          setErrorMessage(
+            error instanceof Error
+              ? error.message
+              : "Could not save update offline.",
+          );
         }
         return;
       }
@@ -279,7 +265,7 @@ export function MaintenanceDetailView({
       });
 
       if (result.status === "error") {
-        setFeedback({ tone: "danger", message: result.message });
+        setErrorMessage(result.message);
         return;
       }
 
@@ -287,7 +273,7 @@ export function MaintenanceDetailView({
         setStatusTo("");
         setNote("");
         uploader.reset();
-        setFeedback({ tone: "success", message: result.message });
+        toast.success(result.message);
         router.refresh();
       }
     });
@@ -296,7 +282,7 @@ export function MaintenanceDetailView({
   function handlePlaceHold(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
     if (pending) return;
-    setFeedback(null);
+    setErrorMessage(null);
 
     startTransition(async () => {
       const result = await placeMaintenanceHoldAction({
@@ -310,14 +296,14 @@ export function MaintenanceDetailView({
       });
 
       if (result.status === "error") {
-        setFeedback({ tone: "danger", message: result.message });
+        setErrorMessage(result.message);
         return;
       }
 
       if (result.status === "saved") {
         setHoldFormOpen(false);
         setHoldNotes("");
-        setFeedback({ tone: "success", message: result.message });
+        toast.success(result.message);
         router.refresh();
       }
     });
@@ -330,7 +316,7 @@ export function MaintenanceDetailView({
 
   function handleReleaseHold(action: "COMPLETE" | "CANCEL") {
     if (pending) return;
-    setFeedback(null);
+    setErrorMessage(null);
     setConfirmError(null);
 
     startTransition(async () => {
@@ -347,7 +333,7 @@ export function MaintenanceDetailView({
 
       if (result.status === "saved") {
         setPendingConfirm(null);
-        setFeedback({ tone: "success", message: result.message });
+        toast.success(result.message);
         router.refresh();
       }
     });
@@ -355,7 +341,7 @@ export function MaintenanceDetailView({
 
   function handleArchiveToggle() {
     if (pending) return;
-    setFeedback(null);
+    setErrorMessage(null);
     setConfirmError(null);
 
     startTransition(async () => {
@@ -386,11 +372,14 @@ export function MaintenanceDetailView({
               : "Archive saved on this device (waiting to go online).",
           });
           setPendingConfirm(null);
-          setFeedback({
-            tone: res.delivery === "needs_attention" ? "danger" : "success",
-            message:
-              res.delivery === "needs_attention" ? res.reason : res.message,
-          });
+          if (res.delivery === "needs_attention") {
+            setErrorMessage(res.reason);
+            toast.warning(res.reason);
+          } else if (res.delivery === "queued") {
+            toast.info(res.message);
+          } else {
+            toast.success(res.message);
+          }
           await onRefreshVault?.();
           if (navigator.onLine && !offlineMode) {
             router.refresh();
@@ -427,7 +416,7 @@ export function MaintenanceDetailView({
 
       if (result.status === "saved") {
         setPendingConfirm(null);
-        setFeedback({ tone: "success", message: result.message });
+        toast.success(result.message);
         router.refresh();
       }
     });
@@ -435,70 +424,64 @@ export function MaintenanceDetailView({
 
   return (
     <div className="grid gap-5">
-      <header className="flex flex-wrap items-start justify-between gap-4">
-        <div className="grid gap-1.5">
+      <div className="grid gap-2">
+        <BackLink href="/maintenance">Maintenance</BackLink>
+        <header className="flex flex-wrap items-start justify-between gap-4">
+          <div className="grid gap-1.5">
+            <div className="flex flex-wrap items-center gap-2">
+              <h1 className="text-xl font-semibold tracking-tight text-foreground sm:text-2xl">
+                {request.title}
+              </h1>
+              <Badge tone={MAINTENANCE_STATUS_TONE[request.status]}>
+                {MAINTENANCE_STATUS_LABELS[request.status]}
+              </Badge>
+              <Badge tone={MAINTENANCE_PRIORITY_TONE[request.priority]}>
+                {MAINTENANCE_PRIORITY_LABELS[request.priority]} priority
+              </Badge>
+              <Badge tone="neutral">
+                {MAINTENANCE_CATEGORY_LABELS[request.category]}
+              </Badge>
+              {isArchived && <Badge tone="neutral">Archived</Badge>}
+              <OfflineSyncBadge badge={syncBadge} />
+            </div>
+
+            <div className="grid gap-0.5 text-sm text-muted-foreground">
+              <span>
+                <Link
+                  href={`/rooms/${request.roomId}`}
+                  className="font-medium text-foreground hover:text-primary"
+                >
+                  Room {request.roomNumber}
+                </Link>
+              </span>
+              <span className="tabular-nums">
+                Logged{" "}
+                {formatManilaDate(toManilaDate(new Date(request.createdAt)))}
+              </span>
+            </div>
+          </div>
+
           <div className="flex flex-wrap items-center gap-2">
-            <h1 className="text-xl font-semibold tracking-tight text-foreground sm:text-2xl">
-              {request.title}
-            </h1>
-            <Badge tone={MAINTENANCE_STATUS_TONE[request.status]}>
-              {MAINTENANCE_STATUS_LABELS[request.status]}
-            </Badge>
-            <Badge tone={MAINTENANCE_PRIORITY_TONE[request.priority]}>
-              {MAINTENANCE_PRIORITY_LABELS[request.priority]} priority
-            </Badge>
-            <Badge tone="neutral">
-              {MAINTENANCE_CATEGORY_LABELS[request.category]}
-            </Badge>
-            {isArchived && <Badge tone="neutral">Archived</Badge>}
-            <OfflineSyncBadge badge={syncBadge} />
+            <Button
+              type="button"
+              variant={isArchived ? "secondary" : "danger"}
+              size="md"
+              loading={pending}
+              disabled={uploader.uploading}
+              onClick={() => {
+                setConfirmError(null);
+                setPendingConfirm(isArchived ? "restore" : "archive");
+              }}
+            >
+              {isArchived ? "Restore request" : "Archive"}
+            </Button>
           </div>
+        </header>
+      </div>
 
-          <div className="grid gap-0.5 text-sm text-muted-foreground">
-            <span>
-              <Link
-                href={`/rooms/${request.roomId}`}
-                className="font-medium text-foreground hover:text-primary"
-              >
-                Room {request.roomNumber}
-              </Link>
-            </span>
-            <span className="tabular-nums">
-              Logged{" "}
-              {formatManilaDate(toManilaDate(new Date(request.createdAt)))}
-            </span>
-          </div>
-        </div>
-
-        <div className="flex flex-wrap items-center gap-2">
-          <Button
-            type="button"
-            variant={isArchived ? "secondary" : "danger"}
-            size="md"
-            loading={pending}
-            disabled={uploader.uploading}
-            onClick={() => {
-              setConfirmError(null);
-              setPendingConfirm(isArchived ? "restore" : "archive");
-            }}
-          >
-            {isArchived ? "Restore request" : "Archive"}
-          </Button>
-          <Link
-            href="/maintenance"
-            className={buttonClasses({ variant: "secondary", size: "md" })}
-          >
-            Back to maintenance
-          </Link>
-        </div>
-      </header>
-
-      {feedback && (
-        <Alert
-          tone={feedback.tone === "success" ? "success" : "danger"}
-          role={feedback.tone === "success" ? "status" : "alert"}
-        >
-          {feedback.message}
+      {errorMessage && (
+        <Alert tone="danger" role="alert">
+          {errorMessage}
         </Alert>
       )}
 
@@ -508,7 +491,7 @@ export function MaintenanceDetailView({
             <h2 className="text-base font-semibold text-foreground">
               Issue description
             </h2>
-            <p className="rounded-control border border-border bg-surface-muted px-3.5 py-2.5 text-sm leading-6 whitespace-pre-wrap text-foreground">
+            <p className="text-sm leading-6 whitespace-pre-wrap text-foreground">
               {request.description}
             </p>
             {(request.resolvedAt || request.cancelledAt) && (
@@ -785,11 +768,11 @@ export function MaintenanceDetailView({
                   )}
 
                   {uploader.items.length > 0 && (
-                    <ul className="grid gap-2">
+                    <ul className="divide-y divide-border border-t border-border">
                       {uploader.items.map((item) => (
                         <li
                           key={item.localId}
-                          className="flex flex-wrap items-center justify-between gap-2 rounded-control border border-border px-3 py-2 text-xs"
+                          className="flex flex-wrap items-center justify-between gap-2 py-2.5 last:pb-0 text-xs"
                         >
                           <div className="grid min-w-0 gap-0.5">
                             <span className="truncate font-medium text-foreground">
@@ -880,11 +863,14 @@ export function MaintenanceDetailView({
           </div>
 
           {request.activeHolds.length > 0 ? (
-            <div className="grid gap-3 rounded-control border border-warning-border bg-warning-surface px-3.5 py-3">
+            <div className="grid gap-3 border-t border-border pt-3.5">
               <div className="grid gap-1 text-xs">
-                <p className="font-semibold text-foreground">
-                  Room {request.roomNumber} under active maintenance hold
-                </p>
+                <div className="flex flex-wrap items-center gap-2">
+                  <Badge tone="warning">Active hold</Badge>
+                  <p className="font-semibold text-foreground">
+                    Room {request.roomNumber} under maintenance hold
+                  </p>
+                </div>
                 {request.activeHolds[0] && (
                   <>
                     <p className="text-muted-foreground tabular-nums">
@@ -935,27 +921,27 @@ export function MaintenanceDetailView({
             <CompactFormScope>
               <form
                 onSubmit={handlePlaceHold}
-                className="grid gap-3 rounded-control border border-border bg-surface-muted p-3.5"
+                className="grid gap-3 border-t border-border pt-3.5"
               >
                 <div className="grid gap-3">
                   <Field id="maint-hold-start" label="Hold start date" required>
                     {(fieldProps) => (
-                      <Input
+                      <DatePicker
                         {...fieldProps}
-                        type="date"
+                        required
                         value={holdStartDate}
-                        onChange={(e) => setHoldStartDate(e.target.value)}
+                        onValueChange={setHoldStartDate}
                         disabled={pending}
                       />
                     )}
                   </Field>
                   <Field id="maint-hold-end" label="Hold end date" required>
                     {(fieldProps) => (
-                      <Input
+                      <DatePicker
                         {...fieldProps}
-                        type="date"
+                        required
                         value={holdEndDate}
-                        onChange={(e) => setHoldEndDate(e.target.value)}
+                        onValueChange={setHoldEndDate}
                         disabled={pending}
                       />
                     )}

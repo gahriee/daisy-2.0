@@ -8,6 +8,7 @@ import { Button, buttonClasses } from "@/components/ui/button";
 import { Field } from "@/components/ui/field";
 import { Input } from "@/components/ui/input";
 import { Separator } from "@/components/ui/separator";
+import { toast } from "@/components/ui/toaster";
 import {
   requestCodeSchema,
   resetPasswordSchema,
@@ -19,7 +20,6 @@ export function ResetPasswordForm() {
   const [stage, setStage] = useState<Stage>("request");
   const [email, setEmail] = useState("");
   const [busy, setBusy] = useState(false);
-  const [message, setMessage] = useState("");
   const [error, setError] = useState("");
   const [retryAfter, setRetryAfter] = useState(0);
   const [confirmationError, setConfirmationError] = useState("");
@@ -35,7 +35,6 @@ export function ResetPasswordForm() {
     const form = event.currentTarget;
     const data = new FormData(form);
     setError("");
-    setMessage("");
     setRetryAfter(0);
     setConfirmationError("");
     setCodeError("");
@@ -101,7 +100,7 @@ export function ResetPasswordForm() {
         setStage("reset");
         setShowPassword(false);
         setShowConfirmation(false);
-        setMessage(
+        toast.info(
           "If that email matches your account, a reset code is on its way. Check your inbox and spam folder.",
         );
         requestAnimationFrame(() => code.current?.focus());
@@ -111,6 +110,7 @@ export function ResetPasswordForm() {
         setShowPassword(false);
         setShowConfirmation(false);
         setStage("complete");
+        toast.success("Your password was updated.");
         requestAnimationFrame(() => feedback.current?.focus());
       }
     } catch {
@@ -145,17 +145,11 @@ export function ResetPasswordForm() {
       </div>
 
       {stage === "complete" ? (
-        <div className="grid gap-5">
-          <div
-            ref={feedback}
-            tabIndex={-1}
-            className="rounded-control focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-focus"
-          >
-            <Alert tone="success">
-              Your password was updated. Use your new password the next time you
-              sign in.
-            </Alert>
-          </div>
+        <div
+          ref={feedback}
+          tabIndex={-1}
+          className="grid gap-5 rounded-control focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-focus"
+        >
           <Link
             href="/auth/sign-in"
             className={buttonClasses({ className: "w-full" })}
@@ -177,9 +171,6 @@ export function ResetPasswordForm() {
               tabIndex={-1}
               className="grid gap-3 rounded-control empty:hidden focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-focus"
             >
-              <div aria-live="polite" className="empty:hidden">
-                {message && <Alert>{message}</Alert>}
-              </div>
               <div role="alert" className="empty:hidden">
                 {error && (
                   <Alert role="presentation" tone="danger">
@@ -315,7 +306,6 @@ export function ResetPasswordForm() {
                 onClick={() => {
                   setStage("request");
                   setError("");
-                  setMessage("");
                   setRetryAfter(0);
                 }}
                 className="w-full"

@@ -67,7 +67,7 @@ export function ConfirmDialog({
         )}
 
         {details && (
-          <div className="grid gap-1 rounded-control border border-border bg-background/60 p-3 text-sm tabular-nums">
+          <div className="grid gap-1 border-y border-border py-2.5 text-sm tabular-nums">
             {details}
           </div>
         )}

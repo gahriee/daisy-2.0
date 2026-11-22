@@ -1,12 +1,25 @@
 import "server-only";
 import { randomUUID } from "node:crypto";
+import { normalizePhilippineMobileNumber } from "@/features/sms/schemas";
 import { addManilaDays, manilaDateTimeToUtc, toManilaDate } from "@/lib/dates";
-import { ConflictError, NotFoundError, ValidationError } from "@/lib/errors";
+import {
+  ConflictError,
+  NotFoundError,
+  PreconditionError,
+  RateLimitedError,
+  ValidationError,
+} from "@/lib/errors";
 import { getDatabase } from "@/server/db/client";
 import {
   ensureOwnerRecord,
   type DatabaseExecutor,
 } from "@/server/db/owner-record";
+import { decryptAppSecret } from "@/server/security/secret-box";
+import {
+  sendSemaphoreSms,
+  type SemaphoreSendParams,
+  type SemaphoreSendResult,
+} from "@/server/sms/semaphore";
 import {
   allocateSyncSequence,
   appendChangeFeed,
@@ -15,6 +28,8 @@ import {
 import {
   ArchiveRestoreNoticeSchema,
   CreateNoticeSchema,
+  formatNoticeSmsText,
+  SendNoticeSmsSchema,
   UpdateNoticeSchema,
   type ArchiveRestoreNoticeInput,
   type CreateNoticeInput,
@@ -22,6 +37,8 @@ import {
   type NoticeDto,
   type NoticeLifecycleStatus,
   type NoticeOverviewDto,
+  type SendNoticeSmsInput,
+  type SendNoticeSmsResultDto,
   type UpdateNoticeInput,
 } from "./schemas";
 
@@ -39,6 +56,8 @@ const noticeSelect = {
   endDateManila: true,
   startDate: true,
   endDate: true,
+  smsSentAt: true,
+  smsSentCount: true,
   archivedAt: true,
   createdAt: true,
   updatedAt: true,
@@ -58,6 +77,8 @@ type NoticeRow = {
   endDateManila: string;
   startDate: Date;
   endDate: Date;
+  smsSentAt: Date | null;
+  smsSentCount: number;
   archivedAt: Date | null;
   createdAt: Date;
   updatedAt: Date;
@@ -89,6 +110,8 @@ function toNoticeDto(row: NoticeRow, todayManila: string): NoticeDto {
     startDate: row.startDate.toISOString(),
     endDate: row.endDate.toISOString(),
     lifecycleStatus: computeNoticeLifecycleStatus(row, todayManila),
+    smsSentAt: row.smsSentAt ? row.smsSentAt.toISOString() : null,
+    smsSentCount: row.smsSentCount,
     archivedAt: row.archivedAt ? row.archivedAt.toISOString() : null,
     createdAt: row.createdAt.toISOString(),
     updatedAt: row.updatedAt.toISOString(),
@@ -110,6 +133,8 @@ function serializeNoticeForFeed(dto: NoticeDto) {
     endDateManila: dto.endDateManila,
     startDate: dto.startDate,
     endDate: dto.endDate,
+    smsSentAt: dto.smsSentAt,
+    smsSentCount: dto.smsSentCount,
     archivedAt: dto.archivedAt,
     createdAt: dto.createdAt,
     updatedAt: dto.updatedAt,
@@ -200,27 +225,33 @@ export async function getNoticesOverview(
 
   return db.$transaction(
     async (tx) => {
-      const [noticeRows, roomRows, tenantRows] = await Promise.all([
-        tx.notice.findMany({
-          where: { ownerUserId },
-          orderBy: [
-            { archivedAt: "asc" },
-            { startDateManila: "desc" },
-            { createdAt: "desc" },
-          ],
-          select: noticeSelect,
-        }),
-        tx.room.findMany({
-          where: { ownerUserId, archivedAt: null },
-          orderBy: [{ building: "asc" }, { number: "asc" }],
-          select: { id: true, building: true, number: true, floor: true },
-        }),
-        tx.tenant.findMany({
-          where: { ownerUserId, archivedAt: null },
-          orderBy: [{ fullName: "asc" }],
-          select: { id: true, fullName: true },
-        }),
-      ]);
+      const [noticeRows, roomRows, tenantRows, settingsRow] = await Promise.all(
+        [
+          tx.notice.findMany({
+            where: { ownerUserId },
+            orderBy: [
+              { archivedAt: "asc" },
+              { startDateManila: "desc" },
+              { createdAt: "desc" },
+            ],
+            select: noticeSelect,
+          }),
+          tx.room.findMany({
+            where: { ownerUserId, archivedAt: null },
+            orderBy: [{ building: "asc" }, { number: "asc" }],
+            select: { id: true, building: true, number: true, floor: true },
+          }),
+          tx.tenant.findMany({
+            where: { ownerUserId, archivedAt: null },
+            orderBy: [{ fullName: "asc" }],
+            select: { id: true, fullName: true },
+          }),
+          tx.businessSettings.findUnique({
+            where: { ownerUserId },
+            select: { businessName: true, smsApiKeyEncrypted: true },
+          }),
+        ],
+      );
 
       const notices = noticeRows.map((row) => toNoticeDto(row, todayManila));
       let activeCount = 0;
@@ -237,6 +268,9 @@ export async function getNoticesOverview(
 
       return {
         todayManila,
+        smsConfigured: Boolean(settingsRow?.smsApiKeyEncrypted),
+        businessName:
+          settingsRow?.businessName?.trim() || "Boarding House Management",
         totals: {
           activeCount,
           scheduledCount,
@@ -602,4 +636,325 @@ export async function restoreNotice(
     },
     { maxWait: 10_000, timeout: 25_000 },
   );
+}
+
+const NOTICE_SMS_LIMIT_MAX = 10;
+const NOTICE_SMS_LIMIT_WINDOW_SECONDS = 600;
+
+async function consumeNoticeSmsRateLimit(ownerUserId: string): Promise<void> {
+  const db = getDatabase();
+  const key = `notice-sms:${ownerUserId}`;
+  const rows = await db.$transaction(async (tx) => {
+    await tx.$executeRaw`
+      DELETE FROM "SecurityRateLimit"
+      WHERE "key" = ${key} AND "resetsAt" <= CURRENT_TIMESTAMP
+    `;
+    return tx.$queryRaw<Array<{ count: number; retry: number }>>`
+      INSERT INTO "SecurityRateLimit" ("key", "count", "resetsAt")
+      VALUES (${key}, 1, CURRENT_TIMESTAMP + (${NOTICE_SMS_LIMIT_WINDOW_SECONDS} * interval '1 second'))
+      ON CONFLICT ("key") DO UPDATE SET
+        "count" = CASE
+          WHEN "SecurityRateLimit"."resetsAt" <= CURRENT_TIMESTAMP THEN 1
+          ELSE "SecurityRateLimit"."count" + 1
+        END,
+        "resetsAt" = CASE
+          WHEN "SecurityRateLimit"."resetsAt" <= CURRENT_TIMESTAMP
+            THEN CURRENT_TIMESTAMP + (${NOTICE_SMS_LIMIT_WINDOW_SECONDS} * interval '1 second')
+          ELSE "SecurityRateLimit"."resetsAt"
+        END
+      RETURNING "count", GREATEST(1, CEIL(EXTRACT(EPOCH FROM ("resetsAt" - CURRENT_TIMESTAMP))))::int AS retry
+    `;
+  });
+
+  const row = rows[0];
+  if (row && row.count > NOTICE_SMS_LIMIT_MAX) {
+    throw new RateLimitedError(
+      row.retry,
+      "You have sent several text notices recently. Wait a few minutes before sending another.",
+    );
+  }
+}
+
+/**
+ * Texts an unarchived notice to its target boarding house audience via Semaphore.
+ * Writes an identifier-only AuditLog entry (never stores phone numbers or message text).
+ */
+export async function sendNoticeSms(
+  ownerUserId: string,
+  rawInput: SendNoticeSmsInput,
+  options?: {
+    sender?: (params: SemaphoreSendParams) => Promise<SemaphoreSendResult>;
+    skipRateLimit?: boolean;
+    actor?: { actorType: "owner" | "scheduled_job"; actorId: string };
+  },
+): Promise<SendNoticeSmsResultDto> {
+  const parsed = SendNoticeSmsSchema.safeParse(rawInput);
+  if (!parsed.success) {
+    throw new ValidationError(
+      parsed.error.issues[0]?.message ?? "Select a valid notice.",
+    );
+  }
+
+  if (!options?.skipRateLimit) {
+    await consumeNoticeSmsRateLimit(ownerUserId);
+  }
+
+  const db = getDatabase();
+  const [settings, notice] = await Promise.all([
+    db.businessSettings.findUnique({
+      where: { ownerUserId },
+      select: {
+        businessName: true,
+        smsApiKeyEncrypted: true,
+        smsSenderName: true,
+      },
+    }),
+    db.notice.findFirst({
+      where: { id: parsed.data.noticeId, ownerUserId },
+      select: {
+        id: true,
+        audience: true,
+        roomId: true,
+        tenantId: true,
+        title: true,
+        body: true,
+        archivedAt: true,
+      },
+    }),
+  ]);
+
+  if (!notice) {
+    throw new NotFoundError("Notice was not found.");
+  }
+  if (notice.archivedAt) {
+    throw new PreconditionError(
+      "Restore this notice before sending it by text.",
+    );
+  }
+  if (!settings?.smsApiKeyEncrypted) {
+    throw new PreconditionError(
+      "Connect your Semaphore account in Settings before sending text notices.",
+    );
+  }
+
+  const targetTenants = new Map<string, string | null>();
+  if (notice.audience === "TENANT" && notice.tenantId) {
+    const tenant = await db.tenant.findFirst({
+      where: { id: notice.tenantId, ownerUserId, archivedAt: null },
+      select: { id: true, phone: true },
+    });
+    if (tenant) {
+      targetTenants.set(tenant.id, tenant.phone);
+    }
+  } else if (notice.audience === "ROOM" && notice.roomId) {
+    const allocations = await db.allocation.findMany({
+      where: {
+        ownerUserId,
+        status: "ACTIVE",
+        roomId: notice.roomId,
+        tenantAssignment: {
+          is: {
+            tenant: { is: { archivedAt: null } },
+          },
+        },
+      },
+      select: {
+        tenantAssignment: {
+          select: {
+            tenant: { select: { id: true, phone: true } },
+          },
+        },
+      },
+    });
+    for (const row of allocations) {
+      const tenant = row.tenantAssignment?.tenant;
+      if (tenant) {
+        targetTenants.set(tenant.id, tenant.phone);
+      }
+    }
+  } else {
+    const allocations = await db.allocation.findMany({
+      where: {
+        ownerUserId,
+        status: "ACTIVE",
+        tenantAssignment: {
+          is: {
+            tenant: { is: { archivedAt: null } },
+          },
+        },
+      },
+      select: {
+        tenantAssignment: {
+          select: {
+            tenant: { select: { id: true, phone: true } },
+          },
+        },
+      },
+    });
+    for (const row of allocations) {
+      const tenant = row.tenantAssignment?.tenant;
+      if (tenant) {
+        targetTenants.set(tenant.id, tenant.phone);
+      }
+    }
+  }
+
+  const totalTargets = targetTenants.size;
+  if (totalTargets === 0) {
+    throw new ValidationError(
+      notice.audience === "ROOM"
+        ? "No active tenants are currently staying in that room."
+        : notice.audience === "TENANT"
+          ? "The selected tenant record is not active."
+          : "No active tenants are currently assigned to rooms.",
+    );
+  }
+
+  const uniquePhones = new Set<string>();
+  let skippedNoPhoneCount = 0;
+  for (const phone of targetTenants.values()) {
+    const normalized = normalizePhilippineMobileNumber(phone);
+    if (!normalized) {
+      skippedNoPhoneCount += 1;
+      continue;
+    }
+    uniquePhones.add(normalized);
+  }
+
+  const apiKey = decryptAppSecret(settings.smsApiKeyEncrypted);
+  const message = formatNoticeSmsText({
+    title: notice.title,
+    body: notice.body,
+    businessName: settings.businessName,
+  });
+  const sender = options?.sender ?? sendSemaphoreSms;
+
+  let sentCount = 0;
+  let failedCount = 0;
+
+  for (const recipient of uniquePhones) {
+    try {
+      await sender({
+        apiKey,
+        recipient,
+        message,
+        senderName: settings.smsSenderName,
+      });
+      sentCount += 1;
+    } catch {
+      failedCount += 1;
+    }
+  }
+
+  const actor = options?.actor ?? {
+    actorType: "owner" as const,
+    actorId: ownerUserId,
+  };
+
+  await db.$transaction(async (tx) => {
+    await ensureOwnerRecord(tx, ownerUserId);
+    if (sentCount > 0) {
+      await tx.notice.updateMany({
+        where: { id: notice.id, ownerUserId },
+        data: {
+          smsSentAt: new Date(),
+          smsSentCount: sentCount,
+        },
+      });
+    }
+    await writeAuditEntry(tx, {
+      ownerUserId,
+      area: "notices",
+      action: "notice.sms_sent",
+      actorType: actor.actorType,
+      actorId: actor.actorId,
+      entityType: "notice",
+      entityId: notice.id,
+      metadata: {
+        audience: notice.audience,
+        totalTargets,
+        sentCount,
+        failedCount,
+        skippedNoPhoneCount,
+      },
+    });
+  });
+
+  return {
+    noticeId: notice.id,
+    totalTargets,
+    sentCount,
+    failedCount,
+    skippedNoPhoneCount,
+  };
+}
+
+/**
+ * Automatically texts any scheduled, unarchived notices whose start date has arrived
+ * and have not yet been sent via Semaphore. Safe to run repeatedly on cron.
+ */
+export async function dispatchScheduledNoticeSms(
+  ownerUserId: string,
+  options?: {
+    sender?: (params: SemaphoreSendParams) => Promise<SemaphoreSendResult>;
+  },
+): Promise<{
+  processedCount: number;
+  sentNoticesCount: number;
+  totalRecipientsSent: number;
+}> {
+  const db = getDatabase();
+  const settings = await db.businessSettings.findUnique({
+    where: { ownerUserId },
+    select: { smsApiKeyEncrypted: true },
+  });
+  if (!settings?.smsApiKeyEncrypted) {
+    return { processedCount: 0, sentNoticesCount: 0, totalRecipientsSent: 0 };
+  }
+
+  const todayManila = toManilaDate(new Date());
+  const dueNotices = await db.notice.findMany({
+    where: {
+      ownerUserId,
+      archivedAt: null,
+      smsSentAt: null,
+      startDateManila: { lte: todayManila },
+      endDateManila: { gte: todayManila },
+    },
+    orderBy: [{ startDateManila: "asc" }, { createdAt: "asc" }],
+    select: { id: true },
+    take: 25,
+  });
+
+  let sentNoticesCount = 0;
+  let totalRecipientsSent = 0;
+
+  for (const notice of dueNotices) {
+    try {
+      const result = await sendNoticeSms(
+        ownerUserId,
+        { noticeId: notice.id },
+        {
+          ...(options?.sender ? { sender: options.sender } : {}),
+          skipRateLimit: true,
+          actor: {
+            actorType: "scheduled_job",
+            actorId: "cron:scheduled-notices",
+          },
+        },
+      );
+      if (result.sentCount > 0) {
+        sentNoticesCount += 1;
+        totalRecipientsSent += result.sentCount;
+      }
+    } catch {
+      // Skip individual notice failures (e.g., no active tenants) so other due notices still send.
+    }
+  }
+
+  return {
+    processedCount: dueNotices.length,
+    sentNoticesCount,
+    totalRecipientsSent,
+  };
 }

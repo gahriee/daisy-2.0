@@ -39,6 +39,7 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { TablePagination } from "@/components/ui/table-pagination";
+import { toast } from "@/components/ui/toaster";
 import { archiveRoomAction, restoreRoomAction } from "@/features/rooms/actions";
 import {
   BED_STATUS_LABELS,
@@ -66,6 +67,7 @@ const STATUS_BADGE_TONE: Record<
 
 type RoomViewFilter = "active" | "archived" | "all";
 type StatusFilter = "ALL" | BedStatusValue;
+type ListingFilter = "ALL" | "PUBLISHED" | "HIDDEN";
 
 function RefreshIcon() {
   return (
@@ -112,7 +114,13 @@ function deriveRoomStaySummary(room: RoomWithBedsDto): string | null {
 }
 
 type RoomSortKey =
-  "room" | "roomType" | "monthlyRate" | "dailyRate" | "status" | "stay";
+  | "room"
+  | "roomType"
+  | "monthlyRate"
+  | "dailyRate"
+  | "listing"
+  | "status"
+  | "stay";
 
 const ROOM_SORT_COLUMNS: Record<RoomSortKey, SortColumnDef<RoomWithBedsDto>> = {
   room: { getValue: (room) => room.number },
@@ -126,6 +134,9 @@ const ROOM_SORT_COLUMNS: Record<RoomSortKey, SortColumnDef<RoomWithBedsDto>> = {
     getValue: (room) => room.transientDailyRate ?? "0",
     kind: "money",
     defaultDirection: "desc",
+  },
+  listing: {
+    getValue: (room) => (room.isTransientPublished ? "Published" : "Hidden"),
   },
   status: { getValue: (room) => BED_STATUS_LABELS[deriveRoomStatus(room)] },
   stay: { getValue: (room) => deriveRoomStaySummary(room) },
@@ -173,6 +184,7 @@ export function RoomsWorkspace({
   });
   const [searchQuery, setSearchQuery] = useState("");
   const [statusFilter, setStatusFilter] = useState<StatusFilter>("ALL");
+  const [listingFilter, setListingFilter] = useState<ListingFilter>("ALL");
   const [roomViewFilter, setRoomViewFilter] =
     useState<RoomViewFilter>("active");
   const [refreshing, setRefreshing] = useState(false);
@@ -181,10 +193,7 @@ export function RoomsWorkspace({
     null,
   );
   const [confirmError, setConfirmError] = useState<string | null>(null);
-  const [feedback, setFeedback] = useState<{
-    tone: "success" | "danger";
-    message: string;
-  } | null>(null);
+  const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [, startTransition] = useTransition();
 
   async function reloadInventory() {
@@ -192,13 +201,11 @@ export function RoomsWorkspace({
     try {
       await reload();
     } catch (error) {
-      setFeedback({
-        tone: "danger",
-        message:
-          error instanceof Error
-            ? error.message
-            : "Connect to the internet to refresh rooms.",
-      });
+      setErrorMessage(
+        error instanceof Error
+          ? error.message
+          : "Connect to the internet to refresh rooms.",
+      );
     } finally {
       setRefreshing(false);
     }
@@ -206,7 +213,7 @@ export function RoomsWorkspace({
 
   function handleArchiveRestoreRoom(room: RoomWithBedsDto) {
     if (rowPendingId) return;
-    setFeedback(null);
+    setErrorMessage(null);
     setConfirmError(null);
     setRowPendingId(room.id);
     startTransition(async () => {
@@ -223,7 +230,7 @@ export function RoomsWorkspace({
               });
         if (result.status === "saved") {
           setConfirmingRoom(null);
-          setFeedback({ tone: "success", message: result.message });
+          toast.success(result.message);
           await reloadInventory();
         } else if (result.status === "error") {
           setConfirmError(result.message);
@@ -258,6 +265,20 @@ export function RoomsWorkspace({
 
     const roomStatus = deriveRoomStatus(room);
     if (statusFilter !== "ALL" && roomStatus !== statusFilter) return false;
+    if (
+      isTransient &&
+      listingFilter === "PUBLISHED" &&
+      !room.isTransientPublished
+    ) {
+      return false;
+    }
+    if (
+      isTransient &&
+      listingFilter === "HIDDEN" &&
+      room.isTransientPublished
+    ) {
+      return false;
+    }
 
     if (!normalizedQuery) return true;
 
@@ -266,6 +287,8 @@ export function RoomsWorkspace({
       room.number,
       room.floor ?? "",
       room.roomTypeName,
+      room.transientTitle ?? "",
+      isTransient ? (room.isTransientPublished ? "published" : "hidden") : "",
       room.notes ?? "",
       staySummary,
     ]
@@ -278,7 +301,15 @@ export function RoomsWorkspace({
   const hasFilters =
     normalizedQuery !== "" ||
     statusFilter !== "ALL" ||
+    (isTransient && listingFilter !== "ALL") ||
     roomViewFilter !== "active";
+
+  function clearFilters() {
+    setSearchQuery("");
+    setStatusFilter("ALL");
+    setListingFilter("ALL");
+    setRoomViewFilter("active");
+  }
 
   const {
     sortedRows: sortedRooms,
@@ -292,7 +323,7 @@ export function RoomsWorkspace({
   const { paginatedRows: paginatedRooms, paginationProps } = useTablePagination(
     sortedRooms,
     {
-      resetKey: `${normalizedQuery}|${statusFilter}|${roomViewFilter}|${sort?.key ?? ""}|${sort?.direction ?? ""}`,
+      resetKey: `${normalizedQuery}|${statusFilter}|${listingFilter}|${roomViewFilter}|${sort?.key ?? ""}|${sort?.direction ?? ""}`,
     },
   );
 
@@ -309,15 +340,6 @@ export function RoomsWorkspace({
               label: "Edit",
               href: `${basePath}/${room.id}`,
             },
-            ...(isTransient
-              ? [
-                  {
-                    id: "listing",
-                    label: "Public listing",
-                    href: `/transients/listings/${room.id}`,
-                  },
-                ]
-              : []),
           ]
         : []),
       {
@@ -375,6 +397,17 @@ export function RoomsWorkspace({
           </Button>
           {!isOfflineView && (
             <>
+              {isTransient && (
+                <Link
+                  href="/book"
+                  className={buttonClasses({
+                    variant: "secondary",
+                    size: "md",
+                  })}
+                >
+                  Open /book
+                </Link>
+              )}
               <Link
                 href={typesPath}
                 className={buttonClasses({ variant: "secondary", size: "md" })}
@@ -402,12 +435,9 @@ export function RoomsWorkspace({
         onSyncNow={() => void reloadInventory()}
       />
 
-      {feedback && (
-        <Alert
-          tone={feedback.tone}
-          role={feedback.tone === "danger" ? "alert" : "status"}
-        >
-          {feedback.message}
+      {errorMessage && (
+        <Alert tone="danger" role="alert">
+          {errorMessage}
         </Alert>
       )}
 
@@ -514,13 +544,15 @@ export function RoomsWorkspace({
       <SearchFilterBar
         aria-label="Find rooms"
         hasActiveFilters={hasFilters}
-        onClearAll={() => {
-          setSearchQuery("");
-          setStatusFilter("ALL");
-          setRoomViewFilter("active");
-        }}
+        onClearAll={clearFilters}
       >
-        <div className="grid grid-cols-1 gap-3 md:grid-cols-3">
+        <div
+          className={
+            isTransient
+              ? "grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4"
+              : "grid grid-cols-1 gap-3 md:grid-cols-3"
+          }
+        >
           <Field id="inventory-search" label="Find a room">
             {({ id }) => (
               <SearchFilterInput
@@ -551,6 +583,25 @@ export function RoomsWorkspace({
               </Select>
             )}
           </Field>
+
+          {isTransient && (
+            <Field id="inventory-listing-filter" label="Listing status">
+              {(fieldProps) => (
+                <Select
+                  {...fieldProps}
+                  variant="filter"
+                  value={listingFilter}
+                  onChange={(e) =>
+                    setListingFilter(e.target.value as ListingFilter)
+                  }
+                >
+                  <option value="ALL">All listings</option>
+                  <option value="PUBLISHED">Published on /book</option>
+                  <option value="HIDDEN">Hidden from /book</option>
+                </Select>
+              )}
+            </Field>
+          )}
 
           <Field id="inventory-room-view" label="Room view">
             {(fieldProps) => (
@@ -613,14 +664,7 @@ export function RoomsWorkspace({
                 </Link>
               </>
             ) : (
-              <Button
-                variant="secondary"
-                onClick={() => {
-                  setSearchQuery("");
-                  setStatusFilter("ALL");
-                  setRoomViewFilter("active");
-                }}
-              >
+              <Button variant="secondary" onClick={clearFilters}>
                 Clear
               </Button>
             )}
@@ -659,15 +703,31 @@ export function RoomsWorkspace({
                       <span className="text-xs text-muted-foreground">
                         {room.roomTypeName}
                       </span>
+                      {isTransient && room.transientTitle && (
+                        <span className="text-xs text-muted-foreground">
+                          {room.transientTitle}
+                        </span>
+                      )}
                       {room.floor && (
                         <span className="text-xs text-muted-foreground">
                           {room.floor}
                         </span>
                       )}
                     </div>
-                    <Badge tone={STATUS_BADGE_TONE[roomStatus]}>
-                      {BED_STATUS_LABELS[roomStatus]}
-                    </Badge>
+                    <div className="flex flex-wrap items-center justify-end gap-1.5">
+                      {isTransient && (
+                        <Badge
+                          tone={
+                            room.isTransientPublished ? "success" : "neutral"
+                          }
+                        >
+                          {room.isTransientPublished ? "Published" : "Hidden"}
+                        </Badge>
+                      )}
+                      <Badge tone={STATUS_BADGE_TONE[roomStatus]}>
+                        {BED_STATUS_LABELS[roomStatus]}
+                      </Badge>
+                    </div>
                   </div>
 
                   <div className="flex flex-wrap items-start justify-between gap-2 text-xs text-muted-foreground tabular-nums">
@@ -734,9 +794,14 @@ export function RoomsWorkspace({
                     Room type
                   </TableHead>
                   {isTransient ? (
-                    <TableHead numeric {...sortHeaderProps("dailyRate")}>
-                      Daily rate
-                    </TableHead>
+                    <>
+                      <TableHead numeric {...sortHeaderProps("dailyRate")}>
+                        Daily rate
+                      </TableHead>
+                      <TableHead {...sortHeaderProps("listing")}>
+                        Public /book
+                      </TableHead>
+                    </>
                   ) : (
                     <TableHead numeric {...sortHeaderProps("monthlyRate")}>
                       Monthly rate
@@ -797,6 +862,30 @@ export function RoomsWorkspace({
                             : (room.baseMonthlyRate ?? "0.00"),
                         )}
                       </TableCell>
+                      {isTransient && (
+                        <TableCell>
+                          <div className="grid gap-0.5">
+                            <div>
+                              <Badge
+                                tone={
+                                  room.isTransientPublished
+                                    ? "success"
+                                    : "neutral"
+                                }
+                              >
+                                {room.isTransientPublished
+                                  ? "Published"
+                                  : "Hidden"}
+                              </Badge>
+                            </div>
+                            {room.transientTitle && (
+                              <span className="text-xs text-muted-foreground">
+                                {room.transientTitle}
+                              </span>
+                            )}
+                          </div>
+                        </TableCell>
+                      )}
                       <TableCell>
                         <Badge tone={STATUS_BADGE_TONE[roomStatus]}>
                           {BED_STATUS_LABELS[roomStatus]}

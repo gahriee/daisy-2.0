@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { DaisyBrand } from "@/components/layout/daisy-brand";
+import { BackLink } from "@/components/ui/button";
 import { buildOsmAreaSearchUrl } from "@/features/transients/public-booking-view";
 
 type PublicBookingHeaderProps = {
@@ -65,24 +66,9 @@ export function PublicBookingBackLink({
 }) {
   return (
     <div className="mb-3">
-      <Link
-        href={href}
-        className="inline-flex min-h-11 items-center gap-1.5 text-sm font-medium text-muted-foreground transition-colors duration-(--duration-control) ease-(--ease-control) hover:text-foreground hover:underline hover:underline-offset-4 sm:min-h-8"
-      >
-        <svg
-          aria-hidden="true"
-          viewBox="0 0 16 16"
-          fill="none"
-          stroke="currentColor"
-          strokeWidth="1.75"
-          strokeLinecap="round"
-          strokeLinejoin="round"
-          className="size-4 shrink-0"
-        >
-          <path d="M10 3.5 5.5 8 10 12.5" />
-        </svg>
-        <span>{label}</span>
-      </Link>
+      <BackLink href={href} size="md">
+        {label}
+      </BackLink>
     </div>
   );
 }

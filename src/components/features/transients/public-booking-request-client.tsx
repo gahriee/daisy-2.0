@@ -27,12 +27,14 @@ import {
 } from "@/features/transients/schemas";
 import { Alert } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
-import { Button, buttonClasses } from "@/components/ui/button";
+import { BackLink, Button, buttonClasses } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Field } from "@/components/ui/field";
+import { DatePicker } from "@/components/ui/date-picker";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
+import { toast } from "@/components/ui/toaster";
 import { diffManilaDays, formatManilaDate } from "@/lib/dates";
 import { formatPhpCurrency } from "@/lib/money";
 import { cn } from "@/lib/cn";
@@ -119,8 +121,8 @@ export function PublicBookingRequestClient({
     null,
   );
 
-  const checkInRef = useRef<HTMLInputElement | null>(null);
-  const checkOutRef = useRef<HTMLInputElement | null>(null);
+  const checkInRef = useRef<HTMLButtonElement | null>(null);
+  const checkOutRef = useRef<HTMLButtonElement | null>(null);
   const guestNameRef = useRef<HTMLInputElement | null>(null);
   const guestAgeRef = useRef<HTMLInputElement | null>(null);
   const guestSexMaleRef = useRef<HTMLInputElement | null>(null);
@@ -413,6 +415,7 @@ export function PublicBookingRequestClient({
       }
 
       setSubmittedAck(data as PublicBookingAckDto);
+      toast.info("Booking request received. Waiting for host confirmation.");
       window.scrollTo({ top: 0, behavior: "smooth" });
     } catch {
       setSubmitError(
@@ -427,6 +430,7 @@ export function PublicBookingRequestClient({
     try {
       await navigator.clipboard.writeText(code);
       setCopiedReference(true);
+      toast.success("Booking reference copied.");
     } catch {
       setCopiedReference(false);
     }
@@ -626,7 +630,7 @@ export function PublicBookingRequestClient({
         id="main-content"
         className="w-full flex-1 px-4 py-6 sm:px-6 lg:px-10 lg:py-8"
       >
-        <PublicBookingBackLink href={roomHref} label="Back to room" />
+        <PublicBookingBackLink href={roomHref} label={room.title} />
 
         <div className="mb-6 grid gap-1 border-b border-border pb-5">
           <h1 className="text-2xl font-semibold tracking-tight text-foreground sm:text-3xl">
@@ -684,13 +688,13 @@ export function PublicBookingRequestClient({
                   error={fieldErrors.checkIn}
                 >
                   {(fieldProps) => (
-                    <Input
+                    <DatePicker
                       {...fieldProps}
                       ref={checkInRef}
-                      type="date"
+                      required
                       value={draftCheckIn}
-                      onChange={(event) => {
-                        setDraftCheckIn(event.target.value);
+                      onValueChange={(next) => {
+                        setDraftCheckIn(next);
                         setDateError(null);
                         clearFieldError("checkIn");
                       }}
@@ -705,13 +709,13 @@ export function PublicBookingRequestClient({
                   error={fieldErrors.checkOut}
                 >
                   {(fieldProps) => (
-                    <Input
+                    <DatePicker
                       {...fieldProps}
                       ref={checkOutRef}
-                      type="date"
+                      required
                       value={draftCheckOut}
-                      onChange={(event) => {
-                        setDraftCheckOut(event.target.value);
+                      onValueChange={(next) => {
+                        setDraftCheckOut(next);
                         setDateError(null);
                         clearFieldError("checkOut");
                       }}
@@ -739,7 +743,7 @@ export function PublicBookingRequestClient({
                 </div>
               )}
 
-              <div className="mt-4 rounded-xl border border-border px-4 py-1 divide-y divide-border">
+              <div className="mt-4 border-t border-border pt-2 divide-y divide-border">
                 <GuestCountStepperRow
                   label="Adults"
                   description="Ages 13 or above"
@@ -1012,24 +1016,9 @@ export function PublicBookingRequestClient({
               </div>
 
               <div className="mt-6 flex flex-wrap items-center justify-between gap-3">
-                <Link
-                  href={roomHref}
-                  className="inline-flex min-h-11 items-center gap-1.5 text-sm font-medium text-muted-foreground transition-colors duration-(--duration-control) ease-(--ease-control) hover:text-foreground hover:underline hover:underline-offset-4 sm:min-h-9"
-                >
-                  <svg
-                    aria-hidden="true"
-                    viewBox="0 0 16 16"
-                    fill="none"
-                    stroke="currentColor"
-                    strokeWidth="1.75"
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                    className="size-4 shrink-0"
-                  >
-                    <path d="M10 3.5 5.5 8 10 12.5" />
-                  </svg>
-                  <span>Back to room</span>
-                </Link>
+                <BackLink href={roomHref} size="md">
+                  {room.title}
+                </BackLink>
                 <Button
                   type="submit"
                   variant="primary"

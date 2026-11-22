@@ -63,7 +63,12 @@ const optionalShortText = (max: number) =>
     .transform((val) => (val === "" ? null : val))
     .nullable();
 
-export const SETTINGS_MODULES = ["profile", "policies", "operations"] as const;
+export const SETTINGS_MODULES = [
+  "profile",
+  "policies",
+  "operations",
+  "sms",
+] as const;
 export type SettingsModule = (typeof SETTINGS_MODULES)[number];
 
 const profileFields = {
@@ -135,12 +140,64 @@ export const OperationsSettingsUpdateSchema = z.object({
   ...operationsFields,
 });
 
+const smsSenderNameSchema = z
+  .string()
+  .trim()
+  .max(11, "Semaphore sender name must be 11 characters or fewer.")
+  .refine(
+    (val) => val === "" || /^[A-Za-z0-9]+$/.test(val),
+    "Use letters and numbers only for Semaphore sender name (no spaces).",
+  )
+  .transform((val) => (val === "" ? null : val))
+  .nullable();
+
+const smsOverdueTemplateSchema = z
+  .string()
+  .trim()
+  .max(480, "Keep the SMS message template under 480 characters.")
+  .refine(
+    (val) => val === "" || !/^test\b/i.test(val),
+    'Do not start the message with "TEST" (Semaphore ignores messages beginning with TEST).',
+  )
+  .transform((val) => (val === "" ? null : val))
+  .nullable();
+
+const smsApiKeyInputSchema = z
+  .string()
+  .trim()
+  .max(256, "API key looks too long.")
+  .transform((val) => (val === "" ? null : val))
+  .nullable()
+  .optional();
+
+const requiredTimeSchema = z
+  .string()
+  .trim()
+  .refine((val) => isValidTimeHHmm(val), "Use 24-hour HH:MM format.");
+
+export const SmsSettingsUpdateSchema = z.object({
+  module: z.literal("sms"),
+  expectedVersion: z.number().int().min(0),
+  smsOverdueEnabled: z.boolean(),
+  smsOverdueFrequencyDays: z
+    .number()
+    .int("Enter a whole number of days.")
+    .min(1, "Repeat frequency must be at least 1 day.")
+    .max(30, "Repeat frequency cannot exceed 30 days."),
+  smsOverdueSendTimeManila: requiredTimeSchema,
+  smsApiKey: smsApiKeyInputSchema,
+  clearSmsApiKey: z.boolean().default(false),
+  smsSenderName: smsSenderNameSchema,
+  smsOverdueTemplate: smsOverdueTemplateSchema,
+});
+
 export const BusinessSettingsModuleUpdateSchema = z.discriminatedUnion(
   "module",
   [
     ProfileSettingsUpdateSchema,
     PoliciesSettingsUpdateSchema,
     OperationsSettingsUpdateSchema,
+    SmsSettingsUpdateSchema,
   ],
 );
 
@@ -178,6 +235,13 @@ export type BusinessSettingsDto = {
   offlineUnlockMaxDays: number;
   proofMaxBytes: number;
   proofMaxFilesPerRecord: number;
+  smsOverdueEnabled: boolean;
+  smsOverdueFrequencyDays: number;
+  smsOverdueSendTimeManila: string;
+  smsApiKeyConfigured: boolean;
+  smsApiKeyLast4: string | null;
+  smsSenderName: string | null;
+  smsOverdueTemplate: string | null;
   updatedAt: string | null;
   policiesComplete: boolean;
   stayScheduleComplete: boolean;

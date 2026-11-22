@@ -35,6 +35,7 @@ import {
   TopbarMenuButton,
   TopbarTitle,
 } from "@/components/ui/topbar";
+import { toast } from "@/components/ui/toaster";
 import {
   chunkNotificationKeys,
   NOTIFICATIONS_UPDATED_EVENT,
@@ -47,6 +48,7 @@ import type { OwnerWorkspaceProfile } from "@/server/auth/workspace-profile";
 
 const SIDEBAR_STORAGE_KEY = "daisy:sidebar-collapsed";
 const SIDEBAR_ROOMS_STORAGE_KEY = "daisy:sidebar-nav:rooms";
+const SIDEBAR_TRANSIENTS_STORAGE_KEY = "daisy:sidebar-nav:transients";
 const SIDEBAR_TRANSIENT_ROOMS_STORAGE_KEY = "daisy:sidebar-nav:transient-rooms";
 const SIDEBAR_SETTINGS_STORAGE_KEY = "daisy:sidebar-nav:settings";
 const sidebarListeners = new Set<() => void>();
@@ -87,16 +89,20 @@ const ROOMS_SECTIONS = [
   { href: "/rooms/types", label: "Room types" },
 ] as const;
 
+const TRANSIENTS_SECTIONS = [
+  { href: "/transients/stays", label: "Stays & reservations" },
+  { href: "/transients/requests", label: "Booking requests" },
+] as const;
+
 const TRANSIENT_ROOMS_SECTIONS = [
   { href: "/transients/rooms", label: "Rooms" },
   { href: "/transients/rooms/types", label: "Room types" },
 ] as const;
 
 const SETTINGS_SECTIONS = [
-  { href: "/settings/profile", label: "Property profile" },
   { href: "/settings/policies", label: "Billing & policies" },
   { href: "/settings/operations", label: "Stays & limits" },
-  { href: "/settings/devices", label: "Trusted devices" },
+  { href: "/settings/sms", label: "Overdue SMS" },
 ] as const;
 
 function getInitials(label: string): string {
@@ -374,7 +380,16 @@ const SUBROUTE_PARENT_CRUMBS: ReadonlyArray<{
     label: "Transient rooms",
     href: "/transients/rooms",
   },
-  { prefix: "/transients/", label: "Transient", href: "/transients" },
+  {
+    prefix: "/transients/requests/",
+    label: "Booking requests",
+    href: "/transients/requests",
+  },
+  {
+    prefix: "/transients/",
+    label: "Stays & requests",
+    href: "/transients/stays",
+  },
   { prefix: "/billing/", label: "Billing", href: "/billing" },
   { prefix: "/payments/", label: "Payments", href: "/payments" },
   { prefix: "/maintenance/", label: "Maintenance", href: "/maintenance" },
@@ -387,8 +402,10 @@ function TopbarBreadcrumb({ title }: { title: string }) {
   let sectionTitle: string | null = null;
   if (pathname.startsWith("/settings")) {
     const found = SETTINGS_SECTIONS.find((s) => s.href === pathname);
-    parentCrumb = { label: "Settings", href: "/settings/profile" };
-    sectionTitle = found ? found.label : title;
+    if (found) {
+      parentCrumb = { label: "Settings", href: "/settings/policies" };
+      sectionTitle = found.label;
+    }
   } else {
     const matched = SUBROUTE_PARENT_CRUMBS.find((entry) =>
       pathname.startsWith(entry.prefix),
@@ -544,6 +561,9 @@ function TopbarOwnerControls({ profile }: { profile: OwnerWorkspaceProfile }) {
         }),
       );
       setMarkReadConfirmOpen(false);
+      toast.success(
+        `Marked ${unreadKeys.length} ${unreadKeys.length === 1 ? "notification" : "notifications"} as read.`,
+      );
     } catch {
       setMarkReadError("Connection interrupted while marking notifications.");
     } finally {
@@ -572,6 +592,7 @@ function TopbarOwnerControls({ profile }: { profile: OwnerWorkspaceProfile }) {
         return;
       }
       setProfileOpen(false);
+      toast.success("Signed out.");
       router.replace("/auth/sign-in");
       router.refresh();
     } catch {
@@ -618,7 +639,7 @@ function TopbarOwnerControls({ profile }: { profile: OwnerWorkspaceProfile }) {
           <div
             role="dialog"
             aria-label="Notifications"
-            className="absolute right-0 z-50 mt-2 w-[22rem] max-w-[calc(100vw-1.5rem)] rounded-panel border border-border bg-surface p-3 shadow-[0_14px_32px_-16px_rgb(34_34_34/0.18)] sm:w-[24rem]"
+            className="fixed inset-x-3 top-[calc(4.25rem+env(safe-area-inset-top))] z-50 rounded-panel border border-border bg-surface p-3 shadow-[0_14px_32px_-16px_rgb(34_34_34/0.18)] sm:absolute sm:inset-x-auto sm:top-auto sm:right-0 sm:mt-2 sm:w-[24rem] sm:max-w-[calc(100vw-1.5rem)]"
           >
             <div className="flex items-center justify-between gap-2 border-b border-border pb-2.5">
               <div className="grid gap-0.5">
@@ -649,7 +670,7 @@ function TopbarOwnerControls({ profile }: { profile: OwnerWorkspaceProfile }) {
               )}
             </div>
 
-            <div className="mt-2.5 grid max-h-[min(65dvh,30rem)] gap-2 overflow-y-auto overscroll-contain">
+            <div className="mt-1 grid max-h-[min(65dvh,30rem)] divide-y divide-border overflow-y-auto overscroll-contain">
               {!notifLoaded || previewNotifications.length === 0 ? (
                 <p className="py-5 text-center text-xs text-muted-foreground">
                   No active alerts right now.
@@ -765,14 +786,6 @@ function TopbarOwnerControls({ profile }: { profile: OwnerWorkspaceProfile }) {
               >
                 Trusted devices
               </Link>
-              <Link
-                role="menuitem"
-                href="/audit"
-                onClick={() => setProfileOpen(false)}
-                className="flex min-h-9 items-center rounded-control px-2.5 py-1.5 text-sm leading-5 text-foreground transition-colors hover:bg-surface-muted"
-              >
-                Activity history
-              </Link>
             </div>
 
             <div className="grid gap-1.5 border-t border-border pt-1.5">
@@ -886,9 +899,15 @@ export function WorkspaceShell({
   const pathname = usePathname();
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const defaultRoomsExpanded = pathname.startsWith("/rooms");
+  const defaultTransientsExpanded =
+    pathname.startsWith("/transients") &&
+    !pathname.startsWith("/transients/rooms");
   const defaultTransientRoomsExpanded =
     pathname.startsWith("/transients/rooms");
-  const defaultSettingsExpanded = pathname.startsWith("/settings");
+  const isSettingsNavActive = SETTINGS_SECTIONS.some(
+    (item) => pathname === item.href,
+  );
+  const defaultSettingsExpanded = isSettingsNavActive;
 
   const sidebarCollapsed = useSyncExternalStore(
     subscribeSidebarState,
@@ -899,6 +918,15 @@ export function WorkspaceShell({
     subscribeSidebarState,
     () => readSidebarFlag(SIDEBAR_ROOMS_STORAGE_KEY, defaultRoomsExpanded),
     () => defaultRoomsExpanded,
+  );
+  const transientsNavExpanded = useSyncExternalStore(
+    subscribeSidebarState,
+    () =>
+      readSidebarFlag(
+        SIDEBAR_TRANSIENTS_STORAGE_KEY,
+        defaultTransientsExpanded,
+      ),
+    () => defaultTransientsExpanded,
   );
   const transientRoomsNavExpanded = useSyncExternalStore(
     subscribeSidebarState,
@@ -1028,18 +1056,43 @@ export function WorkspaceShell({
             <Separator />
 
             <SidebarGroup label="Transient">
-              <SidebarLink
-                href="/transients"
+              <SidebarNavDisclosure
+                label="Stays & requests"
+                icon={<TransientsIcon />}
                 active={
                   pathname.startsWith("/transients") &&
                   !pathname.startsWith("/transients/rooms")
                 }
-                icon={<TransientsIcon />}
-                {...(sidebarCollapsed ? { title: "Stays & requests" } : {})}
-                onClick={() => setSidebarOpen(false)}
+                expanded={transientsNavExpanded}
+                onToggle={() =>
+                  toggleDisclosureSection(
+                    SIDEBAR_TRANSIENTS_STORAGE_KEY,
+                    defaultTransientsExpanded,
+                  )
+                }
               >
-                Stays &amp; requests
-              </SidebarLink>
+                {TRANSIENTS_SECTIONS.map((item) => {
+                  const isItemActive =
+                    item.href === "/transients/stays"
+                      ? pathname === "/transients" ||
+                        pathname === "/transients/stays" ||
+                        pathname.startsWith("/transients/stays/") ||
+                        pathname === "/transients/guests"
+                      : pathname === item.href ||
+                        pathname.startsWith(`${item.href}/`);
+
+                  return (
+                    <SidebarSubLink
+                      key={item.href}
+                      href={item.href}
+                      active={isItemActive}
+                      onClick={() => setSidebarOpen(false)}
+                    >
+                      {item.label}
+                    </SidebarSubLink>
+                  );
+                })}
+              </SidebarNavDisclosure>
               <SidebarNavDisclosure
                 label="Transient rooms"
                 icon={<RoomsIcon />}
@@ -1131,7 +1184,7 @@ export function WorkspaceShell({
               <SidebarNavDisclosure
                 label="Settings"
                 icon={<SettingsIcon />}
-                active={pathname.startsWith("/settings")}
+                active={isSettingsNavActive}
                 expanded={settingsNavExpanded}
                 onToggle={() =>
                   toggleDisclosureSection(

@@ -42,6 +42,11 @@ import {
 } from "@/components/ui/table";
 import { TablePagination } from "@/components/ui/table-pagination";
 import {
+  notifySaved,
+  toast,
+  type SavedFeedbackTone,
+} from "@/components/ui/toaster";
+import {
   archiveTenantAction,
   restoreTenantAction,
 } from "@/features/tenants/actions";
@@ -177,10 +182,23 @@ export function TenantsWorkspace({
     useState<TenantListItemDto | null>(null);
   const [confirmError, setConfirmError] = useState<string | null>(null);
   const [feedback, setFeedback] = useState<{
-    tone: "success" | "warning" | "danger";
+    tone: "warning" | "danger";
     message: string;
   } | null>(null);
   const [, startTransition] = useTransition();
+
+  async function handleDialogSaved(
+    message: string,
+    tone: SavedFeedbackTone = "success",
+  ) {
+    if (tone === "warning") {
+      setFeedback({ tone: "warning", message });
+      toast.warning(message);
+    } else {
+      notifySaved(message, tone);
+    }
+    await reloadTenants();
+  }
 
   async function applyVaultState(base: TenantsOverviewDto = serverOverview) {
     try {
@@ -306,12 +324,16 @@ export function TenantsWorkspace({
             });
             setConfirmingTenant(null);
             if (res.delivery === "needs_attention") {
+              const warningText = `Saved in Needs attention: ${res.reason}`;
               setFeedback({
                 tone: "warning",
-                message: `Saved in Needs attention: ${res.reason}`,
+                message: warningText,
               });
+              toast.warning(warningText);
+            } else if (res.delivery === "queued") {
+              toast.info(res.message);
             } else {
-              setFeedback({ tone: "success", message: res.message });
+              toast.success(res.message);
             }
             await reloadTenants();
           } catch (error) {
@@ -341,7 +363,7 @@ export function TenantsWorkspace({
               });
         if (res.status === "saved") {
           setConfirmingTenant(null);
-          setFeedback({ tone: "success", message: res.message });
+          toast.success(res.message);
           await reloadTenants();
         } else if (res.status === "error") {
           setConfirmError(res.message);
@@ -361,18 +383,14 @@ export function TenantsWorkspace({
       try {
         if (action === "keep_mine") {
           await resolveNeedsAttentionKeepMine(badge.opId);
-          setFeedback({
-            tone: "success",
-            message: navigator.onLine
+          toast.info(
+            navigator.onLine
               ? "Marked your draft to try saving again."
               : "Marked your draft to save once online.",
-          });
+          );
         } else {
           await resolveNeedsAttentionDiscard(badge.opId);
-          setFeedback({
-            tone: "success",
-            message: "Removed saved draft.",
-          });
+          toast.success("Removed saved draft.");
         }
         await reloadTenants();
       } catch (error) {
@@ -921,10 +939,7 @@ export function TenantsWorkspace({
         offlineMode={offlineMode}
         onClose={() => setCreateOpen(false)}
         onRequireVaultUnlock={() => setUnlockPromptOpen(true)}
-        onSaved={async (message) => {
-          setFeedback({ tone: "success", message });
-          await reloadTenants();
-        }}
+        onSaved={handleDialogSaved}
       />
 
       <EditTenantDialog
@@ -932,30 +947,21 @@ export function TenantsWorkspace({
         offlineMode={offlineMode}
         onClose={() => setEditingTenant(null)}
         onRequireVaultUnlock={() => setUnlockPromptOpen(true)}
-        onSaved={async (message) => {
-          setFeedback({ tone: "success", message });
-          await reloadTenants();
-        }}
+        onSaved={handleDialogSaved}
       />
 
       <AssignBedDialog
         tenant={assigningTenant}
         beds={overview.assignableBeds}
         onClose={() => setAssigningTenant(null)}
-        onSaved={async (message) => {
-          setFeedback({ tone: "success", message });
-          await reloadTenants();
-        }}
+        onSaved={handleDialogSaved}
       />
 
       <MoveOutAssignmentDialog
         assignment={movingOutTarget?.assignment ?? null}
         tenantName={movingOutTarget?.tenantName ?? "tenant"}
         onClose={() => setMovingOutTarget(null)}
-        onSaved={async (message) => {
-          setFeedback({ tone: "success", message });
-          await reloadTenants();
-        }}
+        onSaved={handleDialogSaved}
       />
 
       <TenantNotesDialog

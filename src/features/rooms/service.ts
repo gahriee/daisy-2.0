@@ -8,6 +8,7 @@ import {
   ValidationError,
 } from "@/lib/errors";
 import { formatMoneyDecimal, parseMoneyDecimal } from "@/lib/money";
+import { hasCompleteStaySchedule } from "@/features/settings/schemas";
 import { getDatabase } from "@/server/db/client";
 import { ensureOwnerRecord } from "@/server/db/owner-record";
 import { isPgConstraintError } from "@/server/db/pg-errors";
@@ -88,6 +89,8 @@ export const roomSummarySelect = {
   baseMonthlyRate: true,
   transientDailyRate: true,
   isTransientPublished: true,
+  transientTitle: true,
+  transientDescription: true,
   notes: true,
   photos: {
     orderBy: [
@@ -150,6 +153,8 @@ export function toRoomDto(row: {
   baseMonthlyRate: { toString(): string } | null;
   transientDailyRate: { toString(): string } | null;
   isTransientPublished: boolean;
+  transientTitle?: string | null;
+  transientDescription?: string | null;
   notes: string | null;
   photos?: RoomPhotoRow[];
   archivedAt: Date | null;
@@ -174,6 +179,8 @@ export function toRoomDto(row: {
       ? decimalToString(row.transientDailyRate)
       : null,
     isTransientPublished: row.isTransientPublished,
+    transientTitle: row.transientTitle ?? null,
+    transientDescription: row.transientDescription ?? null,
     notes: row.notes,
     previewPhoto,
     galleryPhotos,
@@ -804,6 +811,26 @@ export async function restoreRoomType(
   }
 }
 
+async function requireConfiguredStayScheduleInTx(
+  tx: Prisma.TransactionClient,
+  ownerUserId: string,
+): Promise<void> {
+  const settings = await tx.businessSettings.findUnique({
+    where: { ownerUserId },
+    select: { checkInTimeManila: true, checkOutTimeManila: true },
+  });
+  if (
+    !settings ||
+    !hasCompleteStaySchedule(settings) ||
+    !settings.checkInTimeManila ||
+    !settings.checkOutTimeManila
+  ) {
+    throw new PreconditionError(
+      "Configure check-in and check-out times in Settings -> Stays & limits before publishing a room for public booking.",
+    );
+  }
+}
+
 export async function createRoom(
   ownerUserId: string,
   rawInput: CreateRoomInput,
@@ -873,6 +900,20 @@ export async function createRoom(
         );
       }
 
+      const publishToPublic =
+        input.building === "TRANSIENT" && input.isTransientPublished === true;
+      if (publishToPublic) {
+        if (
+          !resolvedDailyRate ||
+          parseMoneyDecimal(resolvedDailyRate) <= BigInt(0)
+        ) {
+          throw new PreconditionError(
+            "Set a positive daily rate on the room type before publishing this room for public booking.",
+          );
+        }
+        await requireConfiguredStayScheduleInTx(tx, ownerUserId);
+      }
+
       const created = await tx.room.create({
         data: {
           ownerUserId,
@@ -884,7 +925,11 @@ export async function createRoom(
           capacity: input.capacity,
           baseMonthlyRate: resolvedMonthlyRate,
           transientDailyRate: resolvedDailyRate,
-          isTransientPublished: false,
+          isTransientPublished: publishToPublic,
+          transientTitle:
+            input.building === "TRANSIENT" ? input.transientTitle : null,
+          transientDescription:
+            input.building === "TRANSIENT" ? input.transientDescription : null,
           notes: input.notes,
         },
         select: roomSummarySelect,
@@ -918,6 +963,7 @@ export async function createRoom(
         metadata: {
           roomTypeId: dto.roomTypeId,
           capacity: dto.capacity,
+          isTransientPublished: dto.isTransientPublished,
           photoCount: (dto.previewPhoto ? 1 : 0) + dto.galleryPhotos.length,
         },
       });
@@ -980,6 +1026,9 @@ export async function updateRoom(
           roomTypeId: true,
           version: true,
           archivedAt: true,
+          isTransientPublished: true,
+          transientTitle: true,
+          transientDescription: true,
         },
       });
       if (!existing) {
@@ -1012,6 +1061,18 @@ export async function updateRoom(
       if (existing.building === "TRANSIENT" && input.baseMonthlyRate !== null) {
         throw new ValidationError(
           "Transient Building rooms cannot set a monthly boarding rate.",
+        );
+      }
+      if (
+        existing.building === "BOARDING" &&
+        (input.isTransientPublished === true ||
+          (input.transientTitle !== undefined &&
+            input.transientTitle !== null) ||
+          (input.transientDescription !== undefined &&
+            input.transientDescription !== null))
+      ) {
+        throw new ValidationError(
+          "Boarding House rooms cannot be published on /book.",
         );
       }
       if (
@@ -1083,6 +1144,35 @@ export async function updateRoom(
         );
       }
 
+      const nextIsTransientPublished =
+        existing.building === "TRANSIENT"
+          ? (input.isTransientPublished ?? existing.isTransientPublished)
+          : false;
+      const nextTransientTitle =
+        existing.building === "TRANSIENT"
+          ? input.transientTitle === undefined
+            ? existing.transientTitle
+            : input.transientTitle
+          : null;
+      const nextTransientDescription =
+        existing.building === "TRANSIENT"
+          ? input.transientDescription === undefined
+            ? existing.transientDescription
+            : input.transientDescription
+          : null;
+
+      if (nextIsTransientPublished) {
+        if (
+          !resolvedDailyRate ||
+          parseMoneyDecimal(resolvedDailyRate) <= BigInt(0)
+        ) {
+          throw new PreconditionError(
+            "Set a positive daily rate on the room type before publishing this room for public booking.",
+          );
+        }
+        await requireConfiguredStayScheduleInTx(tx, ownerUserId);
+      }
+
       const updated = await tx.room.updateMany({
         where: {
           id: existing.id,
@@ -1098,6 +1188,9 @@ export async function updateRoom(
           capacity: input.capacity,
           baseMonthlyRate: resolvedMonthlyRate,
           transientDailyRate: resolvedDailyRate,
+          isTransientPublished: nextIsTransientPublished,
+          transientTitle: nextTransientTitle,
+          transientDescription: nextTransientDescription,
           notes: input.notes,
         },
       });
@@ -1134,6 +1227,7 @@ export async function updateRoom(
           version: dto.version,
           roomTypeId: dto.roomTypeId,
           capacity: dto.capacity,
+          isTransientPublished: dto.isTransientPublished,
           photosUpdated: photoResult.changed,
           photoCount: (dto.previewPhoto ? 1 : 0) + dto.galleryPhotos.length,
         },

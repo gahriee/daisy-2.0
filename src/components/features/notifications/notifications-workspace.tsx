@@ -16,6 +16,7 @@ import {
 import { Select } from "@/components/ui/select";
 import { TableCardHeader } from "@/components/ui/table";
 import { TablePagination } from "@/components/ui/table-pagination";
+import { toast } from "@/components/ui/toaster";
 import {
   chunkNotificationKeys,
   getNotificationCategory,
@@ -32,6 +33,7 @@ import {
   NotificationCard,
   type NotificationRowAction,
 } from "./notification-card";
+import { PhoneNotificationsCard } from "./phone-notifications-card";
 
 type ReadFilter = "ALL" | "UNREAD" | "READ";
 type CategoryFilter = "ALL" | NotificationCategory;
@@ -159,10 +161,7 @@ export function NotificationsWorkspace({
   const [toneFilter, setToneFilter] = useState<ToneFilter>("ALL");
   const [selectedKeys, setSelectedKeys] = useState<string[]>([]);
   const [refreshing, setRefreshing] = useState(false);
-  const [feedback, setFeedback] = useState<{
-    tone: "success" | "danger";
-    message: string;
-  } | null>(null);
+  const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [confirmTarget, setConfirmTarget] = useState<ConfirmActionState | null>(
     null,
   );
@@ -366,14 +365,11 @@ export function NotificationsWorkspace({
   async function refreshNotifications() {
     if (refreshing) return;
     setRefreshing(true);
-    setFeedback(null);
+    setErrorMessage(null);
     try {
       const response = await fetch("/api/notifications", { cache: "no-store" });
       if (!response.ok) {
-        setFeedback({
-          tone: "danger",
-          message: "Could not refresh notifications right now.",
-        });
+        setErrorMessage("Could not refresh notifications right now.");
         return;
       }
       const data = (await response.json()) as {
@@ -387,10 +383,7 @@ export function NotificationsWorkspace({
         broadcastNotificationsUpdate(next);
       }
     } catch {
-      setFeedback({
-        tone: "danger",
-        message: "Connect to the internet to refresh notifications.",
-      });
+      setErrorMessage("Connect to the internet to refresh notifications.");
     } finally {
       setRefreshing(false);
     }
@@ -413,7 +406,7 @@ export function NotificationsWorkspace({
 
     setMutating(true);
     setConfirmError(null);
-    setFeedback(null);
+    setErrorMessage(null);
     try {
       for (const batch of batches) {
         const response = await fetch(endpoint, {
@@ -460,7 +453,7 @@ export function NotificationsWorkspace({
       setSelectedKeys((prev) => prev.filter((key) => !keySet.has(key)));
       broadcastNotificationsUpdate(updated);
       setConfirmTarget(null);
-      setFeedback({ tone: "success", message: statusText });
+      toast.success(statusText);
     } catch {
       setConfirmError("Connection interrupted while updating notifications.");
     } finally {
@@ -509,14 +502,13 @@ export function NotificationsWorkspace({
         </div>
       </header>
 
-      {feedback && (
-        <Alert
-          tone={feedback.tone}
-          role={feedback.tone === "danger" ? "alert" : "status"}
-        >
-          {feedback.message}
+      {errorMessage && (
+        <Alert tone="danger" role="alert">
+          {errorMessage}
         </Alert>
       )}
+
+      <PhoneNotificationsCard />
 
       <section
         aria-label="Notification summary"
@@ -716,7 +708,7 @@ export function NotificationsWorkspace({
                       }
                       className="min-h-11 sm:min-h-9"
                     >
-                      Mark as read ({selectedUnreadKeys.length})
+                      Mark as read
                     </Button>
                   )}
                   {selectedReadKeys.length > 0 && (
@@ -730,7 +722,7 @@ export function NotificationsWorkspace({
                       }
                       className="min-h-11 sm:min-h-9"
                     >
-                      Mark as unread ({selectedReadKeys.length})
+                      Mark as unread
                     </Button>
                   )}
                   <Button
@@ -743,7 +735,7 @@ export function NotificationsWorkspace({
                     }
                     className="min-h-11 text-danger sm:min-h-9"
                   >
-                    Delete ({effectiveSelectedKeys.length})
+                    Delete
                   </Button>
                   <Button
                     type="button"

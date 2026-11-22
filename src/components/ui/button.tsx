@@ -1,4 +1,5 @@
-import type { ComponentProps } from "react";
+import type { ComponentProps, ReactNode } from "react";
+import Link from "next/link";
 import { cn } from "@/lib/cn";
 
 const variants = {
@@ -91,5 +92,230 @@ export function Button({
       )}
       {children}
     </button>
+  );
+}
+
+const linkTones = {
+  primary: "text-primary hover:text-primary-hover",
+  foreground: "text-foreground hover:text-primary",
+  muted: "text-muted-foreground hover:text-foreground",
+};
+
+const linkSizes = {
+  sm: "min-h-11 sm:min-h-8 text-[13px]",
+  md: "min-h-11 text-sm",
+};
+
+type LinkClassOptions = {
+  tone?: keyof typeof linkTones | undefined;
+  size?: keyof typeof linkSizes | undefined;
+  className?: string | undefined;
+};
+
+/**
+ * Unboxed link UI recipe for table/chart container headers and inline navigation.
+ */
+export function linkClasses({
+  tone = "primary",
+  size = "sm",
+  className,
+}: LinkClassOptions = {}) {
+  return cn(
+    "group/link inline-flex cursor-pointer items-center gap-1.5 rounded-control font-medium leading-none tracking-[-0.005em] whitespace-nowrap transition-colors duration-(--duration-control) ease-(--ease-control) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus disabled:cursor-not-allowed disabled:opacity-50",
+    linkSizes[size],
+    linkTones[tone],
+    className,
+  );
+}
+
+type LinkArrowDirection = "right" | "up-right" | "left";
+
+/**
+ * Geometric 16px directional arrow SVG aligned to Daisy hairline icon strokes.
+ */
+export function LinkArrowIcon({
+  direction = "right",
+  className,
+}: {
+  direction?: LinkArrowDirection;
+  className?: string;
+}) {
+  if (direction === "left") {
+    return (
+      <svg
+        aria-hidden="true"
+        viewBox="0 0 16 16"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="1.75"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        className={cn(
+          "size-3.5 shrink-0 transition-transform duration-(--duration-control) ease-(--ease-control) group-hover/link:-translate-x-[3px] motion-reduce:transform-none",
+          className,
+        )}
+      >
+        <path d="M13 8H3.5" />
+        <path d="M7.25 4.25 3.5 8l3.75 3.75" />
+      </svg>
+    );
+  }
+
+  if (direction === "up-right") {
+    return (
+      <svg
+        aria-hidden="true"
+        viewBox="0 0 16 16"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="1.75"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        className={cn(
+          "size-3.5 shrink-0 transition-transform duration-(--duration-control) ease-(--ease-control) group-hover/link:translate-x-[2px] group-hover/link:-translate-y-[2px] motion-reduce:transform-none",
+          className,
+        )}
+      >
+        <path d="M4.5 11.5 11.5 4.5" />
+        <path d="M6 4.5h5.5V10" />
+      </svg>
+    );
+  }
+
+  return (
+    <svg
+      aria-hidden="true"
+      viewBox="0 0 16 16"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.75"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      className={cn(
+        "size-3.5 shrink-0 transition-transform duration-(--duration-control) ease-(--ease-control) group-hover/link:translate-x-[3px] motion-reduce:transform-none",
+        className,
+      )}
+    >
+      <path d="M3 8h9.5" />
+      <path d="M8.75 4.25 12.5 8l-3.75 3.75" />
+    </svg>
+  );
+}
+
+type ActionLinkBaseProps = LinkClassOptions & {
+  iconDirection?: LinkArrowDirection;
+};
+
+type InternalActionLinkProps = Omit<
+  ComponentProps<typeof Link>,
+  keyof LinkClassOptions
+> &
+  ActionLinkBaseProps & {
+    external?: false;
+    download?: never;
+  };
+
+type ExternalActionLinkProps = Omit<
+  ComponentProps<"a">,
+  keyof LinkClassOptions
+> &
+  ActionLinkBaseProps & {
+    href: string;
+    external?: boolean;
+  };
+
+function ActionLinkContent({
+  children,
+  direction = "right",
+}: {
+  children: ReactNode;
+  direction?: LinkArrowDirection;
+}) {
+  return (
+    <>
+      <span className="underline-offset-4 group-hover/link:underline">
+        {children}
+      </span>
+      <LinkArrowIcon direction={direction} />
+    </>
+  );
+}
+
+/**
+ * Unboxed link UI navigation control with trailing arrow icon and underline hover.
+ */
+export function ActionLink({
+  className,
+  tone = "primary",
+  size = "sm",
+  iconDirection,
+  children,
+  external,
+  download,
+  ...props
+}: InternalActionLinkProps | ExternalActionLinkProps) {
+  const classes = linkClasses({ tone, size, className });
+  if (external || download !== undefined) {
+    const { target, rel, ...anchorProps } = props as Omit<
+      ExternalActionLinkProps,
+      "className" | "tone" | "size" | "iconDirection" | "children" | "external"
+    >;
+    return (
+      <a
+        {...anchorProps}
+        download={download}
+        target={external ? (target ?? "_blank") : target}
+        rel={external ? (rel ?? "noreferrer") : rel}
+        className={classes}
+      >
+        <ActionLinkContent
+          direction={iconDirection ?? (external ? "up-right" : "right")}
+        >
+          {children}
+        </ActionLinkContent>
+      </a>
+    );
+  }
+
+  return (
+    <Link {...(props as ComponentProps<typeof Link>)} className={classes}>
+      <ActionLinkContent direction={iconDirection ?? "right"}>
+        {children}
+      </ActionLinkContent>
+    </Link>
+  );
+}
+
+type BackLinkProps = Omit<ComponentProps<typeof Link>, keyof LinkClassOptions> &
+  LinkClassOptions;
+
+/**
+ * Unboxed link UI control with a leading `<-` arrow icon placed above dedicated
+ * page headers to return to the parent data record or section.
+ */
+export function BackLink({
+  className,
+  tone = "muted",
+  size = "sm",
+  children,
+  ...props
+}: BackLinkProps) {
+  return (
+    <Link
+      {...props}
+      className={linkClasses({
+        tone,
+        size,
+        className: cn(
+          "w-fit max-w-full justify-self-start whitespace-normal text-left",
+          className,
+        ),
+      })}
+    >
+      <LinkArrowIcon direction="left" />
+      <span className="underline-offset-4 group-hover/link:underline">
+        {children}
+      </span>
+    </Link>
   );
 }

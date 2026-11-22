@@ -13,7 +13,7 @@ type TableCardHeaderProps = {
 
 /**
  * Standard table container header placing the section title on the left and
- * the record count (and any secondary header actions) on the right.
+ * the record count plus secondary header actions on the right.
  */
 export function TableCardHeader({
   title,
@@ -39,7 +39,7 @@ export function TableCardHeader({
         )}
       </div>
       {(count || actions) && (
-        <div className="flex flex-wrap items-center gap-3">
+        <div className="flex flex-wrap items-center gap-3.5">
           {count && (
             <span className="text-xs text-muted-foreground tabular-nums">
               {count}
