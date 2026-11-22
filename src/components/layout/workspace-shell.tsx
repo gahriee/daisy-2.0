@@ -12,7 +12,7 @@ import {
   type ReactNode,
 } from "react";
 import Link from "next/link";
-import { usePathname, useRouter } from "next/navigation";
+import { usePathname } from "next/navigation";
 import { DaisyBrand } from "@/components/layout/daisy-brand";
 import { NotificationCard } from "@/components/features/notifications/notification-card";
 import { OfflineStatusBar } from "@/components/features/offline/offline-status-bar";
@@ -445,7 +445,6 @@ function TopbarBreadcrumb({ title }: { title: string }) {
 }
 
 function TopbarOwnerControls({ profile }: { profile: OwnerWorkspaceProfile }) {
-  const router = useRouter();
   const [notifOpen, setNotifOpen] = useState(false);
   const [profileOpen, setProfileOpen] = useState(false);
   const [notifications, setNotifications] = useState<OwnerNotification[]>([]);
@@ -595,9 +594,10 @@ function TopbarOwnerControls({ profile }: { profile: OwnerWorkspaceProfile }) {
         return;
       }
       setProfileOpen(false);
+      setSignOutConfirmOpen(false);
       toast.success("Signed out.");
-      router.replace("/auth/sign-in");
-      router.refresh();
+      window.location.replace("/auth/sign-in");
+      return;
     } catch {
       setSignOutError(
         typeof navigator !== "undefined" && !navigator.onLine

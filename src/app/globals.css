@@ -355,7 +355,40 @@ body {
   box-shadow: none;
 }
 
+@keyframes daisy-logo-orbit {
+  0% {
+    transform: rotate(0deg);
+  }
+  100% {
+    transform: rotate(360deg);
+  }
+}
+
+@keyframes daisy-petal-bloom {
+  0%,
+  100% {
+    opacity: 0.24;
+  }
+  40% {
+    opacity: 1;
+  }
+}
+
+.daisy-logo-orbit {
+  animation: daisy-logo-orbit 7.5s linear infinite;
+  transform-origin: center;
+}
+
+.daisy-petal-bloom {
+  animation: daisy-petal-bloom 1.25s cubic-bezier(0.4, 0, 0.2, 1) infinite;
+}
+
 @media (prefers-reduced-motion: reduce) {
+  .daisy-logo-orbit,
+  .daisy-petal-bloom {
+    animation: none !important;
+    opacity: 1 !important;
+  }
   .daisy-toaster[data-sonner-toaster],
   .daisy-toaster[data-sonner-toaster] [data-sonner-toast],
   .daisy-toaster[data-sonner-toaster] [data-sonner-toast] > * {

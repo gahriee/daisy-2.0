@@ -1,12 +1,17 @@
 "use client";
 
-import { useRef, useState, useSyncExternalStore, type FormEvent } from "react";
+import {
+  useEffect,
+  useRef,
+  useState,
+  useSyncExternalStore,
+  type FormEvent,
+} from "react";
 import Link from "next/link";
-import { useRouter } from "next/navigation";
+import { DaisyLogoLoader } from "@/components/common/daisy-logo-loader";
 import { PasswordVisibilityButton } from "@/components/features/auth/password-visibility-button";
 import { Alert } from "@/components/ui/alert";
-import { Button, buttonClasses } from "@/components/ui/button";
-import { ConfirmDialog } from "@/components/ui/confirm-dialog";
+import { Button } from "@/components/ui/button";
 import { Field } from "@/components/ui/field";
 import { Input } from "@/components/ui/input";
 import { Separator } from "@/components/ui/separator";
@@ -61,7 +66,6 @@ type SignInPanelProps = {
 };
 
 export function SignInPanel({ initialSession }: SignInPanelProps) {
-  const router = useRouter();
   const isOnline = useSyncExternalStore(
     subscribeOnlineStatus,
     getOnlineSnapshot,
@@ -72,19 +76,23 @@ export function SignInPanel({ initialSession }: SignInPanelProps) {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [showPassword, setShowPassword] = useState(false);
-  const [busyAction, setBusyAction] = useState<
-    "sign-in" | "sign-out" | "recheck" | null
-  >(null);
+  const [busyAction, setBusyAction] = useState<"sign-in" | "recheck" | null>(
+    null,
+  );
   const [error, setError] = useState("");
   const [retryAfter, setRetryAfter] = useState<number | null>(null);
   const [emailError, setEmailError] = useState("");
   const [passwordError, setPasswordError] = useState("");
-  const [signOutConfirmOpen, setSignOutConfirmOpen] = useState(false);
 
   const feedbackRef = useRef<HTMLDivElement>(null);
   const emailRef = useRef<HTMLInputElement>(null);
   const passwordRef = useRef<HTMLInputElement>(null);
   const busy = busyAction !== null;
+
+  useEffect(() => {
+    if (sessionState !== "authenticated") return;
+    window.location.replace("/");
+  }, [sessionState]);
 
   function focusFeedback() {
     requestAnimationFrame(() => feedbackRef.current?.focus());
@@ -109,8 +117,7 @@ export function SignInPanel({ initialSession }: SignInPanelProps) {
       if (next === "authenticated") {
         clearFormState();
         toast.success("Signed in. Opening your dashboard…");
-        router.replace("/");
-        router.refresh();
+        setSessionState("authenticated");
         return;
       } else if (next === "unauthenticated") {
         toast.info("You are not signed in yet. Sign in below.");
@@ -204,8 +211,6 @@ export function SignInPanel({ initialSession }: SignInPanelProps) {
         clearFormState();
         setSessionState("authenticated");
         toast.success("Signed in. Opening your dashboard…");
-        router.replace("/");
-        router.refresh();
         return;
       }
 
@@ -248,57 +253,18 @@ export function SignInPanel({ initialSession }: SignInPanelProps) {
     }
   }
 
-  async function handleSignOut() {
-    if (busy) return;
-    setError("");
-    setRetryAfter(null);
-    setBusyAction("sign-out");
-    try {
-      const response = await fetch("/api/auth/sign-out", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: "{}",
-        cache: "no-store",
-        signal: AbortSignal.timeout(15000),
-      });
-      if (!response.ok) {
-        setError(
-          response.status >= 500
-            ? "Could not finish signing out. You may still be signed in on this browser."
-            : "Sign-out could not be confirmed. Reload and check that you are signed out before leaving.",
-        );
-        focusFeedback();
-        return;
-      }
-      clearFormState();
-      setSessionState("unauthenticated");
-      toast.success(
-        "Signed out. Enter your email and password to sign back in.",
-      );
-      router.refresh();
-      focusFeedback();
-    } catch {
-      setError(
-        !getOnlineSnapshot()
-          ? "You appear to be offline. Connect to the internet to finish signing out."
-          : "The connection was interrupted before sign-out finished. Please try again before leaving.",
-      );
-      focusFeedback();
-    } finally {
-      setBusyAction(null);
-    }
+  if (sessionState === "authenticated") {
+    return <DaisyLogoLoader label="Opening dashboard…" className="py-16" />;
   }
 
   return (
     <div className="grid gap-6">
       <div className="grid gap-2">
         <h1 className="text-[28px] leading-8 font-semibold tracking-tight text-foreground">
-          {sessionState === "authenticated" ? "You’re signed in" : "Sign in"}
+          Sign in
         </h1>
         <p className="text-sm leading-6 text-muted-foreground">
-          {sessionState === "authenticated"
-            ? "You are signed in on this browser."
-            : "Enter your email and password to open Daisy."}
+          Enter your email and password to open Daisy.
         </p>
       </div>
 
@@ -346,145 +312,104 @@ export function SignInPanel({ initialSession }: SignInPanelProps) {
         )}
       </div>
 
-      {sessionState === "authenticated" ? (
-        <div className="grid gap-3">
-          {busy ? (
-            <Button disabled className="w-full">
-              Go to dashboard
-            </Button>
-          ) : (
-            <Link href="/" className={buttonClasses({ className: "w-full" })}>
-              Go to dashboard
-            </Link>
+      <form
+        method="post"
+        action="/auth/sign-in"
+        noValidate
+        onSubmit={handleSignIn}
+        className="grid gap-4"
+      >
+        <Field
+          id="sign-in-email"
+          label="Email"
+          required
+          {...(emailError ? { error: emailError } : {})}
+        >
+          {(control) => (
+            <Input
+              {...control}
+              ref={emailRef}
+              name="email"
+              type="email"
+              inputMode="email"
+              autoComplete="email"
+              placeholder="you@example.com"
+              maxLength={254}
+              value={email}
+              onChange={(event) => {
+                setEmail(event.target.value);
+                if (emailError) setEmailError("");
+              }}
+              disabled={busy}
+            />
           )}
-          <Button
-            variant="secondary"
-            loading={busyAction === "sign-out"}
-            disabled={busy}
-            onClick={() => {
-              setError("");
-              setSignOutConfirmOpen(true);
-            }}
-            className="w-full"
+        </Field>
+
+        <div className="grid gap-1">
+          <Field
+            id="sign-in-password"
+            label="Password"
+            required
+            {...(passwordError ? { error: passwordError } : {})}
           >
-            {busyAction === "sign-out" ? "Signing out…" : "Sign out"}
-          </Button>
-          <ConfirmDialog
-            open={signOutConfirmOpen}
-            onClose={() => {
-              if (busyAction !== "sign-out") setSignOutConfirmOpen(false);
-            }}
-            onConfirm={() => void handleSignOut()}
-            title="Sign out of Daisy?"
-            description="You will be signed out on this browser and returned to the sign-in screen."
-            errorMessage={error || null}
-            confirmLabel="Sign out"
-            confirmVariant="danger"
-            loading={busyAction === "sign-out"}
-          />
-        </div>
-      ) : (
-        <>
-          <form
-            method="post"
-            action="/auth/sign-in"
-            noValidate
-            onSubmit={handleSignIn}
-            className="grid gap-4"
-          >
-            <Field
-              id="sign-in-email"
-              label="Email"
-              required
-              {...(emailError ? { error: emailError } : {})}
-            >
-              {(control) => (
+            {(control) => (
+              <div className="relative">
                 <Input
                   {...control}
-                  ref={emailRef}
-                  name="email"
-                  type="email"
-                  inputMode="email"
-                  autoComplete="email"
-                  placeholder="you@example.com"
-                  maxLength={254}
-                  value={email}
+                  ref={passwordRef}
+                  name="password"
+                  type={showPassword ? "text" : "password"}
+                  autoComplete="current-password"
+                  maxLength={256}
+                  value={password}
                   onChange={(event) => {
-                    setEmail(event.target.value);
-                    if (emailError) setEmailError("");
+                    setPassword(event.target.value);
+                    if (passwordError) setPasswordError("");
                   }}
                   disabled={busy}
+                  className="pr-12"
                 />
-              )}
-            </Field>
-
-            <div className="grid gap-1">
-              <Field
-                id="sign-in-password"
-                label="Password"
-                required
-                {...(passwordError ? { error: passwordError } : {})}
-              >
-                {(control) => (
-                  <div className="relative">
-                    <Input
-                      {...control}
-                      ref={passwordRef}
-                      name="password"
-                      type={showPassword ? "text" : "password"}
-                      autoComplete="current-password"
-                      maxLength={256}
-                      value={password}
-                      onChange={(event) => {
-                        setPassword(event.target.value);
-                        if (passwordError) setPasswordError("");
-                      }}
-                      disabled={busy}
-                      className="pr-12"
-                    />
-                    <PasswordVisibilityButton
-                      visible={showPassword}
-                      disabled={busy}
-                      aria-controls={control.id}
-                      onClick={() => setShowPassword((prev) => !prev)}
-                    />
-                  </div>
-                )}
-              </Field>
-
-              <div className="flex justify-end">
-                <Link
-                  href="/auth/reset-password"
-                  className="inline-flex min-h-11 items-center text-[13px] font-medium text-primary underline-offset-4 transition-colors duration-(--duration-control) ease-(--ease-control) hover:text-primary-hover hover:underline"
-                >
-                  Forgot password?
-                </Link>
+                <PasswordVisibilityButton
+                  visible={showPassword}
+                  disabled={busy}
+                  aria-controls={control.id}
+                  onClick={() => setShowPassword((prev) => !prev)}
+                />
               </div>
-            </div>
+            )}
+          </Field>
 
-            <Button
-              type="submit"
-              loading={busyAction === "sign-in"}
-              disabled={busy}
-              className="w-full"
-            >
-              {busyAction === "sign-in" ? "Signing in…" : "Sign in"}
-            </Button>
-          </form>
-
-          <Separator />
-
-          <p className="text-sm leading-6 text-muted-foreground">
-            Need to set or change your password?{" "}
+          <div className="flex justify-end">
             <Link
               href="/auth/reset-password"
-              className="font-medium text-foreground underline underline-offset-4 transition-colors duration-(--duration-control) ease-(--ease-control) hover:text-primary"
+              className="inline-flex min-h-11 items-center text-[13px] font-medium text-primary underline-offset-4 transition-colors duration-(--duration-control) ease-(--ease-control) hover:text-primary-hover hover:underline"
             >
-              Reset password
+              Forgot password?
             </Link>
-          </p>
-        </>
-      )}
+          </div>
+        </div>
+
+        <Button
+          type="submit"
+          loading={busyAction === "sign-in"}
+          disabled={busy}
+          className="w-full"
+        >
+          {busyAction === "sign-in" ? "Signing in…" : "Sign in"}
+        </Button>
+      </form>
+
+      <Separator />
+
+      <p className="text-sm leading-6 text-muted-foreground">
+        Need to set or change your password?{" "}
+        <Link
+          href="/auth/reset-password"
+          className="font-medium text-foreground underline underline-offset-4 transition-colors duration-(--duration-control) ease-(--ease-control) hover:text-primary"
+        >
+          Reset password
+        </Link>
+      </p>
     </div>
   );
 }

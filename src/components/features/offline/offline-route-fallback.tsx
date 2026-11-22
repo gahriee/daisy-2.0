@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
+import { DaisyLogoLoader } from "@/components/common/daisy-logo-loader";
 import { BillingWorkspace } from "@/components/features/billing/billing-workspace";
 import { DashboardWorkspace } from "@/components/features/dashboard/dashboard-workspace";
 import { MaintenanceCreateForm } from "@/components/features/maintenance/maintenance-create-form";
@@ -295,8 +296,10 @@ export function OfflineRouteFallback() {
             />
           </div>
         ) : !routeData ? (
-          <Card className="text-sm text-muted-foreground">
-            Loading saved {title.toLowerCase()} records from this device...
+          <Card className="py-12">
+            <DaisyLogoLoader
+              label={`Loading saved ${title.toLowerCase()} records…`}
+            />
           </Card>
         ) : routeData.kind === "dashboard" ? (
           <DashboardWorkspace
