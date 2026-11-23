@@ -1,6 +1,7 @@
 nodeLinker: hoisted
 allowBuilds:
   "@prisma/engines": false
+  canvas: false
   esbuild: true
   prisma: false
   workerd: true

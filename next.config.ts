@@ -48,6 +48,17 @@ const nextConfig: NextConfig = {
   cacheComponents: true,
   partialPrefetching: true,
   logging: { incomingRequests: false, serverFunctions: false },
+  webpack: (config, { isServer }) => {
+    if (!isServer) {
+      config.resolve.fallback = {
+        ...config.resolve.fallback,
+        fs: false,
+        path: false,
+        crypto: false,
+      };
+    }
+    return config;
+  },
   async headers() {
     return [
       {

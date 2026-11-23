@@ -1,3 +1,11 @@
+import {
+  detectDocumentQuad,
+  estimateFlattenedSize,
+  warpPerspectiveRgba,
+  type Point,
+  type QuadCorners,
+} from "./document-detect";
+
 export type DocumentScanFilterMode = "ORIGINAL" | "MAGIC_WHITE" | "BW_SCAN";
 
 export const DOCUMENT_SCAN_MODE_LABELS: Record<DocumentScanFilterMode, string> =
@@ -171,6 +179,133 @@ export async function computeBlobSha256Hex(blob: Blob): Promise<string> {
   return Array.from(new Uint8Array(digest), (byte) =>
     byte.toString(16).padStart(2, "0"),
   ).join("");
+}
+
+function canvasToJpegBlob(
+  canvas: HTMLCanvasElement,
+  quality: number,
+  failureMessage: string,
+): Promise<Blob> {
+  return new Promise<Blob>((resolve, reject) => {
+    canvas.toBlob(
+      (result) => {
+        if (result) resolve(result);
+        else reject(new Error(failureMessage));
+      },
+      "image/jpeg",
+      quality,
+    );
+  });
+}
+
+export type FlattenedDocumentPhoto = {
+  file: File;
+  /** Page corners in normalized `[0, 1]` coordinates of the source photo. */
+  corners: QuadCorners;
+  width: number;
+  height: number;
+};
+
+/**
+ * Finds the paper page in a photo, removes the surrounding background, and
+ * straightens it into an upright JPEG. Resolves `null` when no page outline is
+ * found so callers can keep the full photo.
+ */
+export async function flattenDocumentPhoto(params: {
+  sourceFile: File;
+  detectionMaxDimension?: number;
+  sourceMaxDimension?: number;
+  outputMaxDimension?: number;
+  quality?: number;
+}): Promise<FlattenedDocumentPhoto | null> {
+  const bitmap = await createImageBitmap(params.sourceFile);
+  try {
+    const naturalW = bitmap.width;
+    const naturalH = bitmap.height;
+    if (naturalW <= 0 || naturalH <= 0) return null;
+
+    const detectScale = Math.min(
+      1,
+      (params.detectionMaxDimension ?? 320) / Math.max(naturalW, naturalH),
+    );
+    const detectW = Math.max(1, Math.round(naturalW * detectScale));
+    const detectH = Math.max(1, Math.round(naturalH * detectScale));
+    const detectCanvas = document.createElement("canvas");
+    detectCanvas.width = detectW;
+    detectCanvas.height = detectH;
+    const detectCtx = detectCanvas.getContext("2d", {
+      willReadFrequently: true,
+    });
+    if (!detectCtx) return null;
+    detectCtx.drawImage(bitmap, 0, 0, detectW, detectH);
+    const detected = await detectDocumentQuad(
+      detectCtx.getImageData(0, 0, detectW, detectH).data,
+      detectW,
+      detectH,
+    );
+    if (!detected) return null;
+
+    const sourceScale = Math.min(
+      1,
+      (params.sourceMaxDimension ?? 2400) / Math.max(naturalW, naturalH),
+    );
+    const srcW = Math.max(1, Math.round(naturalW * sourceScale));
+    const srcH = Math.max(1, Math.round(naturalH * sourceScale));
+    const srcCanvas = document.createElement("canvas");
+    srcCanvas.width = srcW;
+    srcCanvas.height = srcH;
+    const srcCtx = srcCanvas.getContext("2d", { willReadFrequently: true });
+    if (!srcCtx) return null;
+    srcCtx.drawImage(bitmap, 0, 0, srcW, srcH);
+    const srcData = srcCtx.getImageData(0, 0, srcW, srcH).data;
+
+    const toSourcePixels = (p: Point): Point => ({
+      x: p.x * srcW,
+      y: p.y * srcH,
+    });
+    const sourceCorners: QuadCorners = [
+      toSourcePixels(detected.corners[0]),
+      toSourcePixels(detected.corners[1]),
+      toSourcePixels(detected.corners[2]),
+      toSourcePixels(detected.corners[3]),
+    ];
+    const size = estimateFlattenedSize(
+      sourceCorners,
+      params.outputMaxDimension ?? 2000,
+    );
+    const warped = await warpPerspectiveRgba(
+      srcData,
+      srcW,
+      srcH,
+      sourceCorners,
+      size.width,
+      size.height,
+    );
+
+    const outCanvas = document.createElement("canvas");
+    outCanvas.width = size.width;
+    outCanvas.height = size.height;
+    const outCtx = outCanvas.getContext("2d");
+    if (!outCtx) return null;
+    const outImage = outCtx.createImageData(size.width, size.height);
+    outImage.data.set(warped);
+    outCtx.putImageData(outImage, 0, 0);
+
+    const blob = await canvasToJpegBlob(
+      outCanvas,
+      params.quality ?? 0.92,
+      "Could not save the trimmed page.",
+    );
+    const baseName = params.sourceFile.name.replace(/\.[^.]+$/, "") || "page";
+    return {
+      file: new File([blob], `${baseName}-page.jpg`, { type: "image/jpeg" }),
+      corners: detected.corners,
+      width: size.width,
+      height: size.height,
+    };
+  } finally {
+    bitmap.close();
+  }
 }
 
 export type ProcessedContractScan = {
