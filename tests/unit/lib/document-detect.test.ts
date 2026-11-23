@@ -179,6 +179,33 @@ describe("detectDocumentQuad (jscanify + @techstark/opencv-js)", () => {
     expect(detected!.coverage).toBeLessThan(0.6);
   });
 
+  it("accurately separates shadowed white paper from a bright warm wooden desk with similar grayscale brightness", async () => {
+    // Simulates the real-world case where a warm wooden desk (R=156, G=126, B=68, gray ~130)
+    // has almost the same grayscale luminance as shadowed paper (R=142, G=125, B=126, gray ~130)
+    // and a dark top border (R=45, G=45, B=43).
+    const img = makeImage(width, height, (x, y) => {
+      const p = { x: x + 0.5, y: y + 0.5 };
+      if (isInsideConvex(p, page)) {
+        const inMargin = x > 44 && x < 112 && y > 50 && y < 160;
+        if (inMargin && y % 9 < 2) return [52, 48, 50];
+        return [142, 125, 126];
+      }
+      if (y < 28) return [45, 45, 43];
+      return [156, 126, 68];
+    });
+
+    const detected = await detectDocumentQuad(img, width, height);
+    expect(detected).not.toBeNull();
+    const tolerance = 0.045;
+    detected!.corners.forEach((corner, i) => {
+      expectPointNear(
+        corner,
+        { x: page[i]!.x / width, y: page[i]!.y / height },
+        tolerance,
+      );
+    });
+  });
+
   it("returns null for a plain frame with no page", async () => {
     const plain = makeImage(width, height, () => [120, 110, 100]);
     expect(await detectDocumentQuad(plain, width, height)).toBeNull();

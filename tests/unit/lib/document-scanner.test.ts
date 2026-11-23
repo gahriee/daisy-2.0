@@ -1,5 +1,8 @@
 import { describe, expect, it } from "vitest";
-import { enhanceDocumentRgba } from "@/lib/document-scanner";
+import {
+  enhanceDocumentRgba,
+  sharpenDocumentTextRgba,
+} from "@/lib/document-scanner";
 
 function makeSolidImage(
   width: number,
@@ -87,5 +90,25 @@ describe("enhanceDocumentRgba", () => {
     expect(out[textIdx]).toBeLessThan(40);
     expect(out[textIdx]).toBe(out[textIdx + 1]);
     expect(out[textIdx + 1]).toBe(out[textIdx + 2]);
+  });
+
+  it("sharpens soft blurred text edges while keeping flat paper smooth", () => {
+    // Soft gray stroke (115) surrounded by slightly blurred halo (165) on warm paper (200)
+    const src = makeSolidImage(32, 32, [200, 200, 200], (x, y) => {
+      if (y >= 8 && y <= 24) {
+        if (x === 16) return [115, 115, 115];
+        if (x === 15 || x === 17) return [165, 165, 165];
+      }
+      return null;
+    });
+
+    const sharpened = sharpenDocumentTextRgba(src, 32, 32);
+    const strokeIdx = (16 * 32 + 16) * 4;
+    const flatPaperIdx = (4 * 32 + 4) * 4;
+
+    // Center of soft text stroke becomes darker (higher contrast) than original 115
+    expect(sharpened[strokeIdx]!).toBeLessThan(95);
+    // Flat background remains untouched at 200
+    expect(sharpened[flatPaperIdx]).toBe(200);
   });
 });

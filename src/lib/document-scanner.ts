@@ -27,8 +27,92 @@ function smoothstep(edge0: number, edge1: number, x: number): number {
 }
 
 /**
- * Pure O(W*H) integral-image document scan enhancer.
+ * Applies an edge-preserving unsharp mask (`radius = 2`, 5x5 neighborhood) to
+ * sharpen soft or slightly out-of-focus phone camera text strokes while
+ * ignoring flat paper sensor noise below `threshold`.
+ */
+export function sharpenDocumentTextRgba(
+  rgba: Uint8ClampedArray,
+  width: number,
+  height: number,
+  amount = 0.85,
+  threshold = 3,
+): Uint8ClampedArray {
+  const out = new Uint8ClampedArray(rgba.length);
+  const totalPixels = width * height;
+  if (width < 3 || height < 3 || rgba.length < totalPixels * 4 || amount <= 0) {
+    out.set(rgba);
+    return out;
+  }
+
+  const stride = width + 1;
+  const lum = new Float64Array(totalPixels);
+  const sumY = new Float64Array(stride * (height + 1));
+
+  for (let y = 0; y < height; y++) {
+    let rowSum = 0;
+    const rowOffset = y * width;
+    const satRow = (y + 1) * stride;
+    const prevSatRow = y * stride;
+    for (let x = 0; x < width; x++) {
+      const idx = (rowOffset + x) * 4;
+      const gray =
+        0.299 * rgba[idx]! + 0.587 * rgba[idx + 1]! + 0.114 * rgba[idx + 2]!;
+      lum[rowOffset + x] = gray;
+      rowSum += gray;
+      sumY[satRow + x + 1] = sumY[prevSatRow + x + 1]! + rowSum;
+    }
+  }
+
+  const rSharp = 2;
+  for (let y = 0; y < height; y++) {
+    const y0 = Math.max(0, y - rSharp);
+    const y1 = Math.min(height - 1, y + rSharp);
+    const topSat = y0 * stride;
+    const botSat = (y1 + 1) * stride;
+    const rowH = y1 - y0 + 1;
+
+    for (let x = 0; x < width; x++) {
+      const x0 = Math.max(0, x - rSharp);
+      const x1 = Math.min(width - 1, x + rSharp);
+      const area = (x1 - x0 + 1) * rowH;
+      const blurY =
+        (sumY[botSat + x1 + 1]! -
+          sumY[topSat + x1 + 1]! -
+          sumY[botSat + x0]! +
+          sumY[topSat + x0]!) /
+        area;
+
+      const p = y * width + x;
+      const idx = p * 4;
+      const gray = lum[p]!;
+      const detail = gray - blurY;
+
+      if (Math.abs(detail) <= threshold) {
+        out[idx] = rgba[idx]!;
+        out[idx + 1] = rgba[idx + 1]!;
+        out[idx + 2] = rgba[idx + 2]!;
+        out[idx + 3] = rgba[idx + 3]!;
+        continue;
+      }
+
+      const delta = detail * amount;
+      out[idx] = clampByte(rgba[idx]! + delta);
+      out[idx + 1] = clampByte(rgba[idx + 1]! + delta);
+      out[idx + 2] = clampByte(rgba[idx + 2]! + delta);
+      out[idx + 3] = rgba[idx + 3]!;
+    }
+  }
+
+  return out;
+}
+
+/**
+ * Pure O(W*H) integral-image document scan and text enhancer.
  *
+ * - Automatically runs `sharpenDocumentTextRgba` first on `MAGIC_WHITE` and
+ *   `BW_SCAN` so slightly soft phone-camera text strokes and signatures are
+ *   crisply sharpened before background normalization.
  * - `MAGIC_WHITE`: Locally normalizes uneven shadows and warm/gray paper tint
  *   to #FFFFFF while preserving colored ink and handwritten signatures.
  * - `BW_SCAN`: Sauvola adaptive local thresholding for crisp dark text on pure
@@ -53,6 +137,13 @@ export function enhanceDocumentRgba(
     return out;
   }
 
+  const source = sharpenDocumentTextRgba(
+    rgba,
+    width,
+    height,
+    mode === "BW_SCAN" ? 0.95 : 0.85,
+  );
+
   const stride = width + 1;
   const lum = new Float64Array(totalPixels);
   const sumY = new Float64Array(stride * (height + 1));
@@ -69,7 +160,9 @@ export function enhanceDocumentRgba(
     for (let x = 0; x < width; x++) {
       const idx = (rowOffset + x) * 4;
       const gray =
-        0.299 * rgba[idx]! + 0.587 * rgba[idx + 1]! + 0.114 * rgba[idx + 2]!;
+        0.299 * source[idx]! +
+        0.587 * source[idx + 1]! +
+        0.114 * source[idx + 2]!;
       lum[rowOffset + x] = gray;
       rowSum += gray;
       sumY[satRow + x + 1] = sumY[prevSatRow + x + 1]! + rowSum;
@@ -140,9 +233,9 @@ export function enhanceDocumentRgba(
         continue;
       }
 
-      const r = rgba[idx]!;
-      const g = rgba[idx + 1]!;
-      const b = rgba[idx + 2]!;
+      const r = source[idx]!;
+      const g = source[idx + 1]!;
+      const b = source[idx + 2]!;
       const normalizedScale = 255 / paperEstimate;
       const liftedR = Math.min(255, r * normalizedScale);
       const liftedG = Math.min(255, g * normalizedScale);

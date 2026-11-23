@@ -23,11 +23,26 @@ type OpenCvMat = {
   delete(): void;
 };
 
+type OpenCvMatVector = {
+  size(): number;
+  get(index: number): OpenCvMat;
+  delete(): void;
+};
+
 export type OpenCvRuntime = {
   Mat?: new () => OpenCvMat;
+  MatVector: new () => OpenCvMatVector;
   Size: new (width: number, height: number) => unknown;
   Scalar: new () => unknown;
   CV_32FC2: number;
+  COLOR_RGBA2GRAY: number;
+  THRESH_BINARY: number;
+  THRESH_OTSU: number;
+  MORPH_RECT: number;
+  MORPH_CLOSE: number;
+  MORPH_OPEN: number;
+  RETR_EXTERNAL: number;
+  CHAIN_APPROX_SIMPLE: number;
   INTER_LINEAR: number;
   BORDER_CONSTANT: number;
   onRuntimeInitialized?: (() => void) | undefined;
@@ -42,7 +57,41 @@ export type OpenCvRuntime = {
     type: number,
     array: number[],
   ): OpenCvMat;
+  cvtColor(src: OpenCvMat, dst: OpenCvMat, code: number): void;
+  GaussianBlur(
+    src: OpenCvMat,
+    dst: OpenCvMat,
+    ksize: unknown,
+    sigmaX: number,
+  ): void;
+  threshold(
+    src: OpenCvMat,
+    dst: OpenCvMat,
+    thresh: number,
+    maxval: number,
+    type: number,
+  ): number;
+  getStructuringElement(shape: number, ksize: unknown): OpenCvMat;
+  morphologyEx(
+    src: OpenCvMat,
+    dst: OpenCvMat,
+    op: number,
+    kernel: OpenCvMat,
+  ): void;
+  findContours(
+    image: OpenCvMat,
+    contours: OpenCvMatVector,
+    hierarchy: OpenCvMat,
+    mode: number,
+    method: number,
+  ): void;
   contourArea(contour: unknown): number;
+  convexHull(
+    points: OpenCvMat,
+    hull: OpenCvMat,
+    clockwise?: boolean,
+    returnPoints?: boolean,
+  ): void;
   getPerspectiveTransform(src: OpenCvMat, dst: OpenCvMat): OpenCvMat;
   warpPerspective(
     src: OpenCvMat,
@@ -61,10 +110,12 @@ export type JScanifyEngine = {
 };
 
 const MIN_COVERAGE = 0.1;
-const MAX_COVERAGE = 0.95;
-const MIN_CORNER_ANGLE = 40;
-const MAX_CORNER_ANGLE = 140;
-const MIN_OPPOSITE_SIDE_RATIO = 0.42;
+const MAX_COVERAGE = 0.94;
+const MIN_CORNER_ANGLE = 45;
+const MAX_CORNER_ANGLE = 135;
+const MIN_OPPOSITE_SIDE_RATIO = 0.48;
+const MIN_PAPER_SCORE_CONTRAST = 20;
+const MIN_PAPER_SCORE_MEAN = 55;
 
 let enginePromise: Promise<JScanifyEngine> | null = null;
 let loadedEngine: JScanifyEngine | null = null;
@@ -237,8 +288,144 @@ function validateDetectedQuad(
 }
 
 /**
- * Synchronous paper quad detection using `jscanify` (`findPaperContour` +
- * `getCornerPoints`) when the OpenCV WASM engine is already loaded.
+ * Builds an RGBA buffer where neutral paper pixels (white, cream, or shadowed
+ * gray where R ≈ G ≈ B) stay bright while warm/colored backgrounds (wooden
+ * desks, skin tones, colored surfaces where G > B or saturation is high) are
+ * suppressed to dark values before OpenCV + jscanify contour extraction.
+ */
+function buildNeutralPaperRgba(rgba: Uint8ClampedArray): Uint8ClampedArray {
+  const out = new Uint8ClampedArray(rgba.length);
+  for (let i = 0; i < rgba.length; i += 4) {
+    const r = rgba[i]!;
+    const g = rgba[i + 1]!;
+    const b = rgba[i + 2]!;
+    const yellowWarmth = Math.max(0, g - b);
+    const sat = Math.max(r, g, b) - Math.min(r, g, b);
+    const v = Math.max(
+      0,
+      Math.min(255, Math.round(b - 1.6 * yellowWarmth - 0.35 * sat)),
+    );
+    out[i] = v;
+    out[i + 1] = v;
+    out[i + 2] = v;
+    out[i + 3] = 255;
+  }
+  return out;
+}
+
+/**
+ * Segments the paper sheet in OpenCV using the chroma-suppressed neutrality
+ * image, morphological closing/opening, convex hull, and `jscanify`'s
+ * `getCornerPoints` so warm wooden desks that match the paper's grayscale
+ * brightness are never merged into the document contour.
+ */
+function detectByChromaSuppressedOpenCv(
+  engine: JScanifyEngine,
+  rgba: Uint8ClampedArray,
+  width: number,
+  height: number,
+): DetectedDocument | null {
+  const { cv, scanner } = engine;
+  const neutralRgba = buildNeutralPaperRgba(rgba);
+  const mat = cv.matFromImageData({ data: neutralRgba, width, height });
+  const gray = new cv.Mat!();
+  const blurred = new cv.Mat!();
+  const thresh = new cv.Mat!();
+  const closeSize = Math.max(3, Math.round(Math.min(width, height) / 40) | 1);
+  const openSize = Math.max(3, Math.round(Math.min(width, height) / 55) | 1);
+  const kernelClose = cv.getStructuringElement(
+    cv.MORPH_RECT,
+    new cv.Size(closeSize, closeSize),
+  );
+  const kernelOpen = cv.getStructuringElement(
+    cv.MORPH_RECT,
+    new cv.Size(openSize, openSize),
+  );
+  const contours = new cv.MatVector();
+  const hierarchy = new cv.Mat!();
+  let bestContour: OpenCvMat | null = null;
+  let hull: OpenCvMat | null = null;
+
+  try {
+    cv.cvtColor(mat, gray, cv.COLOR_RGBA2GRAY);
+    cv.GaussianBlur(gray, blurred, new cv.Size(5, 5), 0);
+    cv.threshold(blurred, thresh, 0, 255, cv.THRESH_BINARY + cv.THRESH_OTSU);
+
+    // Ensure the thresholded foreground is genuinely brighter than background.
+    const maskBytes = thresh.data;
+    const scoreBytes = blurred.data;
+    let fgSum = 0;
+    let fgCount = 0;
+    let bgSum = 0;
+    for (let i = 0; i < maskBytes.length; i++) {
+      if (maskBytes[i]! > 0) {
+        fgSum += scoreBytes[i]!;
+        fgCount += 1;
+      } else {
+        bgSum += scoreBytes[i]!;
+      }
+    }
+    const bgCount = maskBytes.length - fgCount;
+    if (fgCount === 0 || bgCount === 0) return null;
+    const fgMean = fgSum / fgCount;
+    const bgMean = bgSum / bgCount;
+    if (
+      fgMean < MIN_PAPER_SCORE_MEAN ||
+      fgMean - bgMean < MIN_PAPER_SCORE_CONTRAST
+    ) {
+      return null;
+    }
+
+    cv.morphologyEx(thresh, thresh, cv.MORPH_CLOSE, kernelClose);
+    cv.morphologyEx(thresh, thresh, cv.MORPH_OPEN, kernelOpen);
+
+    cv.findContours(
+      thresh,
+      contours,
+      hierarchy,
+      cv.RETR_EXTERNAL,
+      cv.CHAIN_APPROX_SIMPLE,
+    );
+
+    let maxArea = 0;
+    let maxIdx = -1;
+    for (let i = 0; i < contours.size(); i++) {
+      const candidate = contours.get(i);
+      const area = cv.contourArea(candidate);
+      candidate.delete();
+      if (area > maxArea) {
+        maxArea = area;
+        maxIdx = i;
+      }
+    }
+    if (maxIdx < 0) return null;
+
+    bestContour = contours.get(maxIdx);
+    hull = new cv.Mat!();
+    cv.convexHull(bestContour, hull, false, true);
+    const rawCorners = scanner.getCornerPoints(hull, mat);
+    return validateDetectedQuad(rawCorners, width, height);
+  } finally {
+    if (hull) hull.delete();
+    if (bestContour) bestContour.delete();
+    hierarchy.delete();
+    contours.delete();
+    kernelOpen.delete();
+    kernelClose.delete();
+    thresh.delete();
+    blurred.delete();
+    gray.delete();
+    mat.delete();
+  }
+}
+
+/**
+ * Synchronous paper quad detection using OpenCV + `jscanify`:
+ * 1. First runs chroma-suppressed OpenCV Otsu + morphology + convexHull +
+ *    `jscanify.getCornerPoints`, which accurately isolates white/shadowed paper
+ *    even on bright warm wooden desks.
+ * 2. Falls back to `jscanify.findPaperContour` + `getCornerPoints` for neutral
+ *    backgrounds where edge contrast dominates.
  */
 export function detectDocumentQuadSync(
   engine: JScanifyEngine,
@@ -248,6 +435,14 @@ export function detectDocumentQuadSync(
 ): DetectedDocument | null {
   const total = width * height;
   if (width < 16 || height < 16 || rgba.length < total * 4) return null;
+
+  const chromaResult = detectByChromaSuppressedOpenCv(
+    engine,
+    rgba,
+    width,
+    height,
+  );
+  if (chromaResult) return chromaResult;
 
   const img = engine.cv.matFromImageData({ data: rgba, width, height });
   let contour: OpenCvMat | null = null;
@@ -264,7 +459,7 @@ export function detectDocumentQuadSync(
 
 /**
  * Async paper quad detection that ensures `jscanify` + `@techstark/opencv-js`
- * are initialized before running `findPaperContour` and `getCornerPoints`.
+ * are initialized before running contour and corner detection.
  */
 export async function detectDocumentQuad(
   rgba: Uint8ClampedArray,
