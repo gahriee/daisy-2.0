@@ -1,3 +1,4 @@
+/* eslint-disable @typescript-eslint/no-require-imports */
 const cvPromise = require("@techstark/opencv-js");
 const JScanify = require("jscanify/client");
 

@@ -1,4 +1,5 @@
 "use client";
+/* eslint-disable @next/next/no-img-element */
 
 import Link from "next/link";
 import { useEffect, useMemo, useRef, useState } from "react";
@@ -1297,10 +1298,10 @@ function RoomStorefrontCard({
                 variant: "ghost",
                 size: "md",
                 className:
-                  "w-full justify-center rounded-xl border border-border",
+                  "w-full justify-center rounded-xl border border-border whitespace-nowrap",
               })}
             >
-              Change dates
+              {status.tone === "warning" ? "Edit guests" : "Change dates"}
             </Link>
           )}
         </div>
