@@ -547,15 +547,21 @@ export async function getPublicPublishedRoomUnavailableDates(
   };
 }
 
+export type SubmitPublicBookingResult = {
+  ack: PublicBookingAckDto;
+  isDuplicate: boolean;
+  roomId: string;
+};
+
 /**
  * Records a public booking inquiry (`PENDING` review by Owner). Never locks beds
  * until Owner approval, enforces SHA-256 idempotency, writes identifier-only
  * `AuditLog`, and publishes the request onto the Owner's ChangeFeed.
  */
-export async function submitPublicBookingRequest(
+export async function submitPublicBookingRequestWithMeta(
   ownerUserId: string,
   rawInput: SubmitPublicBookingRequestInput,
-): Promise<PublicBookingAckDto> {
+): Promise<SubmitPublicBookingResult> {
   const parsed = SubmitPublicBookingRequestSchema.safeParse(rawInput);
   if (!parsed.success) {
     throw new ValidationError(
@@ -600,6 +606,7 @@ export async function submitPublicBookingRequest(
         },
         select: {
           id: true,
+          roomId: true,
           referenceCode: true,
           requestFingerprint: true,
           status: true,
@@ -629,39 +636,43 @@ export async function submitPublicBookingRequest(
           );
         }
         return {
-          id: existing.id,
-          referenceCode: existing.referenceCode,
-          status: existing.status,
-          roomTitle:
-            existing.room.transientTitle?.trim() ||
-            `Room ${existing.room.number}`,
-          scope: existing.scope,
-          checkInDateManila: existing.checkInDateManila,
-          checkOutDateManila: existing.checkOutDateManila,
-          nights: existing.nights,
-          partySize: existing.partySize,
-          adultsCount: existing.adultsCount,
-          childrenCount: existing.childrenCount,
-          guestName: existing.guestName,
-          guestAge: existing.guestAge,
-          guestSex:
-            existing.guestSex === "MALE" || existing.guestSex === "FEMALE"
-              ? existing.guestSex
-              : null,
-          guestAddress: existing.guestAddress,
-          guestPhone: existing.guestPhone,
-          guestEmail: existing.guestEmail,
-          quotedDailyRate: formatMoneyDecimal(
-            BigInt(
-              Math.round(Number(existing.quotedDailyRate.toString()) * 100),
+          isDuplicate: true,
+          roomId: existing.roomId,
+          ack: {
+            id: existing.id,
+            referenceCode: existing.referenceCode,
+            status: existing.status,
+            roomTitle:
+              existing.room.transientTitle?.trim() ||
+              `Room ${existing.room.number}`,
+            scope: existing.scope,
+            checkInDateManila: existing.checkInDateManila,
+            checkOutDateManila: existing.checkOutDateManila,
+            nights: existing.nights,
+            partySize: existing.partySize,
+            adultsCount: existing.adultsCount,
+            childrenCount: existing.childrenCount,
+            guestName: existing.guestName,
+            guestAge: existing.guestAge,
+            guestSex:
+              existing.guestSex === "MALE" || existing.guestSex === "FEMALE"
+                ? existing.guestSex
+                : null,
+            guestAddress: existing.guestAddress,
+            guestPhone: existing.guestPhone,
+            guestEmail: existing.guestEmail,
+            quotedDailyRate: formatMoneyDecimal(
+              BigInt(
+                Math.round(Number(existing.quotedDailyRate.toString()) * 100),
+              ),
             ),
-          ),
-          quotedTotalAmount: formatMoneyDecimal(
-            BigInt(
-              Math.round(Number(existing.quotedTotalAmount.toString()) * 100),
+            quotedTotalAmount: formatMoneyDecimal(
+              BigInt(
+                Math.round(Number(existing.quotedTotalAmount.toString()) * 100),
+              ),
             ),
-          ),
-          submittedAt: existing.createdAt.toISOString(),
+            submittedAt: existing.createdAt.toISOString(),
+          },
         };
       }
 
@@ -879,30 +890,45 @@ export async function submitPublicBookingRequest(
       });
 
       return {
-        id: dto.id,
-        referenceCode: dto.referenceCode,
-        status: dto.status,
-        roomTitle: room.transientTitle?.trim() || `Room ${room.number}`,
-        scope: dto.scope,
-        checkInDateManila: dto.checkInDateManila,
-        checkOutDateManila: dto.checkOutDateManila,
-        nights: dto.nights,
-        partySize: dto.partySize,
-        adultsCount: dto.adultsCount,
-        childrenCount: dto.childrenCount,
-        guestName: dto.guestName,
-        guestAge: dto.guestAge,
-        guestSex: dto.guestSex,
-        guestAddress: dto.guestAddress,
-        guestPhone: dto.guestPhone,
-        guestEmail: dto.guestEmail,
-        quotedDailyRate: dto.quotedDailyRate,
-        quotedTotalAmount: dto.quotedTotalAmount,
-        submittedAt: dto.createdAt,
+        isDuplicate: false,
+        roomId: room.id,
+        ack: {
+          id: dto.id,
+          referenceCode: dto.referenceCode,
+          status: dto.status,
+          roomTitle: room.transientTitle?.trim() || `Room ${room.number}`,
+          scope: dto.scope,
+          checkInDateManila: dto.checkInDateManila,
+          checkOutDateManila: dto.checkOutDateManila,
+          nights: dto.nights,
+          partySize: dto.partySize,
+          adultsCount: dto.adultsCount,
+          childrenCount: dto.childrenCount,
+          guestName: dto.guestName,
+          guestAge: dto.guestAge,
+          guestSex: dto.guestSex,
+          guestAddress: dto.guestAddress,
+          guestPhone: dto.guestPhone,
+          guestEmail: dto.guestEmail,
+          quotedDailyRate: dto.quotedDailyRate,
+          quotedTotalAmount: dto.quotedTotalAmount,
+          submittedAt: dto.createdAt,
+        },
       };
     },
     { maxWait: 10_000, timeout: 25_000 },
   );
+}
+
+export async function submitPublicBookingRequest(
+  ownerUserId: string,
+  rawInput: SubmitPublicBookingRequestInput,
+): Promise<PublicBookingAckDto> {
+  const result = await submitPublicBookingRequestWithMeta(
+    ownerUserId,
+    rawInput,
+  );
+  return result.ack;
 }
 
 /**

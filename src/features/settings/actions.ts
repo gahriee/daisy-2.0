@@ -1,6 +1,7 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
+import { formatStayTime } from "@/features/transients/public-booking-view";
 import { AppError } from "@/lib/errors";
 import { requireOwnerUserId } from "@/server/auth/owner";
 import { getDatabase } from "@/server/db/client";
@@ -13,6 +14,7 @@ import {
   BusinessSettingsModuleUpdateSchema,
   type BusinessSettingsDto,
   type SettingsModule,
+  type TestEmailTemplate,
 } from "./schemas";
 import { getBusinessSettings, updateBusinessSettingsModule } from "./service";
 
@@ -248,10 +250,13 @@ export type TestEmailActionResult =
 
 export async function sendTestEmailAction(
   recipientEmail: string,
+  template: TestEmailTemplate = "approved",
 ): Promise<TestEmailActionResult> {
   try {
     const ownerUserId = await requireOwnerUserId();
     const cleaned = recipientEmail.trim().toLowerCase();
+    const selectedTemplate: TestEmailTemplate =
+      template === "pending" ? "pending" : "approved";
     if (!cleaned || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(cleaned)) {
       return {
         status: "error",
@@ -277,13 +282,16 @@ export async function sendTestEmailAction(
       "http://localhost:3000";
     const outcome = await sendTestSmtpEmailSafe({
       toEmail: cleaned,
+      template: selectedTemplate,
       propertyName: settings.businessName || "Daisy Residences",
       propertyAddress: settings.businessAddress,
       propertyLatitude: settings.businessLatitude,
       propertyLongitude: settings.businessLongitude,
       contactPhone: settings.businessPhone,
-      checkInTimeLabel: settings.checkInTimeManila ?? "2:00 PM",
-      checkOutTimeLabel: settings.checkOutTimeManila ?? "12:00 PM",
+      checkInTimeLabel:
+        formatStayTime(settings.checkInTimeManila ?? "") || "2:00 PM",
+      checkOutTimeLabel:
+        formatStayTime(settings.checkOutTimeManila ?? "") || "12:00 PM",
       trackUrl: `${appOrigin}/book#track`,
       smtpConfig,
     });
@@ -307,13 +315,18 @@ export async function sendTestEmailAction(
         metadata: {
           host: smtpConfig.host,
           port: smtpConfig.port,
+          template: selectedTemplate,
         },
       });
     });
 
+    const label =
+      selectedTemplate === "pending"
+        ? "Booking request test email"
+        : "Booking confirmation test email";
     return {
       status: "sent",
-      message: `Test email sent to ${cleaned}. Check your inbox (and spam folder).`,
+      message: `${label} sent to ${cleaned}. Check your inbox (and spam folder).`,
     };
   } catch (error) {
     if (error instanceof AppError) {

@@ -247,57 +247,6 @@ export function VaultPassphraseForm({
     });
   }
 
-  function handleOpenForgotDialog() {
-    setErrorMessage(null);
-    setResetError(null);
-    if (!navigator.onLine) {
-      setErrorMessage(
-        "Connect to the internet first to reset your sync password and download a fresh copy.",
-      );
-      return;
-    }
-    startBusy(async () => {
-      try {
-        const db = getBrowserOfflineDb();
-        const status = await getOfflineSyncStatus(db);
-        setResetUnsyncedCount(status.pendingCount + status.needsAttentionCount);
-      } catch {
-        setResetUnsyncedCount(0);
-      }
-      setResetDialogOpen(true);
-    });
-  }
-
-  function handleConfirmResetVault() {
-    setResetError(null);
-    startBusy(async () => {
-      try {
-        const db = getBrowserOfflineDb();
-        const custody = getVaultCustody();
-        await resetOfflineVaultForNewPassphrase({ db, custody });
-        setResetDialogOpen(false);
-        setPassphrase("");
-        setErrorMessage(null);
-        setVaultConfigured(false);
-        onConfiguredChange?.(false);
-        notifyOfflineVaultChanged();
-        setCopied(false);
-        setShowPassphrase(true);
-        setGeneratedPassphrase(generateVaultPassphrase());
-        setSetupModalOpen(true);
-        toast.info(
-          "Local copy cleared. Save your new sync password to reconnect.",
-        );
-      } catch (error) {
-        setResetError(
-          error instanceof Error
-            ? error.message
-            : "Could not clear the local copy on this browser.",
-        );
-      }
-    });
-  }
-
   function handleSubmit(event: React.FormEvent) {
     event.preventDefault();
     setErrorMessage(null);

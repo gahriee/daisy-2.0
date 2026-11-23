@@ -8,13 +8,17 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import { Field } from "@/components/ui/field";
 import { Input } from "@/components/ui/input";
+import { Select } from "@/components/ui/select";
 import { toast } from "@/components/ui/toaster";
 import {
   saveBusinessSettingsAction,
   sendTestEmailAction,
   type SaveSettingsActionState,
 } from "@/features/settings/actions";
-import type { BusinessSettingsDto } from "@/features/settings/schemas";
+import type {
+  BusinessSettingsDto,
+  TestEmailTemplate,
+} from "@/features/settings/schemas";
 
 type EmailDraft = {
   version: number;
@@ -55,6 +59,8 @@ export function EmailSettingsPanel({
   const [testRecipient, setTestRecipient] = useState(
     initialSettings.smtpUser ?? "",
   );
+  const [testTemplate, setTestTemplate] =
+    useState<TestEmailTemplate>("approved");
   const [testPending, setTestPending] = useState(false);
   const [testResult, setTestResult] = useState<{
     tone: "success" | "danger";
@@ -118,7 +124,7 @@ export function EmailSettingsPanel({
     setTestResult(null);
     setTestPending(true);
     try {
-      const res = await sendTestEmailAction(testRecipient);
+      const res = await sendTestEmailAction(testRecipient, testTemplate);
       if (res.status === "sent") {
         setTestResult({ tone: "success", message: res.message });
         toast.success(res.message);
@@ -177,8 +183,8 @@ export function EmailSettingsPanel({
                 </Badge>
               </div>
               <p className="text-xs leading-5 text-muted-foreground">
-                Send automatic confirmation emails through Gmail when you
-                approve a guest booking request.
+                Send automatic booking request and confirmation emails through
+                Gmail.
               </p>
             </div>
 
@@ -194,12 +200,12 @@ export function EmailSettingsPanel({
                       smtpEnabled: event.target.checked,
                     }))
                   }
-                  label="Turn on booking confirmation emails"
+                  label="Turn on automatic booking emails"
                   disabled={pending}
                 />
                 <p className="pl-7 text-xs leading-5 text-muted-foreground">
-                  Guests receive their booking reference, dates, total amount,
-                  and tracking link right after you approve.
+                  Guests receive a pending email when they submit a request and
+                  a confirmation email once you approve it.
                 </p>
               </div>
 
@@ -414,21 +420,40 @@ export function EmailSettingsPanel({
               </Alert>
             )}
 
-            <div className="flex flex-col gap-3 sm:flex-row sm:items-end">
-              <div className="min-w-0 flex-1">
-                <Field id="settings-smtp-test-recipient" label="Send test to">
-                  {(fieldProps) => (
-                    <Input
-                      {...fieldProps}
-                      type="email"
-                      value={testRecipient}
-                      onChange={(event) => setTestRecipient(event.target.value)}
-                      placeholder="you@gmail.com"
-                      disabled={testPending}
-                    />
-                  )}
-                </Field>
-              </div>
+            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+              <Field id="settings-smtp-test-template" label="Email template">
+                {(fieldProps) => (
+                  <Select
+                    {...fieldProps}
+                    value={testTemplate}
+                    onChange={(event) =>
+                      setTestTemplate(event.target.value as TestEmailTemplate)
+                    }
+                    disabled={testPending}
+                  >
+                    <option value="pending">Booking request (Pending)</option>
+                    <option value="approved">
+                      Booking confirmed (Approved)
+                    </option>
+                  </Select>
+                )}
+              </Field>
+
+              <Field id="settings-smtp-test-recipient" label="Send test to">
+                {(fieldProps) => (
+                  <Input
+                    {...fieldProps}
+                    type="email"
+                    value={testRecipient}
+                    onChange={(event) => setTestRecipient(event.target.value)}
+                    placeholder="you@gmail.com"
+                    disabled={testPending}
+                  />
+                )}
+              </Field>
+            </div>
+
+            <div className="flex justify-end">
               <Button
                 type="button"
                 variant="secondary"

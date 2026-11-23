@@ -42,7 +42,7 @@ const SECTION_HEADERS: Record<
   email: {
     title: "Email",
     description:
-      "Connect your Gmail account to send approved booking confirmation emails.",
+      "Connect your Gmail account to send booking request and confirmation emails.",
   },
   devices: {
     title: "Trusted devices",

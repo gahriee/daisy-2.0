@@ -73,6 +73,9 @@ export const SETTINGS_MODULES = [
 ] as const;
 export type SettingsModule = (typeof SETTINGS_MODULES)[number];
 
+export const TEST_EMAIL_TEMPLATES = ["pending", "approved"] as const;
+export type TestEmailTemplate = (typeof TEST_EMAIL_TEMPLATES)[number];
+
 const latitudeSchema = z
   .number()
   .min(-90, "Latitude must be between -90 and 90.")
