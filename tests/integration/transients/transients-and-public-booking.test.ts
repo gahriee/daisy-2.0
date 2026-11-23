@@ -380,7 +380,7 @@ describe("transients, public booking, billing bridge & sync integration", () => 
       partySize: 1,
       guestName: "Liza Bautista",
       guestPhone: "+63 917 888 0001",
-      guestEmail: null,
+      guestEmail: "liza.bautista@example.com",
       notes: "Arriving 3 PM",
       privacyConsentAccepted: true,
     };
@@ -797,7 +797,7 @@ describe("transients, public booking, billing bridge & sync integration", () => 
           partySize: 1,
           guestName: "Long Transient Visitor",
           guestPhone: "+63 917 777 8899",
-          guestEmail: null,
+          guestEmail: "long.visitor@example.com",
           notes: "Three-month transient project stay",
           privacyConsentAccepted: true,
         }),

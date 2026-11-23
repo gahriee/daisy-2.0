@@ -1,15 +1,15 @@
 "use client";
 
-import { useActionState, useState } from "react";
+import { useActionState, useMemo, useState } from "react";
 import Link from "next/link";
 import { OfflineSyncBadge } from "@/components/features/offline/offline-vault-unlock";
+import { StayDateRangePicker } from "@/components/features/transients/public-stay-date-range-picker";
 import { Alert } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
 import { Button, buttonClasses } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Dialog } from "@/components/ui/dialog";
 import { Field } from "@/components/ui/field";
-import { DatePicker } from "@/components/ui/date-picker";
 import { Input } from "@/components/ui/input";
 import { Select } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
@@ -254,6 +254,7 @@ export function CreateTransientReservationDialog({
   offlineMode = false,
   guests,
   rooms,
+  reservations = [],
   onClose,
   onRequireVaultUnlock,
   onSaved,
@@ -262,6 +263,7 @@ export function CreateTransientReservationDialog({
   offlineMode?: boolean;
   guests: TransientGuestDto[];
   rooms: TransientRoomOptionDto[];
+  reservations?: TransientReservationDto[];
   onClose: () => void;
   onRequireVaultUnlock?: () => void;
   onSaved: (message: string, tone?: SavedFeedbackTone) => void | Promise<void>;
@@ -279,10 +281,34 @@ export function CreateTransientReservationDialog({
   const [checkOutDate, setCheckOutDate] = useState(
     addManilaDays(defaultToday, 1),
   );
+  const [calendarOpen, setCalendarOpen] = useState(false);
   const [partySize, setPartySize] = useState("1");
   const [dailyRateOverride, setDailyRateOverride] = useState("");
   const [tentative, setTentative] = useState(false);
   const [issueInvoiceImmediately, setIssueInvoiceImmediately] = useState(false);
+
+  const roomUnavailableDates = useMemo(() => {
+    if (!roomId) return [] as string[];
+    const blocked = new Set<string>();
+    for (const stay of reservations) {
+      if (stay.roomId !== roomId) continue;
+      if (
+        stay.status !== "TENTATIVE" &&
+        stay.status !== "CONFIRMED" &&
+        stay.status !== "CHECKED_IN"
+      ) {
+        continue;
+      }
+      let cursor = stay.checkInDateManila;
+      let guard = 0;
+      while (cursor < stay.checkOutDateManila && guard < 366) {
+        blocked.add(cursor);
+        cursor = addManilaDays(cursor, 1);
+        guard += 1;
+      }
+    }
+    return Array.from(blocked).sort();
+  }, [reservations, roomId]);
 
   const [state, submitAction, pending] = useActionState(
     async (
@@ -425,7 +451,7 @@ export function CreateTransientReservationDialog({
     <Dialog
       open={open}
       onClose={onClose}
-      dismissDisabled={pending}
+      dismissDisabled={pending || calendarOpen}
       maxWidthClassName="max-w-xl"
       title="Book short stay"
       description="Reserves the room across your chosen check-in and check-out times."
@@ -485,29 +511,23 @@ export function CreateTransientReservationDialog({
         </div>
 
         <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-          <Field id="stay-checkin" label="Check-in date" required>
-            {(fieldProps) => (
-              <DatePicker
-                {...fieldProps}
-                name="checkInDateManila"
-                value={checkInDate}
-                onValueChange={setCheckInDate}
-                required
-              />
-            )}
-          </Field>
-
-          <Field id="stay-checkout" label="Check-out date" required>
-            {(fieldProps) => (
-              <DatePicker
-                {...fieldProps}
-                name="checkOutDateManila"
-                value={checkOutDate}
-                onValueChange={setCheckOutDate}
-                required
-              />
-            )}
-          </Field>
+          <StayDateRangePicker
+            className="sm:col-span-2"
+            checkInId="stay-checkin"
+            checkOutId="stay-checkout"
+            checkInName="checkInDateManila"
+            checkOutName="checkOutDateManila"
+            checkIn={checkInDate}
+            checkOut={checkOutDate}
+            unavailableDates={roomUnavailableDates}
+            showUnavailableLegend={roomUnavailableDates.length > 0}
+            disabled={pending}
+            onOpenChange={setCalendarOpen}
+            onRangeSelect={(nextCheckIn, nextCheckOut) => {
+              setCheckInDate(nextCheckIn);
+              setCheckOutDate(nextCheckOut);
+            }}
+          />
 
           <Field id="stay-party" label="Guests" required>
             {(fieldProps) => (

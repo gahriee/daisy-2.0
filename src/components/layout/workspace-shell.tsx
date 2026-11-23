@@ -95,6 +95,7 @@ const ROOMS_SECTIONS = [
 const TRANSIENTS_SECTIONS = [
   { href: "/transients/stays", label: "Stays & reservations" },
   { href: "/transients/requests", label: "Booking requests" },
+  { href: "/transients/house-rules", label: "House rules" },
 ] as const;
 
 const TRANSIENT_ROOMS_SECTIONS = [
@@ -916,6 +917,7 @@ function resolveWorkspaceTitle(pathname: string): string {
   }
   if (pathname === "/transients/requests") return "Booking requests";
   if (pathname.startsWith("/transients/requests/")) return "Booking request";
+  if (pathname === "/transients/house-rules") return "House rules";
   if (pathname === "/transients/rooms") return "Transient rooms";
   if (pathname === "/transients/rooms/new") return "Add transient room";
   if (pathname === "/transients/rooms/types") return "Transient room types";

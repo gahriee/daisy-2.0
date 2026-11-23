@@ -3,9 +3,24 @@
 import Link from "next/link";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { PublicBookingCardsSkeleton } from "@/components/common/page-skeletons";
-import { GuestCountStepperRow } from "@/components/features/transients/public-booking-chrome";
+import {
+  GuestCountStepperRow,
+  PUBLIC_BOOKING_CARD_ELEVATED_INTERACTIVE,
+  PUBLIC_BOOKING_CARD_FOCAL,
+} from "@/components/features/transients/public-booking-chrome";
+import { PublicStayDateRangeCalendar } from "@/components/features/transients/public-stay-date-range-picker";
+import { PublicBookingTracker } from "@/components/features/transients/public-booking-tracker";
+import {
+  ScrollReveal,
+  ScrollStoryProgress,
+} from "@/components/features/transients/public-booking-scrollytelling";
+import {
+  SelfDrawingLine,
+  Tilt3DCard,
+} from "@/components/features/transients/public-booking-visual-fx";
 import {
   EditorialBookingFooter,
+  HouseRulesSection,
   HowItWorksScrollTrack,
   StayAnywhereShowcase,
 } from "@/components/features/transients/public-booking-sections";
@@ -35,9 +50,7 @@ import {
   EmptyStateDescription,
   EmptyStateTitle,
 } from "@/components/ui/empty-state";
-import { Field } from "@/components/ui/field";
-import { DatePicker } from "@/components/ui/date-picker";
-import { diffManilaDays, formatManilaDate } from "@/lib/dates";
+import { formatManilaDate } from "@/lib/dates";
 import { formatPhpCurrency } from "@/lib/money";
 import { cn } from "@/lib/cn";
 
@@ -47,7 +60,7 @@ type PublicBookingClientProps = {
   initialChildren: number;
 };
 
-type SearchPopoverPanel = "WHEN" | "WHO" | "FILTER" | null;
+type SearchPopoverPanel = "WHEN_IN" | "WHEN_OUT" | "WHO" | "FILTER" | null;
 type ScopeFilter = "ALL" | "WHOLE_ROOM" | "BED";
 
 const MAX_PUBLIC_GUESTS = 20;
@@ -92,6 +105,46 @@ export function PublicBookingClient({
 
   const searchBarRef = useRef<HTMLDivElement | null>(null);
   const roomsSectionRef = useRef<HTMLElement | null>(null);
+  const heroImageRef = useRef<HTMLImageElement | null>(null);
+  const heroBackDeckRef = useRef<HTMLDivElement | null>(null);
+  const searchSeqRef = useRef(0);
+
+  // Subtle GPU-composited hero parallax on scroll (disabled on reduced motion)
+  useEffect(() => {
+    const mediaReduced = window.matchMedia("(prefers-reduced-motion: reduce)");
+    if (mediaReduced.matches) return;
+
+    let rafId = 0;
+
+    function updateParallax() {
+      rafId = 0;
+      const scrollY = window.scrollY;
+      const clamped = Math.min(1, Math.max(0, scrollY / 720));
+      if (heroImageRef.current) {
+        const y = clamped * 44;
+        const scale = 1.04 + clamped * 0.05;
+        heroImageRef.current.style.transform = `translate3d(0, ${y.toFixed(1)}px, 0) scale(${scale.toFixed(3)})`;
+      }
+      if (heroBackDeckRef.current) {
+        const deckY = 8 - clamped * 14;
+        const deckRot = -4 - clamped * 2.5;
+        heroBackDeckRef.current.style.transform = `translate3d(-10px, ${deckY.toFixed(1)}px, 0) rotate(${deckRot.toFixed(2)}deg)`;
+      }
+    }
+
+    function schedule() {
+      if (!rafId) {
+        rafId = window.requestAnimationFrame(updateParallax);
+      }
+    }
+
+    updateParallax();
+    window.addEventListener("scroll", schedule, { passive: true });
+    return () => {
+      if (rafId) window.cancelAnimationFrame(rafId);
+      window.removeEventListener("scroll", schedule);
+    };
+  }, []);
 
   useEffect(() => {
     if (!openPopover) return;
@@ -123,14 +176,6 @@ export function PublicBookingClient({
     };
   }, [openPopover]);
 
-  const draftNights = useMemo(() => {
-    try {
-      return diffManilaDays(draftCheckIn, draftCheckOut);
-    } catch {
-      return 0;
-    }
-  }, [draftCheckIn, draftCheckOut]);
-
   const activeTotalGuests = activeSelection.adults + activeSelection.children;
 
   const sortedRooms = useMemo(
@@ -144,10 +189,24 @@ export function PublicBookingClient({
     [availability.rooms, activeTotalGuests],
   );
 
+  // Hide rooms that are already booked for the selected stay dates
+  const openRoomsForDates = useMemo(
+    () =>
+      sortedRooms.filter((room) =>
+        room.scope === "WHOLE_ROOM"
+          ? room.availableUnitsForRange === 1
+          : room.availableUnitsForRange >= 1,
+      ),
+    [sortedRooms],
+  );
+
   const visibleRooms = useMemo(() => {
-    if (scopeFilter === "ALL") return sortedRooms;
-    return sortedRooms.filter((room) => room.scope === scopeFilter);
-  }, [sortedRooms, scopeFilter]);
+    if (scopeFilter === "ALL") return openRoomsForDates;
+    return openRoomsForDates.filter((room) => room.scope === scopeFilter);
+  }, [openRoomsForDates, scopeFilter]);
+
+  const showcaseRooms =
+    openRoomsForDates.length > 0 ? openRoomsForDates : sortedRooms;
 
   const currentStayQuery = useMemo(
     () => buildPublicStayQueryString(activeSelection),
@@ -169,13 +228,13 @@ export function PublicBookingClient({
 
   // Featured preview deck items for the right-hand Video 1 hero column
   const deckItems = useMemo(() => {
-    if (sortedRooms.length === 0) {
+    if (showcaseRooms.length === 0) {
       return [fallbackDeckItem];
     }
 
-    return sortedRooms.map((room, idx) => {
+    return showcaseRooms.map((room, idx) => {
       const slides = buildRoomGallerySlides(room);
-      const nextRoom = sortedRooms[(idx + 1) % sortedRooms.length];
+      const nextRoom = showcaseRooms[(idx + 1) % showcaseRooms.length];
       const nextSlide = nextRoom ? buildRoomGallerySlides(nextRoom)[0] : null;
       return {
         id: room.roomId,
@@ -188,10 +247,30 @@ export function PublicBookingClient({
           slides[1]?.url ?? nextSlide?.url ?? "/images/hero/stay-hero-500.jpg",
       };
     });
-  }, [sortedRooms, fallbackDeckItem]);
+  }, [showcaseRooms, fallbackDeckItem]);
 
   const safeDeckIndex = deckItems.length > 0 ? deckIndex % deckItems.length : 0;
   const activeDeckItem = deckItems[safeDeckIndex] ?? fallbackDeckItem;
+
+  // Warm browser cache for featured deck cover images so stepping `<` / `>` is instant
+  useEffect(() => {
+    if (deckItems.length <= 1) return;
+    const urls = new Set<string>();
+    for (const item of deckItems) {
+      if (item.imageUrl) urls.add(item.imageUrl);
+      if (item.secondaryImageUrl) urls.add(item.secondaryImageUrl);
+    }
+    const preloaded: HTMLImageElement[] = [];
+    for (const url of urls) {
+      const img = new window.Image();
+      img.decoding = "async";
+      img.src = url;
+      preloaded.push(img);
+    }
+    return () => {
+      preloaded.length = 0;
+    };
+  }, [deckItems]);
 
   function stepDeck(delta: number) {
     if (deckItems.length <= 1) return;
@@ -215,7 +294,7 @@ export function PublicBookingClient({
 
     if (!nextCheckIn || !nextCheckOut || nextCheckOut <= nextCheckIn) {
       setSearchError("Choose a check-out date after your check-in date.");
-      setOpenPopover("WHEN");
+      setOpenPopover("WHEN_IN");
       return;
     }
     if (totalGuests < 1 || totalGuests > MAX_PUBLIC_GUESTS) {
@@ -226,6 +305,7 @@ export function PublicBookingClient({
       return;
     }
 
+    const requestSeq = ++searchSeqRef.current;
     setSearchError(null);
     setLoadingAvailability(true);
 
@@ -243,6 +323,7 @@ export function PublicBookingClient({
         },
       );
       const data = await response.json();
+      if (requestSeq !== searchSeqRef.current) return;
       if (!response.ok) {
         setSearchError(
           typeof data?.error === "string"
@@ -273,11 +354,14 @@ export function PublicBookingClient({
         roomsSectionRef.current?.scrollIntoView({ behavior: "smooth" });
       }
     } catch {
+      if (requestSeq !== searchSeqRef.current) return;
       setSearchError(
         "Unable to reach the reservation desk right now. Check your connection and try again.",
       );
     } finally {
-      setLoadingAvailability(false);
+      if (requestSeq === searchSeqRef.current) {
+        setLoadingAvailability(false);
+      }
     }
   }
 
@@ -295,7 +379,7 @@ export function PublicBookingClient({
       behavior: "smooth",
       block: "center",
     });
-    setOpenPopover("WHEN");
+    setOpenPopover("WHEN_IN");
   }
 
   const filterLabel =
@@ -314,41 +398,54 @@ export function PublicBookingClient({
     >
       {/* Top editorial navigation bar aligned to the shared max-w-7xl rail */}
       <header className="sticky top-0 z-40 border-b border-border bg-surface/95 backdrop-blur-md">
-        <div className="mx-auto flex w-full max-w-7xl items-center justify-between gap-4 px-4 py-3 sm:px-6 lg:grid lg:grid-cols-[1fr_auto_1fr] lg:px-10">
+        <ScrollStoryProgress />
+        <div className="mx-auto flex w-full max-w-7xl items-center justify-between gap-4 px-4 py-3 sm:px-6 lg:px-10">
           <Link
             href={`/book?${currentStayQuery}`}
-            className="flex min-h-11 min-w-0 items-center gap-2.5 justify-self-start text-foreground transition-colors hover:text-primary"
+            className="flex min-h-11 min-w-0 shrink-0 items-center gap-2.5 text-foreground transition-colors hover:text-primary"
           >
             <DaisyBrand asLink={false} show="icon" tone="light" />
-            <span className="truncate text-sm font-semibold tracking-[0.1em] uppercase">
+            <span className="truncate whitespace-nowrap text-sm font-semibold tracking-[0.1em] uppercase">
               {availability.propertyName}
             </span>
           </Link>
 
-          <p className="hidden text-center text-[11px] font-medium tracking-[0.18em] text-muted-foreground uppercase lg:block">
+          <p className="hidden shrink-0 whitespace-nowrap text-center text-[11px] font-medium tracking-[0.18em] text-muted-foreground uppercase xl:block">
             Direct short-stay booking
           </p>
 
           <nav
             aria-label="Booking navigation"
-            className="flex shrink-0 items-center justify-self-end gap-2 sm:gap-5"
+            className="flex shrink-0 flex-nowrap items-center gap-3 sm:gap-5"
           >
             <a
               href="#rooms"
-              className="hidden min-h-11 items-center text-xs font-medium tracking-wide text-muted-foreground transition-colors hover:text-foreground sm:inline-flex"
+              className="hidden min-h-11 items-center whitespace-nowrap text-xs font-medium tracking-wide text-muted-foreground transition-colors hover:text-foreground sm:inline-flex"
             >
               Rooms
             </a>
             <a
               href="#how-it-works"
-              className="hidden min-h-11 items-center text-xs font-medium tracking-wide text-muted-foreground transition-colors hover:text-foreground md:inline-flex"
+              className="hidden min-h-11 items-center whitespace-nowrap text-xs font-medium tracking-wide text-muted-foreground transition-colors hover:text-foreground md:inline-flex"
             >
               How it works
+            </a>
+            <a
+              href="#house-rules"
+              className="hidden min-h-11 items-center whitespace-nowrap text-xs font-medium tracking-wide text-muted-foreground transition-colors hover:text-foreground md:inline-flex"
+            >
+              House rules
+            </a>
+            <a
+              href="#track"
+              className="inline-flex min-h-11 items-center whitespace-nowrap text-xs font-medium tracking-wide text-muted-foreground transition-colors hover:text-foreground"
+            >
+              Track booking
             </a>
             {availability.contactPhone && (
               <a
                 href={`tel:${availability.contactPhone.replace(/[^+\d]/g, "")}`}
-                className="inline-flex min-h-11 items-center rounded-full border border-control-border bg-surface px-3.5 text-xs font-medium text-foreground transition-colors hover:bg-surface-muted"
+                className="inline-flex min-h-11 items-center whitespace-nowrap rounded-full border border-control-border bg-surface px-3.5 text-xs font-medium text-foreground transition-colors hover:bg-surface-muted"
               >
                 {availability.contactPhone}
               </a>
@@ -363,7 +460,12 @@ export function PublicBookingClient({
           aria-label="Short-stay hero and search"
           className="relative mx-auto w-full max-w-7xl px-4 pt-4 pb-8 sm:px-6 sm:pt-6 lg:px-10 lg:pb-12"
         >
-          <div className="grid overflow-visible rounded-2xl border border-border bg-surface lg:min-h-[600px] lg:grid-cols-12 xl:min-h-[650px]">
+          <div
+            className={cn(
+              "grid overflow-visible rounded-2xl lg:min-h-[600px] lg:grid-cols-12 xl:min-h-[650px]",
+              PUBLIC_BOOKING_CARD_FOCAL,
+            )}
+          >
             {/* Left ~66%: Full-bleed sunlit room hero + uppercase headline + crisp 2x2 booking bar */}
             <div className="relative flex flex-col justify-between gap-8 overflow-visible rounded-t-2xl p-6 sm:p-8 lg:col-span-8 lg:rounded-t-none lg:rounded-l-2xl lg:p-10 xl:p-12">
               <div
@@ -371,6 +473,7 @@ export function PublicBookingClient({
                 className="pointer-events-none absolute inset-0 overflow-hidden rounded-t-2xl lg:rounded-t-none lg:rounded-l-2xl"
               >
                 <img
+                  ref={heroImageRef}
                   src="/images/hero/stay-hero-1280.jpg"
                   srcSet="/images/hero/stay-hero-500.jpg 500w, /images/hero/stay-hero-960.jpg 960w, /images/hero/stay-hero-1280.jpg 1280w"
                   sizes="(max-width: 1023px) 100vw, 66vw"
@@ -381,7 +484,7 @@ export function PublicBookingClient({
                   decoding="async"
                   data-source="stand-in"
                   data-subject="stand-in"
-                  className="h-full w-full object-cover object-center"
+                  className="h-full w-full object-cover object-center will-change-transform"
                 />
                 <div className="absolute inset-0 bg-gradient-to-b from-foreground/70 via-foreground/35 to-foreground/80" />
               </div>
@@ -414,24 +517,25 @@ export function PublicBookingClient({
                 </div>
               </div>
 
-              {/* Bottom-left frosted white 2x2 booking widget + Rausch primary Book now CTA */}
+              {/* Bottom frosted white 2x2 booking widget + full-width Rausch Book now CTA */}
               <div
                 ref={searchBarRef}
-                className="relative z-30 mt-auto w-full max-w-2xl"
+                className="relative z-30 mx-auto mt-auto w-full max-w-xl"
               >
-                <div className="grid gap-3 rounded-2xl border border-border/90 bg-surface/95 p-3 shadow-lg backdrop-blur-md sm:grid-cols-12 sm:items-stretch sm:p-3.5">
-                  <div className="grid grid-cols-1 gap-2 sm:col-span-8 sm:grid-cols-2">
+                <div className="grid gap-2.5 rounded-2xl border border-border/90 bg-surface/95 p-3 shadow-lg backdrop-blur-md sm:p-3.5">
+                  <div className="grid grid-cols-1 gap-2.5 sm:grid-cols-2">
                     <button
                       type="button"
                       onClick={() =>
                         setOpenPopover((prev) =>
-                          prev === "WHEN" ? null : "WHEN",
+                          prev === "WHEN_IN" ? null : "WHEN_IN",
                         )
                       }
-                      aria-expanded={openPopover === "WHEN"}
+                      aria-expanded={openPopover === "WHEN_IN"}
                       className={cn(
                         "flex min-h-12 cursor-pointer items-center justify-between gap-2 rounded-xl border border-border bg-background px-3.5 py-2 text-left transition-colors hover:border-control-border hover:bg-surface-muted/70",
-                        openPopover === "WHEN" && "border-primary bg-accent/40",
+                        openPopover === "WHEN_IN" &&
+                          "border-primary bg-accent/40",
                       )}
                     >
                       <span className="grid min-w-0">
@@ -449,13 +553,14 @@ export function PublicBookingClient({
                       type="button"
                       onClick={() =>
                         setOpenPopover((prev) =>
-                          prev === "WHEN" ? null : "WHEN",
+                          prev === "WHEN_OUT" ? null : "WHEN_OUT",
                         )
                       }
-                      aria-expanded={openPopover === "WHEN"}
+                      aria-expanded={openPopover === "WHEN_OUT"}
                       className={cn(
                         "flex min-h-12 cursor-pointer items-center justify-between gap-2 rounded-xl border border-border bg-background px-3.5 py-2 text-left transition-colors hover:border-control-border hover:bg-surface-muted/70",
-                        openPopover === "WHEN" && "border-primary bg-accent/40",
+                        openPopover === "WHEN_OUT" &&
+                          "border-primary bg-accent/40",
                       )}
                     >
                       <span className="grid min-w-0">
@@ -519,79 +624,43 @@ export function PublicBookingClient({
                     </button>
                   </div>
 
-                  {/* Primary Rausch Book now CTA */}
+                  {/* Full-width primary Rausch animated-gradient Book now CTA */}
                   <button
                     type="button"
                     disabled={loadingAvailability}
                     onClick={() => applySearch({ scrollToRooms: true })}
-                    className="inline-flex min-h-14 cursor-pointer items-center justify-center rounded-xl bg-primary px-5 text-sm font-semibold text-primary-foreground transition-colors duration-(--duration-control) ease-(--ease-control) hover:bg-primary-hover disabled:cursor-not-allowed disabled:opacity-60 sm:col-span-4"
+                    className="book-animated-gradient-cta inline-flex min-h-12 w-full cursor-pointer items-center justify-center rounded-xl bg-primary px-5 text-sm font-semibold text-primary-foreground transition-colors duration-(--duration-control) ease-(--ease-control) disabled:cursor-not-allowed disabled:opacity-60"
                   >
                     {loadingAvailability ? "Checking..." : "Book now"}
                   </button>
                 </div>
 
                 {/* Popovers */}
-                {openPopover === "WHEN" && (
+                {(openPopover === "WHEN_IN" || openPopover === "WHEN_OUT") && (
                   <div
                     role="region"
                     aria-label="Choose check-in and check-out dates"
-                    className="absolute inset-x-0 top-full z-50 mt-2.5 w-full rounded-2xl border border-border bg-surface p-5 text-foreground shadow-xl sm:right-auto sm:max-w-lg"
+                    className="absolute inset-x-0 top-full z-50 mt-2.5 w-full sm:right-auto sm:w-[min(92vw,580px)]"
                   >
-                    <div className="grid gap-4 sm:grid-cols-2">
-                      <Field id="search-check-in" label="Check-in">
-                        {(fieldProps) => (
-                          <DatePicker
-                            {...fieldProps}
-                            required
-                            value={draftCheckIn}
-                            onValueChange={(next) => {
-                              setDraftCheckIn(next);
-                              setSearchError(null);
-                            }}
-                          />
-                        )}
-                      </Field>
-                      <Field id="search-check-out" label="Check-out">
-                        {(fieldProps) => (
-                          <DatePicker
-                            {...fieldProps}
-                            required
-                            value={draftCheckOut}
-                            onValueChange={(next) => {
-                              setDraftCheckOut(next);
-                              setSearchError(null);
-                            }}
-                          />
-                        )}
-                      </Field>
-                    </div>
-
-                    <div className="mt-4 flex flex-wrap items-center justify-between gap-3 border-t border-border pt-3">
-                      <span className="text-xs text-muted-foreground tabular-nums">
-                        {draftNights > 0
-                          ? `${draftNights} ${draftNights === 1 ? "night" : "nights"} selected`
-                          : "Select check-out after check-in"}
-                      </span>
-                      <div className="flex items-center gap-2">
-                        <Button
-                          type="button"
-                          variant="ghost"
-                          size="sm"
-                          onClick={() => setOpenPopover(null)}
-                        >
-                          Close
-                        </Button>
-                        <Button
-                          type="button"
-                          variant="primary"
-                          size="sm"
-                          loading={loadingAvailability}
-                          onClick={() => applySearch({ scrollToRooms: true })}
-                        >
-                          Apply dates
-                        </Button>
-                      </div>
-                    </div>
+                    <PublicStayDateRangeCalendar
+                      key={openPopover}
+                      checkIn={draftCheckIn}
+                      checkOut={draftCheckOut}
+                      initialPhase={
+                        openPopover === "WHEN_OUT" ? "checkOut" : "checkIn"
+                      }
+                      onClose={() => setOpenPopover(null)}
+                      onRangeSelect={(nextCheckIn, nextCheckOut) => {
+                        setDraftCheckIn(nextCheckIn);
+                        setDraftCheckOut(nextCheckOut);
+                        setOpenPopover(null);
+                        void applySearch({
+                          checkIn: nextCheckIn,
+                          checkOut: nextCheckOut,
+                          scrollToRooms: false,
+                        });
+                      }}
+                    />
                   </div>
                 )}
 
@@ -757,19 +826,27 @@ export function PublicBookingClient({
                 </div>
               </div>
 
-              {/* Stacked & tilted layered photo deck */}
-              <div className="relative mx-auto my-2 flex aspect-[4/3] w-full max-w-[272px] items-center justify-center">
+              {/* Interactive 3D stacked & tilted layered photo deck */}
+              <Tilt3DCard
+                maxTiltDeg={8}
+                className="relative mx-auto my-2 flex aspect-[4/3] w-full max-w-[272px] items-center justify-center rounded-2xl"
+              >
                 <div
+                  ref={heroBackDeckRef}
                   aria-hidden="true"
-                  className="absolute inset-3 -translate-x-2.5 translate-y-2 -rotate-4 overflow-hidden rounded-2xl border border-border bg-surface-muted opacity-90 transition-transform duration-300"
+                  className="absolute inset-3 -translate-x-2.5 translate-y-2 -rotate-4 overflow-hidden rounded-2xl border border-border bg-surface-muted opacity-90 will-change-transform"
                 >
                   <img
                     src={activeDeckItem.secondaryImageUrl}
                     alt=""
+                    decoding="async"
                     className="h-full w-full object-cover"
                   />
                 </div>
-                <div className="relative z-10 h-full w-[88%] rotate-2 overflow-hidden rounded-2xl border border-border bg-surface shadow-lg transition-transform duration-300 hover:rotate-0">
+                <div
+                  style={{ transform: "translateZ(22px)" }}
+                  className="relative z-10 h-full w-[88%] rotate-2 overflow-hidden rounded-2xl border border-border bg-surface shadow-lg transition-transform duration-300 hover:rotate-0"
+                >
                   {activeDeckItem.roomId ? (
                     <Link
                       href={`/book/${activeDeckItem.roomId}?${currentStayQuery}`}
@@ -779,6 +856,8 @@ export function PublicBookingClient({
                       <img
                         src={activeDeckItem.imageUrl}
                         alt={activeDeckItem.title}
+                        fetchPriority="high"
+                        decoding="async"
                         className="h-full w-full object-cover"
                       />
                     </Link>
@@ -786,6 +865,8 @@ export function PublicBookingClient({
                     <img
                       src={activeDeckItem.imageUrl}
                       alt={activeDeckItem.title}
+                      fetchPriority="high"
+                      decoding="async"
                       className="h-full w-full object-cover"
                     />
                   )}
@@ -795,7 +876,7 @@ export function PublicBookingClient({
                     </span>
                   )}
                 </div>
-              </div>
+              </Tilt3DCard>
 
               {/* Active room caption & price */}
               <div className="grid min-w-0 gap-2 border-t border-border pt-4">
@@ -846,50 +927,53 @@ export function PublicBookingClient({
           className="border-t border-border bg-background px-4 py-14 sm:px-6 lg:px-10 lg:py-20"
         >
           <div className="mx-auto w-full max-w-7xl">
-            <div className="mb-10 flex flex-col gap-5 border-b border-border pb-6 md:flex-row md:items-end md:justify-between">
-              <div className="grid gap-2">
-                <h2
-                  id="rooms-directory-heading"
-                  className="font-book-serif text-4xl font-normal tracking-[0.05em] text-foreground uppercase sm:text-5xl"
-                >
-                  Rooms for short stays
-                </h2>
-                <p className="text-sm text-muted-foreground">
-                  {visibleRooms.length}{" "}
-                  {visibleRooms.length === 1 ? "room" : "rooms"} shown for{" "}
-                  {activeStaySummary}
-                </p>
-              </div>
-
-              <div
-                role="group"
-                aria-label="Filter rooms by type"
-                className="flex flex-wrap items-center gap-2"
-              >
-                {(
-                  [
-                    ["ALL", "All rooms"],
-                    ["WHOLE_ROOM", "Private"],
-                    ["BED", "Shared"],
-                  ] as const
-                ).map(([value, label]) => (
-                  <button
-                    key={value}
-                    type="button"
-                    aria-pressed={scopeFilter === value}
-                    onClick={() => setScopeFilter(value)}
-                    className={cn(
-                      "inline-flex min-h-11 cursor-pointer items-center justify-center rounded-full border px-4 text-xs font-medium transition-colors duration-(--duration-control) ease-(--ease-control)",
-                      scopeFilter === value
-                        ? "border-primary bg-primary text-primary-foreground"
-                        : "border-control-border bg-surface text-foreground hover:bg-surface-muted",
-                    )}
+            <ScrollReveal>
+              <div className="mb-10 flex flex-col gap-5 border-b border-border pb-6 md:flex-row md:items-end md:justify-between">
+                <div className="grid gap-2">
+                  <h2
+                    id="rooms-directory-heading"
+                    className="font-book-serif text-4xl font-normal tracking-[0.05em] text-foreground uppercase sm:text-5xl"
                   >
-                    {label}
-                  </button>
-                ))}
+                    Rooms for short stays
+                  </h2>
+                  <SelfDrawingLine align="left" width={132} />
+                  <p className="text-sm text-muted-foreground">
+                    {visibleRooms.length}{" "}
+                    {visibleRooms.length === 1 ? "room" : "rooms"} shown for{" "}
+                    {activeStaySummary}
+                  </p>
+                </div>
+
+                <div
+                  role="group"
+                  aria-label="Filter rooms by type"
+                  className="flex flex-wrap items-center gap-2"
+                >
+                  {(
+                    [
+                      ["ALL", "All rooms"],
+                      ["WHOLE_ROOM", "Private"],
+                      ["BED", "Shared"],
+                    ] as const
+                  ).map(([value, label]) => (
+                    <button
+                      key={value}
+                      type="button"
+                      aria-pressed={scopeFilter === value}
+                      onClick={() => setScopeFilter(value)}
+                      className={cn(
+                        "inline-flex min-h-11 cursor-pointer items-center justify-center rounded-full border px-4 text-xs font-medium transition-colors duration-(--duration-control) ease-(--ease-control)",
+                        scopeFilter === value
+                          ? "border-primary bg-primary text-primary-foreground"
+                          : "border-control-border bg-surface text-foreground hover:bg-surface-muted",
+                      )}
+                    >
+                      {label}
+                    </button>
+                  ))}
+                </div>
               </div>
-            </div>
+            </ScrollReveal>
 
             {loadingAvailability ? (
               <PublicBookingCardsSkeleton count={4} />
@@ -898,7 +982,9 @@ export function PublicBookingClient({
                 <EmptyStateTitle>
                   {sortedRooms.length === 0
                     ? "No rooms listed right now"
-                    : "No rooms match this room type"}
+                    : openRoomsForDates.length === 0
+                      ? "No rooms open for these dates"
+                      : "No rooms match this room type"}
                 </EmptyStateTitle>
                 <EmptyStateDescription>
                   {sortedRooms.length === 0
@@ -907,16 +993,26 @@ export function PublicBookingClient({
                           ? ` You may call ${availability.contactPhone} to ask about open dates.`
                           : ""
                       }`
-                    : "Switch back to All rooms to see every published stay option."}
+                    : openRoomsForDates.length === 0
+                      ? "All rooms are booked for your chosen dates. Pick different check-in and check-out dates to see open stays."
+                      : "Switch back to All rooms to see every open stay option for these dates."}
                 </EmptyStateDescription>
                 <EmptyStateActions>
-                  {sortedRooms.length > 0 ? (
+                  {openRoomsForDates.length > 0 ? (
                     <Button
                       type="button"
                       variant="primary"
                       onClick={() => setScopeFilter("ALL")}
                     >
                       Show all rooms
+                    </Button>
+                  ) : sortedRooms.length > 0 ? (
+                    <Button
+                      type="button"
+                      variant="primary"
+                      onClick={jumpToHeroSearch}
+                    >
+                      Change stay dates
                     </Button>
                   ) : (
                     <Button
@@ -931,18 +1027,25 @@ export function PublicBookingClient({
               </EmptyState>
             ) : (
               <div className="grid grid-cols-1 gap-x-6 gap-y-8 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
-                {visibleRooms.map((room) => (
-                  <RoomStorefrontCard
+                {visibleRooms.map((room, index) => (
+                  <ScrollReveal
                     key={room.roomId}
-                    room={room}
-                    nights={availability.nights}
-                    requestedGuests={activeTotalGuests}
-                    queryString={currentStayQuery}
-                    slideIndex={slideIndexByRoomId[room.roomId] ?? 0}
-                    onStepSlide={(totalSlides, delta) =>
-                      stepCardSlide(room.roomId, totalSlides, delta)
-                    }
-                  />
+                    variant="scale"
+                    delayMs={Math.min(index, 3) * 75}
+                    className="flex"
+                  >
+                    <RoomStorefrontCard
+                      room={room}
+                      nights={availability.nights}
+                      requestedGuests={activeTotalGuests}
+                      queryString={currentStayQuery}
+                      priority={index < 4}
+                      slideIndex={slideIndexByRoomId[room.roomId] ?? 0}
+                      onStepSlide={(totalSlides, delta) =>
+                        stepCardSlide(room.roomId, totalSlides, delta)
+                      }
+                    />
+                  </ScrollReveal>
                 ))}
               </div>
             )}
@@ -952,7 +1055,7 @@ export function PublicBookingClient({
         {/* Video 2: Scroll-linked horizontal "HOW IT WORKS" showcase */}
         <HowItWorksScrollTrack
           availability={availability}
-          rooms={sortedRooms}
+          rooms={showcaseRooms}
           adults={activeSelection.adults}
           childrenCount={activeSelection.children}
           queryString={currentStayQuery}
@@ -962,11 +1065,17 @@ export function PublicBookingClient({
         {/* Video 2: Split blush-framed detail showcase + sticky "BOOK DIRECT ANYWHERE" */}
         <StayAnywhereShowcase
           availability={availability}
-          featuredRoom={sortedRooms[0] ?? null}
+          featuredRoom={showcaseRooms[0] ?? null}
           adults={activeSelection.adults}
           childrenCount={activeSelection.children}
           queryString={currentStayQuery}
         />
+
+        {/* Owner-configured House Rules (#house-rules) */}
+        <HouseRulesSection rulesText={availability.transientPolicyNote} />
+
+        {/* Public booking status lookup (#track) */}
+        <PublicBookingTracker />
       </main>
 
       {/* Video 2: Editorial "GET IN TOUCH" footer */}
@@ -976,7 +1085,6 @@ export function PublicBookingClient({
         contactPhone={availability.contactPhone}
         checkInTimeManila={availability.checkInTimeManila}
         checkOutTimeManila={availability.checkOutTimeManila}
-        heroPhotoCredit="Room photo: Tim Collins (CC BY-SA 3.0)"
       />
     </div>
   );
@@ -987,6 +1095,7 @@ type RoomStorefrontCardProps = {
   nights: number;
   requestedGuests: number;
   queryString: string;
+  priority?: boolean;
   slideIndex: number;
   onStepSlide: (totalSlides: number, delta: number) => void;
 };
@@ -996,6 +1105,7 @@ function RoomStorefrontCard({
   nights,
   requestedGuests,
   queryString,
+  priority = false,
   slideIndex,
   onStepSlide,
 }: RoomStorefrontCardProps) {
@@ -1021,7 +1131,12 @@ function RoomStorefrontCard({
       : "No photos yet";
 
   return (
-    <article className="flex min-w-0 flex-col overflow-hidden rounded-2xl border border-border bg-surface transition-colors duration-(--duration-control) ease-(--ease-control) hover:border-control-border">
+    <article
+      className={cn(
+        "flex min-w-0 flex-col overflow-hidden rounded-2xl",
+        PUBLIC_BOOKING_CARD_ELEVATED_INTERACTIVE,
+      )}
+    >
       <div className="relative aspect-[4/3] w-full overflow-hidden bg-surface-muted">
         <Link
           href={detailHref}
@@ -1035,7 +1150,8 @@ function RoomStorefrontCard({
               width={ROOM_PHOTO_OUTPUT_WIDTH}
               height={ROOM_PHOTO_OUTPUT_HEIGHT}
               className="h-full w-full object-cover transition-opacity duration-200"
-              loading="lazy"
+              loading={priority ? "eager" : "lazy"}
+              decoding="async"
             />
           ) : (
             <div className="flex h-full w-full flex-col items-center justify-center gap-2 px-4 text-center text-xs text-muted-foreground">

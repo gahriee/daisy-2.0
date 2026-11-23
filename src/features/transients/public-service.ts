@@ -25,14 +25,18 @@ import {
   computeTransientStayUtcBounds,
   resolveTransientDailyRateCentavos,
 } from "./calculations";
+import { computeUnavailableNightDates } from "./public-booking-view";
 import {
+  LookupPublicBookingRequestSchema,
   PublicAvailabilityQuerySchema,
   SubmitPublicBookingRequestSchema,
   type AllocationScopeValue,
   type GuestSexValue,
+  type LookupPublicBookingRequestInput,
   type PublicAvailabilityDto,
   type PublicAvailabilityQueryInput,
   type PublicBookingAckDto,
+  type PublicBookingStatusDto,
   type PublicPublishedRoomDto,
   type SubmitPublicBookingRequestInput,
 } from "./schemas";
@@ -43,6 +47,7 @@ const ZERO = BigInt(0);
 export const PUBLIC_BOOKING_RATE_LIMITS = {
   availability: { windowSeconds: 60, maxRequests: 60 },
   submit: { windowSeconds: 900, maxRequests: 10 },
+  lookup: { windowSeconds: 900, maxRequests: 20 },
 } as const;
 
 export function resolvePublicOwnerUserId(): string {
@@ -255,7 +260,7 @@ export async function getPublicPublishedAvailability(
       contactPhone: settings?.businessPhone ?? null,
       checkInTimeManila: settings?.checkInTimeManila ?? "",
       checkOutTimeManila: settings?.checkOutTimeManila ?? "",
-      transientPolicyNote: settings?.transientPolicyNote ?? null,
+      transientPolicyNote: settings?.transientPolicyNote?.trim() || null,
       checkInDateManila: query.checkInDateManila,
       checkOutDateManila: query.checkOutDateManila,
       nights,
@@ -341,7 +346,7 @@ export async function getPublicPublishedAvailability(
     contactPhone: settings?.businessPhone ?? null,
     checkInTimeManila,
     checkOutTimeManila,
-    transientPolicyNote: settings?.transientPolicyNote ?? null,
+    transientPolicyNote: settings?.transientPolicyNote?.trim() || null,
     checkInDateManila: query.checkInDateManila,
     checkOutDateManila: query.checkOutDateManila,
     nights,
@@ -377,6 +382,163 @@ export async function getPublicPublishedRoomAvailability(
     return null;
   }
   return { availability, room };
+}
+
+export const PUBLIC_CALENDAR_DEFAULT_DAYS = 120;
+export const PUBLIC_CALENDAR_MAX_DAYS = 180;
+
+const PublicCalendarWindowSchema = z.object({
+  fromDateManila: z
+    .string()
+    .regex(/^\d{4}-\d{2}-\d{2}$/, "Invalid start date.")
+    .optional(),
+  days: z.coerce
+    .number()
+    .int()
+    .min(1)
+    .max(PUBLIC_CALENDAR_MAX_DAYS)
+    .default(PUBLIC_CALENDAR_DEFAULT_DAYS),
+});
+
+export type PublicRoomCalendarDto = {
+  roomId: string;
+  fromDateManila: string;
+  toDateManila: string;
+  unavailableDates: string[];
+};
+
+/**
+ * Returns ONLY bounded unavailable `YYYY-MM-DD` Asia/Manila nights for one
+ * published transient room, derived from the shared `Allocation` table.
+ * Never exposes guest names, allocation IDs, or block reasons.
+ */
+export async function getPublicPublishedRoomUnavailableDates(
+  ownerUserId: string,
+  roomId: string,
+  rawOptions: {
+    fromDateManila?: string | undefined;
+    days?: number | undefined;
+  } = {},
+): Promise<PublicRoomCalendarDto | null> {
+  const parsedId = PublicRoomIdSchema.safeParse(roomId);
+  if (!parsedId.success) {
+    return null;
+  }
+
+  const parsedOptions = PublicCalendarWindowSchema.safeParse(rawOptions);
+  if (!parsedOptions.success) {
+    throw new ValidationError(
+      parsedOptions.error.issues[0]?.message ?? "Invalid calendar date window.",
+    );
+  }
+
+  const todayManila = toManilaDate(new Date());
+  const requestedFrom = parsedOptions.data.fromDateManila ?? todayManila;
+  const fromDateManila =
+    requestedFrom < todayManila ? todayManila : requestedFrom;
+  const days = parsedOptions.data.days;
+  const toDateManila = addManilaDays(fromDateManila, days);
+
+  const db = getDatabase();
+  const [settings, room] = await Promise.all([
+    db.businessSettings.findUnique({
+      where: { ownerUserId },
+      select: {
+        checkInTimeManila: true,
+        checkOutTimeManila: true,
+      },
+    }),
+    db.room.findFirst({
+      where: {
+        id: parsedId.data,
+        ownerUserId,
+        building: "TRANSIENT",
+        archivedAt: null,
+        isTransientPublished: true,
+      },
+      select: {
+        id: true,
+        transientScope: true,
+        transientDailyRate: true,
+        roomType: { select: { dailyRate: true } },
+        beds: {
+          where: { archivedAt: null },
+          select: { id: true, status: true },
+        },
+      },
+    }),
+  ]);
+
+  if (!room) {
+    return null;
+  }
+
+  const rateCentavos = resolveTransientDailyRateCentavos({
+    roomDailyRate: room.transientDailyRate,
+    roomTypeDailyRate: room.roomType.dailyRate,
+  });
+  if (rateCentavos <= ZERO) {
+    return null;
+  }
+
+  const scheduleReady = Boolean(
+    settings &&
+    hasCompleteStaySchedule(settings) &&
+    settings.checkInTimeManila &&
+    settings.checkOutTimeManila,
+  );
+  if (
+    !scheduleReady ||
+    !settings?.checkInTimeManila ||
+    !settings.checkOutTimeManila
+  ) {
+    return {
+      roomId: room.id,
+      fromDateManila,
+      toDateManila,
+      unavailableDates: [],
+    };
+  }
+
+  const { startUtc, endUtc } = computeTransientStayUtcBounds({
+    checkInDateManila: fromDateManila,
+    checkOutDateManila: toDateManila,
+    checkInTimeHHmm: settings.checkInTimeManila,
+    checkOutTimeHHmm: settings.checkOutTimeManila,
+  });
+
+  const allocations = await db.allocation.findMany({
+    where: {
+      ownerUserId,
+      roomId: room.id,
+      status: "ACTIVE",
+      startDate: { lt: endUtc },
+      endDate: { gt: startUtc },
+    },
+    select: {
+      bedId: true,
+      startDate: true,
+      endDate: true,
+    },
+  });
+
+  const scope: AllocationScopeValue = room.transientScope ?? "BED";
+  const unavailableDates = computeUnavailableNightDates({
+    startDateManila: fromDateManila,
+    days,
+    checkInTimeHHmm: settings.checkInTimeManila,
+    checkOutTimeHHmm: settings.checkOutTimeManila,
+    scope,
+    beds: room.beds,
+    allocations,
+  });
+
+  return {
+    roomId: room.id,
+    fromDateManila,
+    toDateManila,
+    unavailableDates,
+  };
 }
 
 /**
@@ -441,6 +603,7 @@ export async function submitPublicBookingRequest(
           guestSex: true,
           guestAddress: true,
           guestPhone: true,
+          guestEmail: true,
           checkInDateManila: true,
           checkOutDateManila: true,
           nights: true,
@@ -481,6 +644,7 @@ export async function submitPublicBookingRequest(
               : null,
           guestAddress: existing.guestAddress,
           guestPhone: existing.guestPhone,
+          guestEmail: existing.guestEmail,
           quotedDailyRate: formatMoneyDecimal(
             BigInt(
               Math.round(Number(existing.quotedDailyRate.toString()) * 100),
@@ -725,6 +889,7 @@ export async function submitPublicBookingRequest(
         guestSex: dto.guestSex,
         guestAddress: dto.guestAddress,
         guestPhone: dto.guestPhone,
+        guestEmail: dto.guestEmail,
         quotedDailyRate: dto.quotedDailyRate,
         quotedTotalAmount: dto.quotedTotalAmount,
         submittedAt: dto.createdAt,
@@ -732,4 +897,120 @@ export async function submitPublicBookingRequest(
     },
     { maxWait: 10_000, timeout: 25_000 },
   );
+}
+
+/**
+ * Looks up the live status of a public booking request by requiring BOTH the
+ * unpredictable reference code (`REQ-...`) and the submitted email address.
+ * Returns only minimal stay-status fields (never full guest PII or internal notes).
+ */
+export async function lookupPublicBookingRequestStatus(
+  ownerUserId: string,
+  rawInput: LookupPublicBookingRequestInput,
+): Promise<PublicBookingStatusDto> {
+  const parsed = LookupPublicBookingRequestSchema.safeParse(rawInput);
+  if (!parsed.success) {
+    throw new ValidationError(
+      parsed.error.issues[0]?.message ??
+        "Enter your booking reference number and email address.",
+    );
+  }
+  const { referenceCode, guestEmail } = parsed.data;
+  const db = getDatabase();
+
+  const [request, settings] = await Promise.all([
+    db.bookingRequest.findFirst({
+      where: {
+        ownerUserId,
+        referenceCode,
+        guestEmail: {
+          equals: guestEmail,
+          mode: "insensitive",
+        },
+      },
+      select: {
+        referenceCode: true,
+        status: true,
+        scope: true,
+        checkInDateManila: true,
+        checkOutDateManila: true,
+        nights: true,
+        partySize: true,
+        adultsCount: true,
+        childrenCount: true,
+        quotedDailyRate: true,
+        quotedTotalAmount: true,
+        rejectionReason: true,
+        createdAt: true,
+        reviewedAt: true,
+        approvedReservationId: true,
+        room: {
+          select: {
+            number: true,
+            transientTitle: true,
+            roomType: { select: { name: true } },
+          },
+        },
+      },
+    }),
+    db.businessSettings.findUnique({
+      where: { ownerUserId },
+      select: {
+        businessName: true,
+        businessAddress: true,
+        businessPhone: true,
+        checkInTimeManila: true,
+        checkOutTimeManila: true,
+      },
+    }),
+  ]);
+
+  if (!request) {
+    throw new NotFoundError(
+      "No booking request matched that reference number and email address.",
+    );
+  }
+
+  let reservationStatus: PublicBookingStatusDto["reservationStatus"] = null;
+  if (request.approvedReservationId) {
+    const reservation = await db.transientReservation.findFirst({
+      where: {
+        id: request.approvedReservationId,
+        ownerUserId,
+      },
+      select: { status: true },
+    });
+    reservationStatus = reservation?.status ?? null;
+  }
+
+  return {
+    referenceCode: request.referenceCode,
+    status: request.status,
+    reservationStatus,
+    roomTitle:
+      request.room.transientTitle?.trim() || `Room ${request.room.number}`,
+    roomTypeName: request.room.roomType.name,
+    scope: request.scope,
+    checkInDateManila: request.checkInDateManila,
+    checkOutDateManila: request.checkOutDateManila,
+    checkInTimeManila: settings?.checkInTimeManila ?? "",
+    checkOutTimeManila: settings?.checkOutTimeManila ?? "",
+    nights: request.nights,
+    partySize: request.partySize,
+    adultsCount: request.adultsCount,
+    childrenCount: request.childrenCount,
+    quotedDailyRate: formatMoneyDecimal(
+      BigInt(Math.round(Number(request.quotedDailyRate.toString()) * 100)),
+    ),
+    quotedTotalAmount: formatMoneyDecimal(
+      BigInt(Math.round(Number(request.quotedTotalAmount.toString()) * 100)),
+    ),
+    rejectionReason:
+      request.status === "REJECTED" ? request.rejectionReason : null,
+    submittedAt: request.createdAt.toISOString(),
+    reviewedAt: request.reviewedAt ? request.reviewedAt.toISOString() : null,
+    propertyName: settings?.businessName || "Daisy Residences",
+    propertyAddress: settings?.businessAddress ?? null,
+    contactPhone: settings?.businessPhone ?? null,
+  };
 }

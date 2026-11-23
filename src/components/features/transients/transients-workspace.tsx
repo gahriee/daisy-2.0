@@ -1256,6 +1256,7 @@ export function TransientsWorkspace({
           offlineMode={offlineMode}
           guests={overview.guests}
           rooms={overview.rooms}
+          reservations={overview.reservations}
           onClose={() => setAddStayOpen(false)}
           onRequireVaultUnlock={() => setUnlockPromptOpen(true)}
           onSaved={handleSaved}

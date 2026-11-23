@@ -20,6 +20,7 @@ import {
   createRoomType,
   syncRoomUnitBed,
 } from "../src/features/rooms/service";
+import { DEFAULT_HOUSE_RULES } from "../src/features/settings/schemas";
 import {
   getBusinessSettings,
   updateBusinessSettings,
@@ -175,10 +176,14 @@ async function main(): Promise<void> {
       where: { ownerUserId },
       select: { transientPolicyNote: true },
     });
-    if (!rawSettings?.transientPolicyNote) {
+    const LEGACY_SEED_POLICY_NOTE =
+      "Valid government ID required at check-in. Quiet hours begin at 10:00 PM.";
+    if (
+      !rawSettings?.transientPolicyNote?.trim() ||
+      rawSettings.transientPolicyNote.trim() === LEGACY_SEED_POLICY_NOTE
+    ) {
       await updateTransientPolicyNote(ownerUserId, {
-        transientPolicyNote:
-          "Valid government ID required at check-in. Quiet hours begin at 10:00 PM.",
+        transientPolicyNote: DEFAULT_HOUSE_RULES,
       });
     }
 

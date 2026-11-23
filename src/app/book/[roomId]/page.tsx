@@ -6,6 +6,7 @@ import { parsePublicStaySearchParams } from "@/features/transients/public-bookin
 import {
   getDefaultPublicStayDates,
   getPublicPublishedRoomAvailability,
+  getPublicPublishedRoomUnavailableDates,
   resolvePublicOwnerUserId,
 } from "@/features/transients/public-service";
 
@@ -67,13 +68,17 @@ export default async function PublicRoomDetailPage({
   const totalGuests = selection.adults + selection.children;
 
   let match = null;
+  let calendar = null;
   try {
     const ownerUserId = resolvePublicOwnerUserId();
-    match = await getPublicPublishedRoomAvailability(ownerUserId, roomId, {
-      checkInDateManila: selection.checkIn,
-      checkOutDateManila: selection.checkOut,
-      guests: totalGuests,
-    });
+    [match, calendar] = await Promise.all([
+      getPublicPublishedRoomAvailability(ownerUserId, roomId, {
+        checkInDateManila: selection.checkIn,
+        checkOutDateManila: selection.checkOut,
+        guests: totalGuests,
+      }),
+      getPublicPublishedRoomUnavailableDates(ownerUserId, roomId),
+    ]);
   } catch {
     notFound();
   }
@@ -88,6 +93,8 @@ export default async function PublicRoomDetailPage({
       initialRoom={match.room}
       initialAdults={selection.adults}
       initialChildren={selection.children}
+      initialUnavailableDates={calendar?.unavailableDates ?? []}
+      initialCalendarLoadedUntil={calendar?.toDateManila ?? ""}
     />
   );
 }

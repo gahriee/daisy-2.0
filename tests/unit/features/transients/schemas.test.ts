@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   CreateTransientGuestSchema,
   CreateTransientReservationSchema,
+  LookupPublicBookingRequestSchema,
   SubmitPublicBookingRequestSchema,
 } from "../../../../src/features/transients/schemas";
 import {
@@ -78,7 +79,7 @@ describe("transients Zod schemas and sync contracts", () => {
     expect(validWholeRoom.tentative).toBe(true);
   });
 
-  it("requires privacy consent and valid idempotency token on public booking requests", () => {
+  it("requires email, privacy consent, and valid idempotency token on public booking requests", () => {
     const noConsent = SubmitPublicBookingRequestSchema.safeParse({
       idempotencyKey: "req-token-1234567890",
       roomId: ROOM_ID,
@@ -88,11 +89,26 @@ describe("transients Zod schemas and sync contracts", () => {
       partySize: 1,
       guestName: "Liza Reyes",
       guestPhone: "09171234567",
-      guestEmail: null,
+      guestEmail: "liza@example.com",
       notes: "Late arrival",
       privacyConsentAccepted: false,
     });
     expect(noConsent.success).toBe(false);
+
+    const missingEmail = SubmitPublicBookingRequestSchema.safeParse({
+      idempotencyKey: "req-token-1234567890",
+      roomId: ROOM_ID,
+      scope: "BED",
+      checkInDateManila: "2026-11-15",
+      checkOutDateManila: "2026-11-18",
+      partySize: 1,
+      guestName: "Liza Reyes",
+      guestPhone: "09171234567",
+      guestEmail: "",
+      notes: "Late arrival",
+      privacyConsentAccepted: true,
+    });
+    expect(missingEmail.success).toBe(false);
 
     const ok = SubmitPublicBookingRequestSchema.parse({
       idempotencyKey: "req-token-1234567890",
@@ -103,16 +119,31 @@ describe("transients Zod schemas and sync contracts", () => {
       partySize: 1,
       guestName: "Liza Reyes",
       guestPhone: "09171234567",
-      guestEmail: null,
+      guestEmail: "  LIZA@EXAMPLE.COM ",
       notes: "Late arrival",
       privacyConsentAccepted: true,
     });
-    expect(ok.guestEmail).toBeNull();
+    expect(ok.guestEmail).toBe("liza@example.com");
     expect(ok.guestAge).toBeNull();
     expect(ok.guestSex).toBeNull();
     expect(ok.guestAddress).toBeNull();
     expect(ok.adultsCount).toBeNull();
     expect(ok.childrenCount).toBeNull();
+
+    const lookupValid = LookupPublicBookingRequestSchema.parse({
+      referenceCode: " req-ab12cd34ef56 ",
+      guestEmail: " LIZA@EXAMPLE.COM ",
+    });
+    expect(lookupValid).toEqual({
+      referenceCode: "REQ-AB12CD34EF56",
+      guestEmail: "liza@example.com",
+    });
+
+    const lookupInvalidRef = LookupPublicBookingRequestSchema.safeParse({
+      referenceCode: "BADREF",
+      guestEmail: "liza@example.com",
+    });
+    expect(lookupInvalidRef.success).toBe(false);
 
     const withDemographics = SubmitPublicBookingRequestSchema.parse({
       idempotencyKey: "req-token-demographics-1",

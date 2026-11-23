@@ -4,10 +4,14 @@ import Link from "next/link";
 import { useEffect, useMemo, useRef, useState } from "react";
 import {
   GuestCountStepperRow,
+  PUBLIC_BOOKING_CARD_ELEVATED,
+  PUBLIC_BOOKING_CARD_FOCAL,
   PublicBookingBackLink,
   PublicBookingFooter,
   PublicBookingHeader,
 } from "@/components/features/transients/public-booking-chrome";
+import { PublicStayDateRangePicker } from "@/components/features/transients/public-stay-date-range-picker";
+import { computeTransientStayTotalCentavos } from "@/features/transients/calculations";
 import {
   buildPublicStayQueryString,
   buildRoomGallerySlides,
@@ -31,12 +35,15 @@ import { BackLink, Button, buttonClasses } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Field } from "@/components/ui/field";
-import { DatePicker } from "@/components/ui/date-picker";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { toast } from "@/components/ui/toaster";
 import { diffManilaDays, formatManilaDate } from "@/lib/dates";
-import { formatPhpCurrency } from "@/lib/money";
+import {
+  formatMoneyDecimal,
+  formatPhpCurrency,
+  parseMoneyDecimal,
+} from "@/lib/money";
 import { cn } from "@/lib/cn";
 
 type PublicBookingRequestClientProps = {
@@ -44,6 +51,8 @@ type PublicBookingRequestClientProps = {
   initialRoom: PublicPublishedRoomDto;
   initialAdults: number;
   initialChildren: number;
+  initialUnavailableDates: string[];
+  initialCalendarLoadedUntil: string;
 };
 
 type FormFieldKey =
@@ -74,6 +83,8 @@ export function PublicBookingRequestClient({
   initialRoom,
   initialAdults,
   initialChildren,
+  initialUnavailableDates,
+  initialCalendarLoadedUntil,
 }: PublicBookingRequestClientProps) {
   const safeInitialAdults = Math.max(1, initialAdults);
   const safeInitialChildren = Math.max(
@@ -120,6 +131,7 @@ export function PublicBookingRequestClient({
   const submissionKeyRef = useRef<{ signature: string; key: string } | null>(
     null,
   );
+  const dateFetchSeqRef = useRef(0);
 
   const checkInRef = useRef<HTMLButtonElement | null>(null);
   const checkOutRef = useRef<HTMLButtonElement | null>(null);
@@ -141,9 +153,6 @@ export function PublicBookingRequestClient({
   const coverPhoto = slides[0] ?? null;
   const totalGuests = adults + children;
   const status = getRoomAvailabilityStatus(room, totalGuests);
-  const datesChanged =
-    draftCheckIn !== availability.checkInDateManila ||
-    draftCheckOut !== availability.checkOutDateManila;
 
   const draftNights = useMemo(() => {
     try {
@@ -153,20 +162,41 @@ export function PublicBookingRequestClient({
     }
   }, [draftCheckIn, draftCheckOut]);
 
+  const effectiveNights = draftNights > 0 ? draftNights : availability.nights;
+  const effectiveTotalAmount = useMemo(() => {
+    if (
+      draftCheckIn === availability.checkInDateManila &&
+      draftCheckOut === availability.checkOutDateManila
+    ) {
+      return room.indicativeTotalAmount;
+    }
+    try {
+      const rateCentavos = parseMoneyDecimal(room.dailyRate);
+      return formatMoneyDecimal(
+        computeTransientStayTotalCentavos(rateCentavos, effectiveNights),
+      );
+    } catch {
+      return room.indicativeTotalAmount;
+    }
+  }, [
+    draftCheckIn,
+    draftCheckOut,
+    availability.checkInDateManila,
+    availability.checkOutDateManila,
+    room.dailyRate,
+    room.indicativeTotalAmount,
+    effectiveNights,
+  ]);
+
   const syncedQuery = useMemo(
     () =>
       buildPublicStayQueryString({
-        checkIn: availability.checkInDateManila,
-        checkOut: availability.checkOutDateManila,
+        checkIn: draftCheckIn,
+        checkOut: draftCheckOut,
         adults,
         children,
       }),
-    [
-      availability.checkInDateManila,
-      availability.checkOutDateManila,
-      adults,
-      children,
-    ],
+    [draftCheckIn, draftCheckOut, adults, children],
   );
 
   function syncUrl(
@@ -208,18 +238,25 @@ export function PublicBookingRequestClient({
     });
   }
 
-  async function refreshDates() {
-    if (!draftCheckIn || !draftCheckOut || draftCheckOut <= draftCheckIn) {
+  async function refreshDates(
+    overrideCheckIn?: string,
+    overrideCheckOut?: string,
+  ) {
+    const targetCheckIn = overrideCheckIn ?? draftCheckIn;
+    const targetCheckOut = overrideCheckOut ?? draftCheckOut;
+
+    if (!targetCheckIn || !targetCheckOut || targetCheckOut <= targetCheckIn) {
       setDateError("Choose a check-out date after your check-in date.");
       return;
     }
 
+    const requestSeq = ++dateFetchSeqRef.current;
     setDateError(null);
     setLoadingDates(true);
     try {
       const apiQuery = new URLSearchParams({
-        checkIn: draftCheckIn,
-        checkOut: draftCheckOut,
+        checkIn: targetCheckIn,
+        checkOut: targetCheckOut,
         guests: String(totalGuests),
       });
       const response = await fetch(
@@ -230,6 +267,7 @@ export function PublicBookingRequestClient({
         },
       );
       const data = await response.json();
+      if (requestSeq !== dateFetchSeqRef.current) return;
       if (!response.ok) {
         setDateError(
           typeof data?.error === "string"
@@ -250,13 +288,16 @@ export function PublicBookingRequestClient({
       } else {
         setRoomUnavailableOnRefresh(true);
       }
-      syncUrl(draftCheckIn, draftCheckOut, adults, children);
+      syncUrl(targetCheckIn, targetCheckOut, adults, children);
     } catch {
+      if (requestSeq !== dateFetchSeqRef.current) return;
       setDateError(
         "Unable to reach the reservation desk right now. Check your connection and try again.",
       );
     } finally {
-      setLoadingDates(false);
+      if (requestSeq === dateFetchSeqRef.current) {
+        setLoadingDates(false);
+      }
     }
   }
 
@@ -284,9 +325,9 @@ export function PublicBookingRequestClient({
     event.preventDefault();
     setSubmitError(null);
 
-    if (datesChanged) {
+    if (loadingDates) {
       setSubmitError(
-        "Click Update dates first so your total reflects the new dates.",
+        "Still checking your newly selected dates. Please wait a moment and try again.",
       );
       return;
     }
@@ -326,11 +367,12 @@ export function PublicBookingRequestClient({
       errors.guestPhone = "Enter a contact number so we can reply.";
     }
     if (
-      trimmedEmail !== "" &&
-      (trimmedEmail.length > 160 ||
-        !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(trimmedEmail))
+      !trimmedEmail ||
+      trimmedEmail.length > 160 ||
+      !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(trimmedEmail)
     ) {
-      errors.guestEmail = "Enter a valid email address or leave it blank.";
+      errors.guestEmail =
+        "Enter a valid email address so we can send your booking confirmation.";
     }
     if (!privacyConsentAccepted) {
       errors.consent =
@@ -365,7 +407,7 @@ export function PublicBookingRequestClient({
       guestSex,
       guestAddress: trimmedAddress,
       guestPhone: trimmedPhone,
-      guestEmail: trimmedEmail || null,
+      guestEmail: trimmedEmail,
       notes: trimmedNotes || null,
       privacyConsentAccepted: true as const,
     };
@@ -490,7 +532,12 @@ export function PublicBookingRequestClient({
           </div>
 
           <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
-            <Card className="rounded-2xl border border-border bg-surface p-6">
+            <Card
+              className={cn(
+                "rounded-2xl border-0 p-6",
+                PUBLIC_BOOKING_CARD_ELEVATED,
+              )}
+            >
               <h2 className="border-b border-border pb-3 text-lg font-semibold text-foreground">
                 Stay summary
               </h2>
@@ -541,7 +588,12 @@ export function PublicBookingRequestClient({
               </dl>
             </Card>
 
-            <Card className="rounded-2xl border border-border bg-surface p-6">
+            <Card
+              className={cn(
+                "rounded-2xl border-0 p-6",
+                PUBLIC_BOOKING_CARD_ELEVATED,
+              )}
+            >
               <h2 className="border-b border-border pb-3 text-lg font-semibold text-foreground">
                 Guest details sent
               </h2>
@@ -575,33 +627,40 @@ export function PublicBookingRequestClient({
                     {submittedAck.guestPhone ?? "-"}
                   </dd>
                 </div>
+                <div>
+                  <dt className="text-xs text-muted-foreground">Email</dt>
+                  <dd className="mt-0.5 font-medium text-foreground break-all">
+                    {submittedAck.guestEmail ?? "-"}
+                  </dd>
+                </div>
               </dl>
 
               <Alert tone="info" className="mt-5">
-                No payment is collected online. Rooms are reserved only after
-                the host confirms your request.
+                No payment is collected online. Once the host approves your
+                request, a confirmation email will be sent to your email
+                address.
               </Alert>
 
               <div className="mt-5 flex flex-wrap gap-3">
                 <Link
-                  href={browseHref}
+                  href="/book#track"
                   className={buttonClasses({
                     variant: "primary",
                     size: "md",
                     className: "rounded-xl",
                   })}
                 >
-                  Browse other rooms
+                  Track booking status
                 </Link>
                 <Link
-                  href={roomHref}
+                  href={browseHref}
                   className={buttonClasses({
                     variant: "secondary",
                     size: "md",
                     className: "rounded-xl",
                   })}
                 >
-                  Back to room page
+                  Browse other rooms
                 </Link>
               </div>
             </Card>
@@ -669,7 +728,12 @@ export function PublicBookingRequestClient({
               </Alert>
             )}
 
-            <Card className="rounded-2xl border border-border bg-surface p-6">
+            <Card
+              className={cn(
+                "rounded-2xl border-0 p-6",
+                PUBLIC_BOOKING_CARD_ELEVATED,
+              )}
+            >
               <div className="border-b border-border pb-3">
                 <h2 className="text-lg font-semibold text-foreground">
                   1. When &amp; who
@@ -680,68 +744,30 @@ export function PublicBookingRequestClient({
                 </p>
               </div>
 
-              <div className="mt-4 grid gap-4 sm:grid-cols-2">
-                <Field
-                  id="req-check-in"
-                  label="Check-in"
-                  required
-                  error={fieldErrors.checkIn}
-                >
-                  {(fieldProps) => (
-                    <DatePicker
-                      {...fieldProps}
-                      ref={checkInRef}
-                      required
-                      value={draftCheckIn}
-                      onValueChange={(next) => {
-                        setDraftCheckIn(next);
-                        setDateError(null);
-                        clearFieldError("checkIn");
-                      }}
-                    />
-                  )}
-                </Field>
-
-                <Field
-                  id="req-check-out"
-                  label="Check-out"
-                  required
-                  error={fieldErrors.checkOut}
-                >
-                  {(fieldProps) => (
-                    <DatePicker
-                      {...fieldProps}
-                      ref={checkOutRef}
-                      required
-                      value={draftCheckOut}
-                      onValueChange={(next) => {
-                        setDraftCheckOut(next);
-                        setDateError(null);
-                        clearFieldError("checkOut");
-                      }}
-                    />
-                  )}
-                </Field>
+              <div className="mt-4">
+                <PublicStayDateRangePicker
+                  roomId={room.roomId}
+                  checkIn={draftCheckIn}
+                  checkOut={draftCheckOut}
+                  initialUnavailableDates={initialUnavailableDates}
+                  initialLoadedUntil={initialCalendarLoadedUntil}
+                  loading={loadingDates}
+                  checkInId="req-check-in"
+                  checkOutId="req-check-out"
+                  checkInRef={checkInRef}
+                  checkOutRef={checkOutRef}
+                  checkInError={fieldErrors.checkIn}
+                  checkOutError={fieldErrors.checkOut}
+                  onRangeSelect={(nextCheckIn, nextCheckOut) => {
+                    setDraftCheckIn(nextCheckIn);
+                    setDraftCheckOut(nextCheckOut);
+                    setDateError(null);
+                    clearFieldError("checkIn");
+                    clearFieldError("checkOut");
+                    void refreshDates(nextCheckIn, nextCheckOut);
+                  }}
+                />
               </div>
-
-              {datesChanged && (
-                <div className="mt-3 flex flex-wrap items-center justify-between gap-3 rounded-xl border border-warning-border bg-warning-surface px-4 py-3 text-sm text-warning">
-                  <span>
-                    {draftNights > 0
-                      ? `Dates changed to ${draftNights} ${draftNights === 1 ? "night" : "nights"}. Update to check openness and total.`
-                      : "Select a valid check-out date after check-in."}
-                  </span>
-                  <Button
-                    type="button"
-                    variant="secondary"
-                    size="sm"
-                    loading={loadingDates}
-                    onClick={refreshDates}
-                  >
-                    Update dates
-                  </Button>
-                </div>
-              )}
 
               <div className="mt-4 border-t border-border pt-2 divide-y divide-border">
                 <GuestCountStepperRow
@@ -773,7 +799,12 @@ export function PublicBookingRequestClient({
               )}
             </Card>
 
-            <Card className="rounded-2xl border border-border bg-surface p-6">
+            <Card
+              className={cn(
+                "rounded-2xl border-0 p-6",
+                PUBLIC_BOOKING_CARD_ELEVATED,
+              )}
+            >
               <div className="border-b border-border pb-3">
                 <h2 className="text-lg font-semibold text-foreground">
                   2. Guest information
@@ -956,7 +987,9 @@ export function PublicBookingRequestClient({
                 <div className="sm:col-span-6">
                   <Field
                     id="req-guest-email"
-                    label="Email (optional)"
+                    label="Email"
+                    required
+                    description="Used for booking confirmation and status tracking"
                     error={fieldErrors.guestEmail}
                   >
                     {(fieldProps) => (
@@ -964,6 +997,7 @@ export function PublicBookingRequestClient({
                         {...fieldProps}
                         ref={guestEmailRef}
                         type="email"
+                        required
                         autoComplete="email"
                         placeholder="name@example.com"
                         maxLength={160}
@@ -1023,18 +1057,23 @@ export function PublicBookingRequestClient({
                   type="submit"
                   variant="primary"
                   size="md"
-                  loading={submitting}
+                  loading={submitting || loadingDates}
                   disabled={roomUnavailableOnRefresh || !status.available}
                   className="rounded-xl px-6"
                 >
-                  Send booking request
+                  {loadingDates ? "Checking dates" : "Send booking request"}
                 </Button>
               </div>
             </Card>
           </div>
 
           <aside className="min-w-0">
-            <Card className="rounded-2xl border border-border bg-surface p-5 lg:sticky lg:top-24">
+            <Card
+              className={cn(
+                "rounded-2xl border-0 p-5 lg:sticky lg:top-24",
+                PUBLIC_BOOKING_CARD_FOCAL,
+              )}
+            >
               <div className="flex items-center gap-3 border-b border-border pb-4">
                 <div className="size-20 shrink-0 overflow-hidden rounded-xl bg-surface-muted">
                   {coverPhoto ? (
@@ -1066,14 +1105,14 @@ export function PublicBookingRequestClient({
                 <div className="flex items-center justify-between gap-2">
                   <dt className="text-muted-foreground">Check-in</dt>
                   <dd className="font-medium text-foreground">
-                    {formatManilaDate(availability.checkInDateManila)}
+                    {formatManilaDate(draftCheckIn)}
                     {checkInTimeLabel ? `, ${checkInTimeLabel}` : ""}
                   </dd>
                 </div>
                 <div className="flex items-center justify-between gap-2">
                   <dt className="text-muted-foreground">Check-out</dt>
                   <dd className="font-medium text-foreground">
-                    {formatManilaDate(availability.checkOutDateManila)}
+                    {formatManilaDate(draftCheckOut)}
                     {checkOutTimeLabel ? `, ${checkOutTimeLabel}` : ""}
                   </dd>
                 </div>
@@ -1088,17 +1127,17 @@ export function PublicBookingRequestClient({
               <div className="mt-4 border-t border-border pt-4">
                 <div className="flex items-center justify-between gap-2 text-sm text-muted-foreground">
                   <span>
-                    {formatPhpCurrency(room.dailyRate)} x {availability.nights}{" "}
-                    {availability.nights === 1 ? "night" : "nights"}
+                    {formatPhpCurrency(room.dailyRate)} x {effectiveNights}{" "}
+                    {effectiveNights === 1 ? "night" : "nights"}
                   </span>
                   <span className="tabular-nums">
-                    {formatPhpCurrency(room.indicativeTotalAmount)}
+                    {formatPhpCurrency(effectiveTotalAmount)}
                   </span>
                 </div>
                 <div className="mt-2 flex items-center justify-between gap-2 text-base font-semibold text-foreground">
                   <span>Estimated total</span>
                   <span className="tabular-nums">
-                    {formatPhpCurrency(room.indicativeTotalAmount)}
+                    {formatPhpCurrency(effectiveTotalAmount)}
                   </span>
                 </div>
               </div>

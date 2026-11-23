@@ -2,8 +2,14 @@
 
 import { revalidatePath } from "next/cache";
 import { parseRoomPhotosManifestJsonField } from "@/features/rooms/schemas";
+import {
+  formatStayTime,
+  getScopeLabel,
+} from "@/features/transients/public-booking-view";
 import { AppError, ValidationError } from "@/lib/errors";
 import { requireOwnerUserId } from "@/server/auth/owner";
+import { getDatabase } from "@/server/db/client";
+import { sendBookingApprovedEmailSafe } from "@/server/mail/booking-mailer";
 import {
   approveBookingRequest,
   cancelTransientReservation,
@@ -308,10 +314,68 @@ export async function approveBookingRequestAction(
       issueInvoiceImmediately: formData.get("issueInvoiceImmediately") === "on",
     });
     revalidateTransientPaths(requestId);
+
+    // Send guest confirmation email outside the database transaction (Rule 8.6)
+    let emailNotice = "";
+    const guestEmail =
+      result.request.guestEmail ?? result.reservation.guestEmail;
+    if (guestEmail) {
+      const db = getDatabase();
+      const [settings, roomInfo] = await Promise.all([
+        db.businessSettings.findUnique({
+          where: { ownerUserId },
+          select: {
+            businessName: true,
+            businessAddress: true,
+            businessPhone: true,
+            checkInTimeManila: true,
+            checkOutTimeManila: true,
+          },
+        }),
+        db.room.findFirst({
+          where: { id: result.reservation.roomId, ownerUserId },
+          select: { number: true, transientTitle: true },
+        }),
+      ]);
+
+      const appOrigin =
+        process.env.APP_ORIGIN?.trim().replace(/\/+$/, "") ||
+        "http://localhost:3000";
+      const emailOutcome = await sendBookingApprovedEmailSafe({
+        toEmail: guestEmail,
+        guestName: result.reservation.guestName,
+        referenceCode: result.request.referenceCode,
+        propertyName: settings?.businessName || "Daisy Residences",
+        propertyAddress: settings?.businessAddress ?? null,
+        contactPhone: settings?.businessPhone ?? null,
+        roomTitle:
+          roomInfo?.transientTitle?.trim() ||
+          `Room ${result.reservation.roomNumber}`,
+        scopeLabel: getScopeLabel(result.reservation.scope),
+        checkInDateManila: result.reservation.checkInDateManila,
+        checkOutDateManila: result.reservation.checkOutDateManila,
+        checkInTimeLabel: formatStayTime(settings?.checkInTimeManila ?? ""),
+        checkOutTimeLabel: formatStayTime(settings?.checkOutTimeManila ?? ""),
+        nights: result.reservation.nights,
+        partySize: result.reservation.partySize,
+        dailyRate: result.reservation.dailyRate,
+        totalAmount: result.reservation.totalAmount,
+        trackUrl: `${appOrigin}/book#track`,
+      });
+
+      if (emailOutcome.status === "sent") {
+        emailNotice = " Confirmation email sent to the guest.";
+      } else if (emailOutcome.status === "skipped") {
+        emailNotice = " Email delivery is not configured yet.";
+      } else {
+        emailNotice = " Confirmation email could not be sent right now.";
+      }
+    }
+
     return {
       status: "saved",
       entityId: result.reservation.id,
-      message: `Approved ${result.request.referenceCode} and booked ${result.reservation.guestName}.`,
+      message: `Approved ${result.request.referenceCode} and booked ${result.reservation.guestName}.${emailNotice}`,
     };
   } catch (error) {
     return handleActionError(error, "Could not approve request right now.");

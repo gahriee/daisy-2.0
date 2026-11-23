@@ -3,14 +3,18 @@ import {
   buildOsmAreaSearchUrl,
   buildPublicStayQueryString,
   buildRoomGallerySlides,
+  computeUnavailableNightDates,
   filterAndSortPublicRooms,
+  findFirstUnavailableNightAfter,
   formatGuestsSummary,
   formatStayTime,
   getGuestSexLabel,
   getRoomAvailabilityStatus,
   getScopeLabel,
+  isRangeBlockedByUnavailableDates,
   parsePublicStaySearchParams,
 } from "../../../../src/features/transients/public-booking-view";
+import { manilaDateTimeToUtc } from "../../../../src/lib/dates";
 import type { PublicPublishedRoomDto } from "../../../../src/features/transients/schemas";
 
 function makeRoom(
@@ -253,5 +257,84 @@ describe("public booking presentation helpers", () => {
     expect(buildOsmAreaSearchUrl("Session Road, Baguio City")).toBe(
       "https://www.openstreetmap.org/search?query=Session%20Road%2C%20Baguio%20City",
     );
+  });
+
+  it("computes unavailable nights for WHOLE_ROOM with half-open turnover", () => {
+    const unavailable = computeUnavailableNightDates({
+      startDateManila: "2026-11-23",
+      days: 8,
+      checkInTimeHHmm: "14:00",
+      checkOutTimeHHmm: "12:00",
+      scope: "WHOLE_ROOM",
+      beds: [
+        { id: "bed-1", status: "AVAILABLE" },
+        { id: "bed-2", status: "AVAILABLE" },
+      ],
+      allocations: [
+        {
+          bedId: "bed-1",
+          startDate: manilaDateTimeToUtc("2026-11-25", "14:00"),
+          endDate: manilaDateTimeToUtc("2026-11-28", "12:00"),
+        },
+      ],
+    });
+
+    // Nights of Nov 25, 26, 27 are occupied; Nov 28 check-in (14:00) abuts 12:00 check-out and stays open.
+    expect(unavailable).toEqual(["2026-11-25", "2026-11-26", "2026-11-27"]);
+  });
+
+  it("computes unavailable nights for shared BED rooms only when all beds are full", () => {
+    const unavailable = computeUnavailableNightDates({
+      startDateManila: "2026-11-23",
+      days: 5,
+      checkInTimeHHmm: "14:00",
+      checkOutTimeHHmm: "12:00",
+      scope: "BED",
+      beds: [
+        { id: "bed-1", status: "AVAILABLE" },
+        { id: "bed-2", status: "AVAILABLE" },
+      ],
+      allocations: [
+        {
+          bedId: "bed-1",
+          startDate: manilaDateTimeToUtc("2026-11-24", "14:00"),
+          endDate: manilaDateTimeToUtc("2026-11-26", "12:00"),
+        },
+        {
+          bedId: "bed-2",
+          startDate: manilaDateTimeToUtc("2026-11-25", "14:00"),
+          endDate: manilaDateTimeToUtc("2026-11-26", "12:00"),
+        },
+      ],
+    });
+
+    // Nov 24 still has bed-2 free; Nov 25 has 0 beds free.
+    expect(unavailable).toEqual(["2026-11-25"]);
+  });
+
+  it("blocks ranges spanning occupied dates while allowing same-day check-out turnover", () => {
+    const unavailable = ["2026-11-25", "2026-11-26", "2026-11-27"];
+
+    expect(findFirstUnavailableNightAfter("2026-11-23", unavailable)).toBe(
+      "2026-11-25",
+    );
+    expect(
+      findFirstUnavailableNightAfter("2026-11-28", unavailable),
+    ).toBeNull();
+
+    // Nov 23 -> Nov 25 checks out at 12:00 PM before the Nov 25 2:00 PM booking.
+    expect(
+      isRangeBlockedByUnavailableDates("2026-11-23", "2026-11-25", unavailable),
+    ).toBe(false);
+
+    // Nov 23 -> Nov 26 crosses occupied night Nov 25.
+    expect(
+      isRangeBlockedByUnavailableDates("2026-11-23", "2026-11-26", unavailable),
+    ).toBe(true);
+
+    // Nov 23 -> Nov 29 spans across the entire occupied block.
+    expect(
+      isRangeBlockedByUnavailableDates("2026-11-23", "2026-11-29", unavailable),
+    ).toBe(true);
   });
 });

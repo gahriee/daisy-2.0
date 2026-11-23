@@ -35,6 +35,7 @@ import {
 import { sendTestOverdueSmsAction } from "@/features/sms/actions";
 
 export type SettingsSectionKey = SettingsModule | "devices";
+type BusinessSettingsFormSection = Exclude<SettingsModule, "house_rules">;
 
 type DraftState = {
   version: number;
@@ -51,6 +52,7 @@ type DraftState = {
   receiptPrefix: string;
   checkInTimeManila: string;
   checkOutTimeManila: string;
+  transientPolicyNote: string;
   offlineUnlockMaxDays: string;
   proofMaxMb: string;
   proofMaxFilesPerRecord: string;
@@ -66,37 +68,39 @@ type DraftState = {
   stayScheduleComplete: boolean;
 };
 
-const MODULE_DRAFT_KEYS: Record<SettingsModule, readonly (keyof DraftState)[]> =
-  {
-    profile: ["businessName", "businessPhone", "businessAddress", "tin"],
-    policies: [
-      "billingDayOfMonth",
-      "gracePeriodDays",
-      "prorationPolicy",
-      "depositPolicy",
-      "overpaymentPolicy",
-      "invoicePrefix",
-      "receiptPrefix",
-    ],
-    operations: [
-      "checkInTimeManila",
-      "checkOutTimeManila",
-      "offlineUnlockMaxDays",
-      "proofMaxMb",
-      "proofMaxFilesPerRecord",
-    ],
-    sms: [
-      "smsOverdueEnabled",
-      "smsOverdueFrequencyDays",
-      "smsOverdueSendTimeManila",
-      "smsApiKey",
-      "smsSenderName",
-      "smsOverdueTemplate",
-    ],
-  };
+const MODULE_DRAFT_KEYS: Record<
+  BusinessSettingsFormSection,
+  readonly (keyof DraftState)[]
+> = {
+  profile: ["businessName", "businessPhone", "businessAddress", "tin"],
+  policies: [
+    "billingDayOfMonth",
+    "gracePeriodDays",
+    "prorationPolicy",
+    "depositPolicy",
+    "overpaymentPolicy",
+    "invoicePrefix",
+    "receiptPrefix",
+  ],
+  operations: [
+    "checkInTimeManila",
+    "checkOutTimeManila",
+    "offlineUnlockMaxDays",
+    "proofMaxMb",
+    "proofMaxFilesPerRecord",
+  ],
+  sms: [
+    "smsOverdueEnabled",
+    "smsOverdueFrequencyDays",
+    "smsOverdueSendTimeManila",
+    "smsApiKey",
+    "smsSenderName",
+    "smsOverdueTemplate",
+  ],
+};
 
 const MODULE_META: Record<
-  SettingsModule,
+  BusinessSettingsFormSection,
   {
     dirtyLabel: string;
     cleanLabel: string;
@@ -138,7 +142,7 @@ const MODULE_META: Record<
 function mergeSavedModule(
   prevDraft: DraftState,
   savedDraft: DraftState,
-  settingsModule: SettingsModule,
+  settingsModule: BusinessSettingsFormSection,
 ): DraftState {
   const next: DraftState = {
     ...prevDraft,
@@ -157,7 +161,7 @@ function mergeSavedModule(
 function isModuleDirty(
   draft: DraftState,
   savedSnapshot: DraftState,
-  settingsModule: SettingsModule,
+  settingsModule: BusinessSettingsFormSection,
 ): boolean {
   return MODULE_DRAFT_KEYS[settingsModule].some(
     (key) => draft[key] !== savedSnapshot[key],
@@ -178,6 +182,7 @@ const FIELD_ELEMENT_ID_MAP: Record<string, string> = {
   receiptPrefix: "settings-receipt-prefix",
   checkInTimeManila: "settings-checkin-time",
   checkOutTimeManila: "settings-checkout-time",
+  transientPolicyNote: "settings-house-rules",
   offlineUnlockMaxDays: "settings-offline-days",
   proofMaxMb: "settings-proof-mb",
   proofMaxFilesPerRecord: "settings-proof-files",
@@ -209,6 +214,7 @@ function toDraft(settings: BusinessSettingsDto): DraftState {
     receiptPrefix: settings.receiptPrefix ?? "",
     checkInTimeManila: settings.checkInTimeManila ?? "",
     checkOutTimeManila: settings.checkOutTimeManila ?? "",
+    transientPolicyNote: settings.transientPolicyNote ?? "",
     offlineUnlockMaxDays: String(settings.offlineUnlockMaxDays),
     proofMaxMb: String(Math.round(settings.proofMaxBytes / (1024 * 1024))),
     proofMaxFilesPerRecord: String(settings.proofMaxFilesPerRecord),
@@ -266,7 +272,7 @@ function SettingsModulePanel({
   onModuleSaved,
   children,
 }: {
-  settingsModule: SettingsModule;
+  settingsModule: BusinessSettingsFormSection;
   draft: DraftState;
   savedSnapshot: DraftState;
   banner?: ReactNode;
@@ -356,7 +362,7 @@ export function BusinessSettingsForm({
   onSaved,
 }: {
   initialSettings: BusinessSettingsDto;
-  activeSection: SettingsModule;
+  activeSection: BusinessSettingsFormSection;
   onSaved?: (settings: BusinessSettingsDto) => void;
 }) {
   const [savedSnapshot, setSavedSnapshot] = useState<DraftState>(() =>

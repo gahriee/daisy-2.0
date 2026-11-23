@@ -3,6 +3,20 @@ import { DaisyBrand } from "@/components/layout/daisy-brand";
 import { BackLink } from "@/components/ui/button";
 import { buildOsmAreaSearchUrl } from "@/features/transients/public-booking-view";
 
+/**
+ * Shared warm-charcoal multi-layered elevation recipes for `/book` cards so
+ * floating cards lift cleanly off stone and white surfaces without extra
+ * tinted wrapper containers.
+ */
+export const PUBLIC_BOOKING_CARD_ELEVATED =
+  "bg-surface ring-1 ring-foreground/[0.06] shadow-[0_1px_2px_rgb(34_34_34/0.05),0_10px_28px_-10px_rgb(34_34_34/0.14),0_4px_12px_-4px_rgb(34_34_34/0.06)]";
+
+export const PUBLIC_BOOKING_CARD_ELEVATED_INTERACTIVE =
+  "bg-surface ring-1 ring-foreground/[0.06] shadow-[0_1px_2px_rgb(34_34_34/0.05),0_10px_28px_-10px_rgb(34_34_34/0.14),0_4px_12px_-4px_rgb(34_34_34/0.06)] transition-[box-shadow,transform] duration-(--duration-control) ease-(--ease-control) hover:shadow-[0_4px_8px_rgb(34_34_34/0.07),0_18px_38px_-12px_rgb(34_34_34/0.18),0_6px_16px_-6px_rgb(34_34_34/0.09)]";
+
+export const PUBLIC_BOOKING_CARD_FOCAL =
+  "bg-surface ring-1 ring-foreground/[0.07] shadow-[0_2px_4px_rgb(34_34_34/0.06),0_18px_40px_-14px_rgb(34_34_34/0.18),0_6px_16px_-6px_rgb(34_34_34/0.08)]";
+
 type PublicBookingHeaderProps = {
   propertyName: string;
   propertyAddress: string | null;

@@ -356,6 +356,35 @@ const optionalChildrenCountSchema = z
   .optional()
   .transform((val) => (val === "" || val == null ? null : val));
 
+const requiredEmailSchema = z
+  .string()
+  .trim()
+  .toLowerCase()
+  .min(1, "Enter your email address so we can send your booking update.")
+  .max(160, "Keep your email address under 160 characters.")
+  .refine(
+    (val) => z.string().email().safeParse(val).success,
+    "Enter a valid email address.",
+  );
+
+export const LookupPublicBookingRequestSchema = z.object({
+  referenceCode: z
+    .string()
+    .trim()
+    .toUpperCase()
+    .min(6, "Enter your booking reference number (for example, REQ-...).")
+    .max(32, "Enter a valid booking reference number.")
+    .regex(
+      /^REQ-[A-Z0-9]+$/,
+      "Enter a valid booking reference number starting with REQ-.",
+    ),
+  guestEmail: requiredEmailSchema,
+});
+
+export type LookupPublicBookingRequestInput = z.input<
+  typeof LookupPublicBookingRequestSchema
+>;
+
 export const SubmitPublicBookingRequestSchema = z
   .object({
     idempotencyKey: z
@@ -390,7 +419,7 @@ export const SubmitPublicBookingRequestSchema = z
       40,
       "Keep contact number under 40 characters.",
     ),
-    guestEmail: optionalEmailSchema,
+    guestEmail: requiredEmailSchema,
     notes: optionalShortText(500, "Keep your note under 500 characters."),
     privacyConsentAccepted: z.literal(true, {
       message:
@@ -691,7 +720,33 @@ export type PublicBookingAckDto = {
   guestSex: GuestSexValue | null;
   guestAddress: string | null;
   guestPhone: string | null;
+  guestEmail: string | null;
   quotedDailyRate: string;
   quotedTotalAmount: string;
   submittedAt: string;
+};
+
+export type PublicBookingStatusDto = {
+  referenceCode: string;
+  status: BookingRequestStatusValue;
+  reservationStatus: TransientReservationStatusValue | null;
+  roomTitle: string;
+  roomTypeName: string;
+  scope: AllocationScopeValue;
+  checkInDateManila: string;
+  checkOutDateManila: string;
+  checkInTimeManila: string;
+  checkOutTimeManila: string;
+  nights: number;
+  partySize: number;
+  adultsCount: number | null;
+  childrenCount: number | null;
+  quotedDailyRate: string;
+  quotedTotalAmount: string;
+  rejectionReason: string | null;
+  submittedAt: string;
+  reviewedAt: string | null;
+  propertyName: string;
+  propertyAddress: string | null;
+  contactPhone: string | null;
 };

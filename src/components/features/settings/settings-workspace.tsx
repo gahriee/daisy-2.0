@@ -7,6 +7,7 @@ import {
   DeviceManagementPanel,
   type ClientDeviceSummary,
 } from "./device-management-panel";
+import { HouseRulesEditor } from "./house-rules-editor";
 
 const SECTION_HEADERS: Record<
   SettingsSectionKey,
@@ -26,6 +27,11 @@ const SECTION_HEADERS: Record<
     title: "Stays & limits",
     description:
       "Standard check-in/out times, how long offline access stays active, and photo upload limits.",
+  },
+  house_rules: {
+    title: "House rules",
+    description:
+      "Configure one rule per row. Saved rules appear immediately on the public /book storefront and room detail pages.",
   },
   sms: {
     title: "Overdue SMS",
@@ -66,6 +72,10 @@ export function SettingsWorkspace({
 
       {section === "devices" ? (
         <DeviceManagementPanel initialDevices={initialDevices} />
+      ) : section === "house_rules" ? (
+        initialSettings && (
+          <HouseRulesEditor initialSettings={initialSettings} />
+        )
       ) : (
         initialSettings && (
           <BusinessSettingsForm

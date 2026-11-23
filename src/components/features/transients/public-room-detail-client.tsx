@@ -1,13 +1,18 @@
 "use client";
 
 import Link from "next/link";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import {
   GuestCountStepperRow,
+  PUBLIC_BOOKING_CARD_ELEVATED,
+  PUBLIC_BOOKING_CARD_FOCAL,
   PublicBookingBackLink,
   PublicBookingFooter,
   PublicBookingHeader,
 } from "@/components/features/transients/public-booking-chrome";
+import { PublicStayDateRangePicker } from "@/components/features/transients/public-stay-date-range-picker";
+import { parseHouseRulesList } from "@/features/settings/schemas";
+import { computeTransientStayTotalCentavos } from "@/features/transients/calculations";
 import {
   buildOsmAreaSearchUrl,
   buildPublicStayQueryString,
@@ -29,10 +34,12 @@ import { Alert } from "@/components/ui/alert";
 import { Badge, CountPill } from "@/components/ui/badge";
 import { Button, buttonClasses } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
-import { Field } from "@/components/ui/field";
-import { DatePicker } from "@/components/ui/date-picker";
 import { diffManilaDays, formatManilaDate } from "@/lib/dates";
-import { formatPhpCurrency } from "@/lib/money";
+import {
+  formatMoneyDecimal,
+  formatPhpCurrency,
+  parseMoneyDecimal,
+} from "@/lib/money";
 import { cn } from "@/lib/cn";
 
 type PublicRoomDetailClientProps = {
@@ -40,6 +47,8 @@ type PublicRoomDetailClientProps = {
   initialRoom: PublicPublishedRoomDto;
   initialAdults: number;
   initialChildren: number;
+  initialUnavailableDates: string[];
+  initialCalendarLoadedUntil: string;
 };
 
 const MAX_PUBLIC_GUESTS = 20;
@@ -49,6 +58,8 @@ export function PublicRoomDetailClient({
   initialRoom,
   initialAdults,
   initialChildren,
+  initialUnavailableDates,
+  initialCalendarLoadedUntil,
 }: PublicRoomDetailClientProps) {
   const safeInitialAdults = Math.max(1, initialAdults);
   const safeInitialChildren = Math.max(
@@ -74,17 +85,30 @@ export function PublicRoomDetailClient({
   const [slideIndex, setSlideIndex] = useState(0);
   const [loadingDates, setLoadingDates] = useState(false);
   const [dateError, setDateError] = useState<string | null>(null);
+  const dateFetchSeqRef = useRef(0);
 
   const slides = useMemo(() => buildRoomGallerySlides(room), [room]);
   const safeSlideIndex =
     slides.length > 0 ? Math.min(slideIndex, slides.length - 1) : 0;
   const activeSlide = slides[safeSlideIndex] ?? null;
 
+  // Preload adjacent gallery slides so arrow/thumbnail switching is instant
+  useEffect(() => {
+    if (slides.length <= 1) return;
+    const neighbors = [
+      slides[(safeSlideIndex + 1) % slides.length],
+      slides[(safeSlideIndex - 1 + slides.length) % slides.length],
+    ];
+    for (const slide of neighbors) {
+      if (!slide) continue;
+      const img = new window.Image();
+      img.decoding = "async";
+      img.src = slide.url;
+    }
+  }, [slides, safeSlideIndex]);
+
   const totalGuests = adults + children;
   const status = getRoomAvailabilityStatus(room, totalGuests);
-  const datesChanged =
-    draftCheckIn !== availability.checkInDateManila ||
-    draftCheckOut !== availability.checkOutDateManila;
 
   const draftNights = useMemo(() => {
     try {
@@ -94,20 +118,41 @@ export function PublicRoomDetailClient({
     }
   }, [draftCheckIn, draftCheckOut]);
 
+  const effectiveNights = draftNights > 0 ? draftNights : availability.nights;
+  const effectiveTotalAmount = useMemo(() => {
+    if (
+      draftCheckIn === availability.checkInDateManila &&
+      draftCheckOut === availability.checkOutDateManila
+    ) {
+      return room.indicativeTotalAmount;
+    }
+    try {
+      const rateCentavos = parseMoneyDecimal(room.dailyRate);
+      return formatMoneyDecimal(
+        computeTransientStayTotalCentavos(rateCentavos, effectiveNights),
+      );
+    } catch {
+      return room.indicativeTotalAmount;
+    }
+  }, [
+    draftCheckIn,
+    draftCheckOut,
+    availability.checkInDateManila,
+    availability.checkOutDateManila,
+    room.dailyRate,
+    room.indicativeTotalAmount,
+    effectiveNights,
+  ]);
+
   const syncedQuery = useMemo(
     () =>
       buildPublicStayQueryString({
-        checkIn: availability.checkInDateManila,
-        checkOut: availability.checkOutDateManila,
+        checkIn: draftCheckIn,
+        checkOut: draftCheckOut,
         adults,
         children,
       }),
-    [
-      availability.checkInDateManila,
-      availability.checkOutDateManila,
-      adults,
-      children,
-    ],
+    [draftCheckIn, draftCheckOut, adults, children],
   );
 
   function syncHistoryUrl(
@@ -136,18 +181,25 @@ export function PublicRoomDetailClient({
     );
   }
 
-  async function refreshDates() {
-    if (!draftCheckIn || !draftCheckOut || draftCheckOut <= draftCheckIn) {
+  async function refreshDates(
+    overrideCheckIn?: string,
+    overrideCheckOut?: string,
+  ) {
+    const targetCheckIn = overrideCheckIn ?? draftCheckIn;
+    const targetCheckOut = overrideCheckOut ?? draftCheckOut;
+
+    if (!targetCheckIn || !targetCheckOut || targetCheckOut <= targetCheckIn) {
       setDateError("Choose a check-out date after your check-in date.");
       return;
     }
 
+    const requestSeq = ++dateFetchSeqRef.current;
     setDateError(null);
     setLoadingDates(true);
     try {
       const apiQuery = new URLSearchParams({
-        checkIn: draftCheckIn,
-        checkOut: draftCheckOut,
+        checkIn: targetCheckIn,
+        checkOut: targetCheckOut,
         guests: String(totalGuests),
       });
       const response = await fetch(
@@ -158,6 +210,7 @@ export function PublicRoomDetailClient({
         },
       );
       const data = await response.json();
+      if (requestSeq !== dateFetchSeqRef.current) return;
       if (!response.ok) {
         setDateError(
           typeof data?.error === "string"
@@ -179,13 +232,16 @@ export function PublicRoomDetailClient({
       } else {
         setRoomUnavailableOnRefresh(true);
       }
-      syncHistoryUrl(draftCheckIn, draftCheckOut, adults, children);
+      syncHistoryUrl(targetCheckIn, targetCheckOut, adults, children);
     } catch {
+      if (requestSeq !== dateFetchSeqRef.current) return;
       setDateError(
         "Unable to reach the reservation desk right now. Check your connection and try again.",
       );
     } finally {
-      setLoadingDates(false);
+      if (requestSeq === dateFetchSeqRef.current) {
+        setLoadingDates(false);
+      }
     }
   }
 
@@ -284,6 +340,8 @@ export function PublicRoomDetailClient({
                     alt={activeSlide.caption ?? `${room.title} room photo`}
                     width={ROOM_PHOTO_OUTPUT_WIDTH}
                     height={ROOM_PHOTO_OUTPUT_HEIGHT}
+                    fetchPriority="high"
+                    decoding="async"
                     className="h-full w-full object-cover"
                   />
                 ) : (
@@ -355,7 +413,12 @@ export function PublicRoomDetailClient({
               </div>
 
               {activeSlide && (
-                <div className="mt-3 flex flex-wrap items-baseline justify-between gap-2 rounded-xl border border-border bg-surface px-4 py-3">
+                <div
+                  className={cn(
+                    "mt-3 flex flex-wrap items-baseline justify-between gap-2 rounded-xl px-4 py-3",
+                    PUBLIC_BOOKING_CARD_ELEVATED,
+                  )}
+                >
                   <p className="text-sm text-foreground">
                     {activeSlide.caption ??
                       (safeSlideIndex === 0
@@ -424,10 +487,9 @@ export function PublicRoomDetailClient({
                     <figure
                       key={slide.id}
                       className={cn(
-                        "flex flex-col overflow-hidden rounded-2xl border bg-surface",
-                        idx === safeSlideIndex
-                          ? "border-primary"
-                          : "border-border",
+                        "flex flex-col overflow-hidden rounded-2xl",
+                        PUBLIC_BOOKING_CARD_ELEVATED,
+                        idx === safeSlideIndex && "ring-2 ring-primary",
                       )}
                     >
                       <button
@@ -483,7 +545,12 @@ export function PublicRoomDetailClient({
                 </p>
               )}
 
-              <dl className="grid gap-4 rounded-2xl border border-border bg-surface p-5 sm:grid-cols-2">
+              <dl
+                className={cn(
+                  "grid gap-4 rounded-2xl p-5 sm:grid-cols-2",
+                  PUBLIC_BOOKING_CARD_ELEVATED,
+                )}
+              >
                 <div>
                   <dt className="text-xs font-medium text-muted-foreground">
                     Room setup
@@ -523,10 +590,21 @@ export function PublicRoomDetailClient({
                 {availability.transientPolicyNote && (
                   <div className="sm:col-span-2">
                     <dt className="text-xs font-medium text-muted-foreground">
-                      House reminders
+                      House rules
                     </dt>
-                    <dd className="mt-1 whitespace-pre-line text-sm text-foreground">
-                      {availability.transientPolicyNote}
+                    <dd className="mt-2">
+                      <ol className="grid gap-1.5 text-sm text-foreground">
+                        {parseHouseRulesList(
+                          availability.transientPolicyNote,
+                        ).map((rule, idx) => (
+                          <li key={idx} className="flex items-start gap-2">
+                            <span className="font-semibold text-primary tabular-nums">
+                              {idx + 1}.
+                            </span>
+                            <span>{rule}</span>
+                          </li>
+                        ))}
+                      </ol>
                     </dd>
                   </div>
                 )}
@@ -537,7 +615,12 @@ export function PublicRoomDetailClient({
               <h2 className="border-b border-border pb-3 text-xl font-semibold text-foreground">
                 Location &amp; front desk
               </h2>
-              <div className="flex flex-wrap items-center justify-between gap-4 rounded-2xl border border-border bg-surface p-5">
+              <div
+                className={cn(
+                  "flex flex-wrap items-center justify-between gap-4 rounded-2xl p-5",
+                  PUBLIC_BOOKING_CARD_ELEVATED,
+                )}
+              >
                 <div className="grid gap-1">
                   <span className="text-sm font-semibold text-foreground">
                     {availability.propertyName}
@@ -576,7 +659,12 @@ export function PublicRoomDetailClient({
           </div>
 
           <aside id="stay-box" className="min-w-0">
-            <Card className="rounded-2xl border border-border bg-surface p-5 lg:sticky lg:top-24">
+            <Card
+              className={cn(
+                "rounded-2xl border-0 p-5 lg:sticky lg:top-24",
+                PUBLIC_BOOKING_CARD_FOCAL,
+              )}
+            >
               <div className="flex items-baseline justify-between gap-3 border-b border-border pb-4">
                 <div>
                   <span className="text-2xl font-semibold text-foreground tabular-nums">
@@ -616,49 +704,22 @@ export function PublicRoomDetailClient({
               )}
 
               <div className="mt-4 grid gap-3">
-                <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-2">
-                  <Field id="detail-check-in" label="Check-in">
-                    {(fieldProps) => (
-                      <DatePicker
-                        {...fieldProps}
-                        required
-                        value={draftCheckIn}
-                        onValueChange={(next) => {
-                          setDraftCheckIn(next);
-                          setDateError(null);
-                        }}
-                      />
-                    )}
-                  </Field>
-                  <Field id="detail-check-out" label="Check-out">
-                    {(fieldProps) => (
-                      <DatePicker
-                        {...fieldProps}
-                        required
-                        value={draftCheckOut}
-                        onValueChange={(next) => {
-                          setDraftCheckOut(next);
-                          setDateError(null);
-                        }}
-                      />
-                    )}
-                  </Field>
-                </div>
-
-                {datesChanged && (
-                  <Button
-                    type="button"
-                    variant="secondary"
-                    size="md"
-                    loading={loadingDates}
-                    onClick={refreshDates}
-                    className="w-full rounded-xl"
-                  >
-                    {draftNights > 0
-                      ? `Update to ${draftNights} ${draftNights === 1 ? "night" : "nights"}`
-                      : "Update dates"}
-                  </Button>
-                )}
+                <PublicStayDateRangePicker
+                  roomId={room.roomId}
+                  checkIn={draftCheckIn}
+                  checkOut={draftCheckOut}
+                  initialUnavailableDates={initialUnavailableDates}
+                  initialLoadedUntil={initialCalendarLoadedUntil}
+                  loading={loadingDates}
+                  checkInId="detail-check-in"
+                  checkOutId="detail-check-out"
+                  onRangeSelect={(nextCheckIn, nextCheckOut) => {
+                    setDraftCheckIn(nextCheckIn);
+                    setDraftCheckOut(nextCheckOut);
+                    setDateError(null);
+                    void refreshDates(nextCheckIn, nextCheckOut);
+                  }}
+                />
 
                 <div className="border-t border-border pt-2 divide-y divide-border">
                   <GuestCountStepperRow
@@ -688,8 +749,8 @@ export function PublicRoomDetailClient({
                 <div className="flex items-center justify-between gap-2 text-muted-foreground">
                   <span>Dates</span>
                   <span className="font-medium text-foreground">
-                    {formatManilaDate(availability.checkInDateManila)} to{" "}
-                    {formatManilaDate(availability.checkOutDateManila)}
+                    {formatManilaDate(draftCheckIn)} to{" "}
+                    {formatManilaDate(draftCheckOut)}
                   </span>
                 </div>
                 <div className="flex items-center justify-between gap-2 text-muted-foreground">
@@ -700,25 +761,35 @@ export function PublicRoomDetailClient({
                 </div>
                 <div className="flex items-center justify-between gap-2 text-muted-foreground">
                   <span>
-                    {formatPhpCurrency(room.dailyRate)} x {availability.nights}{" "}
-                    {availability.nights === 1 ? "night" : "nights"}
+                    {formatPhpCurrency(room.dailyRate)} x {effectiveNights}{" "}
+                    {effectiveNights === 1 ? "night" : "nights"}
                   </span>
                   <span className="font-semibold text-foreground tabular-nums">
-                    {formatPhpCurrency(room.indicativeTotalAmount)}
+                    {formatPhpCurrency(effectiveTotalAmount)}
                   </span>
                 </div>
               </div>
 
-              {!status.available && !roomUnavailableOnRefresh && (
-                <div className="mt-4">
-                  <Alert tone="warning">{status.detail}</Alert>
-                </div>
-              )}
+              {!status.available &&
+                !roomUnavailableOnRefresh &&
+                !loadingDates && (
+                  <div className="mt-4">
+                    <Alert tone="warning">{status.detail}</Alert>
+                  </div>
+                )}
 
               <div className="mt-5 grid gap-2.5">
-                {status.available &&
-                !roomUnavailableOnRefresh &&
-                !datesChanged ? (
+                {loadingDates ? (
+                  <Button
+                    type="button"
+                    variant="primary"
+                    loading
+                    disabled
+                    className="w-full rounded-xl"
+                  >
+                    Checking dates
+                  </Button>
+                ) : status.available && !roomUnavailableOnRefresh ? (
                   <Link
                     href={requestHref}
                     className={buttonClasses({
@@ -729,16 +800,6 @@ export function PublicRoomDetailClient({
                   >
                     Request booking
                   </Link>
-                ) : datesChanged ? (
-                  <Button
-                    type="button"
-                    variant="primary"
-                    loading={loadingDates}
-                    onClick={refreshDates}
-                    className="w-full rounded-xl"
-                  >
-                    Check new dates first
-                  </Button>
                 ) : (
                   <Link
                     href={browseHref}

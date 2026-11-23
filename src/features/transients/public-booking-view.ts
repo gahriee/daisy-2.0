@@ -1,9 +1,10 @@
+import { computeTransientStayUtcBounds } from "@/features/transients/calculations";
 import type {
   AllocationScopeValue,
   GuestSexValue,
   PublicPublishedRoomDto,
 } from "@/features/transients/schemas";
-import { isValidManilaDate } from "@/lib/dates";
+import { addManilaDays, isValidManilaDate } from "@/lib/dates";
 import { parseMoneyDecimal } from "@/lib/money";
 
 export type GallerySlide = {
@@ -268,4 +269,114 @@ export function filterAndSortPublicRooms(
 
 export function buildOsmAreaSearchUrl(address: string): string {
   return `https://www.openstreetmap.org/search?query=${encodeURIComponent(address.trim())}`;
+}
+
+/**
+ * Computes sorted `YYYY-MM-DD` Asia/Manila nights within `[startDateManila, startDateManila + days)`
+ * that cannot accept a new stay check-in because active allocations or maintenance beds
+ * exhaust the room's bookable units for that night's half-open `[checkIn, checkOut)` interval.
+ */
+export function computeUnavailableNightDates(input: {
+  startDateManila: string;
+  days: number;
+  checkInTimeHHmm: string;
+  checkOutTimeHHmm: string;
+  scope: AllocationScopeValue;
+  beds: ReadonlyArray<{ id: string; status: string }>;
+  allocations: ReadonlyArray<{ bedId: string; startDate: Date; endDate: Date }>;
+}): string[] {
+  const safeDays = Math.max(0, Math.min(366, Math.floor(input.days)));
+  if (safeDays === 0) return [];
+
+  const nonMaintenanceBeds = input.beds.filter(
+    (bed) => bed.status !== "MAINTENANCE",
+  );
+  const totalBeds = input.beds.length;
+  const wholeRoomAlwaysBlocked =
+    input.scope === "WHOLE_ROOM" &&
+    (totalBeds === 0 || nonMaintenanceBeds.length < totalBeds);
+  const sharedAlwaysBlocked =
+    input.scope === "BED" && nonMaintenanceBeds.length === 0;
+
+  const unavailable: string[] = [];
+
+  for (let offset = 0; offset < safeDays; offset += 1) {
+    const nightDate = addManilaDays(input.startDateManila, offset);
+    if (wholeRoomAlwaysBlocked || sharedAlwaysBlocked) {
+      unavailable.push(nightDate);
+      continue;
+    }
+
+    const nextDate = addManilaDays(nightDate, 1);
+    const { startUtc, endUtc } = computeTransientStayUtcBounds({
+      checkInDateManila: nightDate,
+      checkOutDateManila: nextDate,
+      checkInTimeHHmm: input.checkInTimeHHmm,
+      checkOutTimeHHmm: input.checkOutTimeHHmm,
+    });
+    const nightStartMs = startUtc.getTime();
+    const nightEndMs = endUtc.getTime();
+
+    const blockedBedIds = new Set<string>();
+    for (const allocation of input.allocations) {
+      if (
+        allocation.startDate.getTime() < nightEndMs &&
+        allocation.endDate.getTime() > nightStartMs
+      ) {
+        blockedBedIds.add(allocation.bedId);
+      }
+    }
+
+    const freeBedsCount = nonMaintenanceBeds.filter(
+      (bed) => !blockedBedIds.has(bed.id),
+    ).length;
+
+    const nightAvailable =
+      input.scope === "WHOLE_ROOM"
+        ? freeBedsCount === totalBeds
+        : freeBedsCount >= 1;
+
+    if (!nightAvailable) {
+      unavailable.push(nightDate);
+    }
+  }
+
+  return unavailable;
+}
+
+/**
+ * Returns the earliest unavailable night strictly after `checkInDateManila`,
+ * which acts as the latest valid abutting check-out date (same-day turnover)
+ * so a guest cannot select a range spanning across occupied nights.
+ */
+export function findFirstUnavailableNightAfter(
+  checkInDateManila: string,
+  unavailableDates: ReadonlyArray<string>,
+): string | null {
+  let earliest: string | null = null;
+  for (const date of unavailableDates) {
+    if (date > checkInDateManila && (earliest === null || date < earliest)) {
+      earliest = date;
+    }
+  }
+  return earliest;
+}
+
+/**
+ * Returns `true` when any occupied night falls inside the half-open stay
+ * interval `[checkInDateManila, checkOutDateManila)`.
+ */
+export function isRangeBlockedByUnavailableDates(
+  checkInDateManila: string,
+  checkOutDateManila: string,
+  unavailableDates: ReadonlyArray<string>,
+): boolean {
+  if (!checkInDateManila || !checkOutDateManila) return false;
+  if (checkOutDateManila <= checkInDateManila) return true;
+  for (const date of unavailableDates) {
+    if (date >= checkInDateManila && date < checkOutDateManila) {
+      return true;
+    }
+  }
+  return false;
 }

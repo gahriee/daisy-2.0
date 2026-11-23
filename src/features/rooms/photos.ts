@@ -716,13 +716,13 @@ export async function getAuthorizedRoomPhotoBytes(
 }
 
 /**
- * Fetches bytes for a publicly visible published transient room photo (`no-store`,
- * returning 404 for unpublished, archived, or unconfigured rooms).
+ * Fetches bytes for a publicly visible published transient room photo
+ * (returning 404 for unpublished, archived, or unconfigured rooms).
  */
 export async function getPublicRoomPhotoBytes(
   ownerUserId: string,
   photoId: string,
-): Promise<{ bytes: Uint8Array; mimeType: string }> {
+): Promise<{ bytes: Uint8Array; mimeType: string; updatedAt: Date }> {
   const row = await getDatabase().roomPhoto.findFirst({
     where: {
       id: photoId,
@@ -736,6 +736,7 @@ export async function getPublicRoomPhotoBytes(
     select: {
       objectKey: true,
       mimeType: true,
+      updatedAt: true,
     },
   });
   if (!row) {
@@ -748,5 +749,6 @@ export async function getPublicRoomPhotoBytes(
   return {
     bytes: object.bytes,
     mimeType: row.mimeType,
+    updatedAt: row.updatedAt,
   };
 }

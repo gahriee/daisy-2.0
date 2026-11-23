@@ -87,6 +87,15 @@ function buildModuleRawInput(formData: FormData, settingsModule: string) {
           "proofMaxFilesPerRecord",
         ),
       };
+    case "house_rules":
+      return {
+        module: "house_rules",
+        expectedVersion,
+        transientPolicyNote: readNullableString(
+          formData,
+          "transientPolicyNote",
+        ),
+      };
     case "sms":
       return {
         module: "sms",
@@ -125,6 +134,8 @@ function formatSavedMessage(
       return updated.stayScheduleComplete
         ? "Stays & limits saved and configured."
         : "Stays & limits saved. Set standard check-in and check-out times to complete stay schedule setup.";
+    case "house_rules":
+      return "House rules saved and published to /book.";
     case "sms":
       return updated.smsOverdueEnabled
         ? "Overdue SMS settings saved and enabled."
@@ -155,6 +166,7 @@ export async function saveBusinessSettingsAction(
         ...(rawModule === "profile" ||
         rawModule === "policies" ||
         rawModule === "operations" ||
+        rawModule === "house_rules" ||
         rawModule === "sms"
           ? { module: rawModule }
           : {}),
@@ -169,8 +181,11 @@ export async function saveBusinessSettingsAction(
     );
     revalidatePath("/", "layout");
     revalidatePath("/settings", "layout");
+    revalidatePath("/transients/house-rules");
     revalidatePath("/billing");
     revalidatePath("/audit");
+    revalidatePath("/book");
+    revalidatePath("/book", "layout");
 
     return {
       status: "saved",

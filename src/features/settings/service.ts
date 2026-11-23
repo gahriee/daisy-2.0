@@ -1,4 +1,5 @@
 import "server-only";
+import { z } from "zod";
 import { Prisma } from "@/generated/prisma/client";
 import { ConflictError, ValidationError } from "@/lib/errors";
 import { ensureOwnerRecord } from "@/server/db/owner-record";
@@ -37,6 +38,7 @@ const SETTINGS_SELECT = {
   receiptPrefix: true,
   checkInTimeManila: true,
   checkOutTimeManila: true,
+  transientPolicyNote: true,
   smsOverdueEnabled: true,
   smsOverdueFrequencyDays: true,
   smsOverdueSendTimeManila: true,
@@ -67,6 +69,7 @@ const INITIAL_CREATE_DEFAULTS: Omit<
   receiptPrefix: null,
   checkInTimeManila: null,
   checkOutTimeManila: null,
+  transientPolicyNote: null,
   smsOverdueEnabled: false,
   smsOverdueFrequencyDays: 1,
   smsOverdueSendTimeManila: "09:00",
@@ -95,6 +98,7 @@ function toSettingsDto(row: {
   receiptPrefix: string | null;
   checkInTimeManila: string | null;
   checkOutTimeManila: string | null;
+  transientPolicyNote: string | null;
   smsOverdueEnabled: boolean;
   smsOverdueFrequencyDays: number;
   smsOverdueSendTimeManila: string;
@@ -123,6 +127,7 @@ function toSettingsDto(row: {
     receiptPrefix: row.receiptPrefix,
     checkInTimeManila: row.checkInTimeManila,
     checkOutTimeManila: row.checkOutTimeManila,
+    transientPolicyNote: row.transientPolicyNote,
     smsOverdueEnabled: row.smsOverdueEnabled,
     smsOverdueFrequencyDays: row.smsOverdueFrequencyDays,
     smsOverdueSendTimeManila: row.smsOverdueSendTimeManila,
@@ -164,6 +169,7 @@ export async function getBusinessSettings(
       receiptPrefix: null,
       checkInTimeManila: null,
       checkOutTimeManila: null,
+      transientPolicyNote: null,
       smsOverdueEnabled: false,
       smsOverdueFrequencyDays: 1,
       smsOverdueSendTimeManila: "09:00",
@@ -186,7 +192,7 @@ export async function getBusinessSettings(
 type PersistedSettingsWriteData = Partial<typeof INITIAL_CREATE_DEFAULTS>;
 
 function buildModuleWriteData(
-  input: BusinessSettingsModuleUpdateInput,
+  input: z.output<typeof BusinessSettingsModuleUpdateSchema>,
 ): PersistedSettingsWriteData {
   switch (input.module) {
     case "profile":
@@ -210,9 +216,16 @@ function buildModuleWriteData(
       return {
         checkInTimeManila: input.checkInTimeManila,
         checkOutTimeManila: input.checkOutTimeManila,
+        ...(input.transientPolicyNote !== undefined
+          ? { transientPolicyNote: input.transientPolicyNote }
+          : {}),
         offlineUnlockMaxDays: input.offlineUnlockMaxDays,
         proofMaxBytes: input.proofMaxMb * BYTES_PER_MB,
         proofMaxFilesPerRecord: input.proofMaxFilesPerRecord,
+      };
+    case "house_rules":
+      return {
+        transientPolicyNote: input.transientPolicyNote,
       };
     case "sms": {
       const next: PersistedSettingsWriteData = {

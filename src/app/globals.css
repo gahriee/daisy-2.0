@@ -221,6 +221,134 @@ html[data-book-intro="active"] .book-intro-content {
   animation: book-hero-reveal 750ms cubic-bezier(0.22, 1, 0.36, 1) 140ms both;
 }
 
+/* Scrollytelling 2.0 cinematic scroll reveals for /book */
+.book-scroll-reveal {
+  opacity: 0;
+  transition:
+    opacity 680ms cubic-bezier(0.22, 1, 0.36, 1),
+    transform 760ms cubic-bezier(0.22, 1, 0.36, 1);
+  will-change: opacity, transform;
+}
+
+.book-scroll-reveal[data-variant="up"] {
+  transform: translate3d(0, 22px, 0);
+}
+
+.book-scroll-reveal[data-variant="scale"] {
+  transform: translate3d(0, 18px, 0) scale(0.98);
+}
+
+.book-scroll-reveal[data-variant="fade"] {
+  transform: none;
+}
+
+.book-scroll-reveal[data-visible="true"] {
+  opacity: 1;
+  transform: translate3d(0, 0, 0) scale(1);
+}
+
+/* Self-drawing SVG paths, organic morphing & animated gradients for /book */
+.book-self-draw-path {
+  stroke-dasharray: 1;
+  stroke-dashoffset: 1;
+  transition: stroke-dashoffset 1100ms cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+.book-self-draw-path-active {
+  stroke-dashoffset: 0;
+}
+
+@keyframes book-loader-draw {
+  0% {
+    stroke-dashoffset: 1;
+    opacity: 0.25;
+  }
+  55%,
+  100% {
+    stroke-dashoffset: 0;
+    opacity: 1;
+  }
+}
+
+.book-loader-once .book-loader-arch {
+  stroke-dasharray: 1;
+  stroke-dashoffset: 1;
+  animation: book-loader-draw 1.2s cubic-bezier(0.22, 1, 0.36, 1) forwards;
+}
+
+.book-loader-loop .book-loader-arch {
+  stroke-dasharray: 1;
+  stroke-dashoffset: 1;
+  animation: book-loader-draw 2.6s cubic-bezier(0.22, 1, 0.36, 1) infinite;
+}
+
+@keyframes book-morph-shape {
+  0%,
+  100% {
+    d: path(
+      "M312,118 C355,168 358,248 312,296 C266,344 176,356 118,314 C60,272 48,184 92,126 C136,68 269,68 312,118 Z"
+    );
+    transform: rotate(0deg) scale(1);
+  }
+  33% {
+    d: path(
+      "M328,136 C362,192 342,276 286,316 C230,356 144,344 96,292 C48,240 58,154 114,108 C170,62 294,80 328,136 Z"
+    );
+    transform: rotate(6deg) scale(1.04);
+  }
+  66% {
+    d: path(
+      "M302,102 C354,146 368,232 324,288 C280,344 196,364 132,324 C68,284 44,196 86,136 C128,76 250,58 302,102 Z"
+    );
+    transform: rotate(-5deg) scale(0.97);
+  }
+}
+
+.book-morph-blob {
+  transform-origin: center;
+  animation: book-morph-shape 11s ease-in-out infinite;
+  will-change: transform;
+}
+
+@keyframes book-gradient-shift {
+  0%,
+  100% {
+    background-position: 0% 50%;
+  }
+  50% {
+    background-position: 100% 50%;
+  }
+}
+
+.book-animated-gradient-cta {
+  background-image: linear-gradient(
+    115deg,
+    #e00b41 0%,
+    #c90839 42%,
+    #ed2b5b 68%,
+    #e00b41 100%
+  );
+  background-size: 220% 220%;
+  animation: book-gradient-shift 6s ease-in-out infinite;
+}
+
+.book-animated-gradient-cta:hover {
+  background-image: linear-gradient(115deg, #bd0836 0%, #a8062f 100%);
+}
+
+.book-animated-mesh {
+  background:
+    radial-gradient(
+      circle at 22% 28%,
+      rgb(255 232 238 / 0.85),
+      transparent 54%
+    ),
+    radial-gradient(circle at 78% 72%, rgb(255 213 224 / 0.5), transparent 52%),
+    var(--surface);
+  background-size: 160% 160%;
+  animation: book-gradient-shift 12s ease-in-out infinite;
+}
+
 @media (prefers-reduced-motion: reduce) {
   .book-hero-reveal,
   .book-hero-reveal-delay {
@@ -228,6 +356,28 @@ html[data-book-intro="active"] .book-intro-content {
     filter: none;
     transform: none;
     opacity: 1;
+  }
+  .book-scroll-reveal,
+  .book-scroll-reveal[data-variant="up"],
+  .book-scroll-reveal[data-variant="scale"],
+  .book-scroll-reveal[data-variant="fade"] {
+    opacity: 1;
+    transform: none;
+    transition: none;
+  }
+  .book-self-draw-path,
+  .book-loader-once .book-loader-arch,
+  .book-loader-loop .book-loader-arch {
+    stroke-dashoffset: 0;
+    animation: none !important;
+    transition: none !important;
+    opacity: 1;
+  }
+  .book-morph-blob,
+  .book-animated-gradient-cta,
+  .book-animated-mesh {
+    animation: none !important;
+    transform: none !important;
   }
 }
 
@@ -324,31 +474,136 @@ html[data-book-intro="active"] .book-intro-content {
   }
 }
 
+@keyframes book-loader-book-fade {
+  0%,
+  42% {
+    opacity: 1;
+  }
+  48%,
+  100% {
+    opacity: 0;
+  }
+}
+
+@keyframes book-loader-script-draw {
+  0% {
+    stroke-dashoffset: 1;
+  }
+  100% {
+    stroke-dashoffset: 0;
+  }
+}
+
+@keyframes book-loader-flower-bloom {
+  0% {
+    opacity: 0;
+    transform: scale(0) rotate(-35deg);
+  }
+  65% {
+    opacity: 1;
+    transform: scale(1.18) rotate(8deg);
+  }
+  100% {
+    opacity: 1;
+    transform: scale(1) rotate(0deg);
+  }
+}
+
+.book-loader-daisy-stroke {
+  stroke-dasharray: 1;
+  stroke-dashoffset: 1;
+}
+
+.book-loader-flower {
+  opacity: 0;
+  transform: scale(0);
+}
+
+.book-loader-once .book-loader-daisy-s1 {
+  animation: book-loader-script-draw 0.42s cubic-bezier(0.22, 1, 0.36, 1) 0.05s
+    forwards;
+}
+.book-loader-once .book-loader-daisy-s2 {
+  animation: book-loader-script-draw 0.36s cubic-bezier(0.22, 1, 0.36, 1) 0.34s
+    forwards;
+}
+.book-loader-once .book-loader-daisy-s3 {
+  animation: book-loader-script-draw 0.28s cubic-bezier(0.22, 1, 0.36, 1) 0.6s
+    forwards;
+}
+.book-loader-once .book-loader-daisy-s4 {
+  animation: book-loader-script-draw 0.32s cubic-bezier(0.22, 1, 0.36, 1) 0.8s
+    forwards;
+}
+.book-loader-once .book-loader-daisy-s5 {
+  animation: book-loader-script-draw 0.48s cubic-bezier(0.22, 1, 0.36, 1) 1.04s
+    forwards;
+}
+
+.book-loader-once .book-loader-flower-1 {
+  animation: book-loader-flower-bloom 0.42s cubic-bezier(0.22, 1, 0.36, 1) 0.28s
+    forwards;
+}
+.book-loader-once .book-loader-flower-2 {
+  animation: book-loader-flower-bloom 0.42s cubic-bezier(0.22, 1, 0.36, 1) 0.52s
+    forwards;
+}
+.book-loader-once .book-loader-flower-3 {
+  animation: book-loader-flower-bloom 0.42s cubic-bezier(0.22, 1, 0.36, 1) 0.78s
+    forwards;
+}
+.book-loader-once .book-loader-flower-4 {
+  animation: book-loader-flower-bloom 0.42s cubic-bezier(0.22, 1, 0.36, 1) 1.02s
+    forwards;
+}
+.book-loader-once .book-loader-flower-5 {
+  animation: book-loader-flower-bloom 0.44s cubic-bezier(0.22, 1, 0.36, 1) 1.28s
+    forwards;
+}
+
+.book-loader-once .book-loader-book-label {
+  animation: book-loader-book-fade 2s linear forwards;
+}
+
 .book-loader-once .book-loader-tablet-group {
-  animation: book-loader-tablet-in 1.4s cubic-bezier(0.22, 1, 0.36, 1) forwards;
+  animation: book-loader-tablet-in 2s cubic-bezier(0.22, 1, 0.36, 1) forwards;
 }
 
 .book-loader-once .book-loader-right-hand {
-  animation: book-loader-hand-tap 1.4s cubic-bezier(0.22, 1, 0.36, 1) forwards;
+  animation: book-loader-hand-tap 2s cubic-bezier(0.22, 1, 0.36, 1) forwards;
 }
 
 .book-loader-once .book-loader-ok-bg {
   fill: var(--primary);
-  animation: book-loader-ok-color 1.4s linear forwards;
+  animation: book-loader-ok-color 2s linear forwards;
 }
 
 .book-loader-once .book-loader-ok-btn {
-  animation: book-loader-ok-press 1.4s ease-out forwards;
+  animation: book-loader-ok-press 2s ease-out forwards;
 }
 
 .book-loader-once .book-loader-star-center,
 .book-loader-once .book-loader-star-mid {
-  animation: book-loader-star-pop 1.4s cubic-bezier(0.22, 1, 0.36, 1) forwards;
+  animation: book-loader-star-pop 2s cubic-bezier(0.22, 1, 0.36, 1) forwards;
 }
 
 .book-loader-once .book-loader-star-outer {
-  animation: book-loader-star-outer-pop 1.4s cubic-bezier(0.22, 1, 0.36, 1)
+  animation: book-loader-star-outer-pop 2s cubic-bezier(0.22, 1, 0.36, 1)
     forwards;
+}
+
+.book-loader-loop .book-loader-daisy-stroke {
+  animation: book-loader-script-draw 2.6s cubic-bezier(0.22, 1, 0.36, 1)
+    infinite;
+}
+
+.book-loader-loop .book-loader-flower {
+  animation: book-loader-flower-bloom 2.6s cubic-bezier(0.22, 1, 0.36, 1)
+    infinite;
+}
+
+.book-loader-loop .book-loader-book-label {
+  animation: book-loader-book-fade 2.6s linear infinite;
 }
 
 .book-loader-loop .book-loader-tablet-group {
@@ -382,6 +637,16 @@ html[data-book-intro="active"] .book-intro-content {
   .book-loader-once *,
   .book-loader-loop * {
     animation: none !important;
+  }
+  .book-loader-daisy-stroke {
+    stroke-dashoffset: 0;
+  }
+  .book-loader-flower {
+    opacity: 1;
+    transform: scale(1);
+  }
+  .book-loader-book-label {
+    opacity: 0;
   }
   .book-loader-once .book-loader-ok-bg,
   .book-loader-loop .book-loader-ok-bg {

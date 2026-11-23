@@ -67,6 +67,7 @@ export const SETTINGS_MODULES = [
   "profile",
   "policies",
   "operations",
+  "house_rules",
   "sms",
 ] as const;
 export type SettingsModule = (typeof SETTINGS_MODULES)[number];
@@ -102,9 +103,64 @@ const policiesFields = {
   receiptPrefix: prefixSchema,
 };
 
+export const DEFAULT_HOUSE_RULES = [
+  "1. No curfew. Just bring key in going out in order not to disturb others.",
+  "2. Always keep the entire house clean at all times.",
+  "3. Observe proper disposal of garbage.",
+  "4. Pay rental fee on time.",
+  "5. Avoid alcoholic drinks and illegal drugs inside the premises.",
+  "6. Observe silence during rest time/hours (10pm to 7am).",
+].join("\n");
+
+/**
+ * Parses newline-delimited house rules text into clean rule statements,
+ * stripping optional leading numbering or bullet characters. Returns an empty
+ * list when unset or blank.
+ */
+export function parseHouseRulesList(raw: string | null | undefined): string[] {
+  if (!raw?.trim()) return [];
+  return raw
+    .split(/\r?\n/)
+    .map((line) =>
+      line
+        .trim()
+        .replace(/^(?:\d+[.)]\s*|[-*•]\s*)/, "")
+        .trim(),
+    )
+    .filter((line) => line.length > 0);
+}
+
+/**
+ * Serializes an ordered list of rule strings into numbered newline-delimited
+ * text persisted in `BusinessSettings.transientPolicyNote`.
+ */
+export function serializeHouseRulesList(
+  rules: ReadonlyArray<string>,
+): string | null {
+  const cleaned = rules
+    .map((rule) =>
+      rule
+        .trim()
+        .replace(/^(?:\d+[.)]\s*|[-*•]\s*)/, "")
+        .trim(),
+    )
+    .filter((rule) => rule.length > 0);
+  if (cleaned.length === 0) return null;
+  return cleaned.map((rule, index) => `${index + 1}. ${rule}`).join("\n");
+}
+
+const optionalLongText = (max: number) =>
+  z
+    .string()
+    .trim()
+    .max(max, `Keep under ${max} characters.`)
+    .transform((val) => (val === "" ? null : val))
+    .nullable();
+
 const operationsFields = {
   checkInTimeManila: timeSchema,
   checkOutTimeManila: timeSchema,
+  transientPolicyNote: optionalLongText(2000).optional(),
   offlineUnlockMaxDays: z
     .number()
     .int()
@@ -138,6 +194,12 @@ export const OperationsSettingsUpdateSchema = z.object({
   module: z.literal("operations"),
   expectedVersion: z.number().int().min(0),
   ...operationsFields,
+});
+
+export const HouseRulesSettingsUpdateSchema = z.object({
+  module: z.literal("house_rules"),
+  expectedVersion: z.number().int().min(0),
+  transientPolicyNote: optionalLongText(2000),
 });
 
 const smsSenderNameSchema = z
@@ -197,11 +259,12 @@ export const BusinessSettingsModuleUpdateSchema = z.discriminatedUnion(
     ProfileSettingsUpdateSchema,
     PoliciesSettingsUpdateSchema,
     OperationsSettingsUpdateSchema,
+    HouseRulesSettingsUpdateSchema,
     SmsSettingsUpdateSchema,
   ],
 );
 
-export type BusinessSettingsModuleUpdateInput = z.infer<
+export type BusinessSettingsModuleUpdateInput = z.input<
   typeof BusinessSettingsModuleUpdateSchema
 >;
 
@@ -212,7 +275,7 @@ export const BusinessSettingsUpdateSchema = z.object({
   ...operationsFields,
 });
 
-export type BusinessSettingsUpdateInput = z.infer<
+export type BusinessSettingsUpdateInput = z.input<
   typeof BusinessSettingsUpdateSchema
 >;
 
@@ -232,6 +295,7 @@ export type BusinessSettingsDto = {
   receiptPrefix: string | null;
   checkInTimeManila: string | null;
   checkOutTimeManila: string | null;
+  transientPolicyNote: string | null;
   offlineUnlockMaxDays: number;
   proofMaxBytes: number;
   proofMaxFilesPerRecord: number;
