@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useState, useSyncExternalStore } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { DaisyLogoLoader } from "@/components/common/daisy-logo-loader";
@@ -154,13 +154,27 @@ function isSupportedOfflineDomainRoute(pathname: string): boolean {
   return false;
 }
 
+function subscribeBrowserPathname(callback: () => void) {
+  window.addEventListener("popstate", callback);
+  return () => window.removeEventListener("popstate", callback);
+}
+
 /**
  * PII-free Service Worker navigation fallback dispatcher.
  * Decrypts local snapshots only after passphrase unlock and renders shared
  * client domain workspaces right at their requested route.
  */
 export function OfflineRouteFallback() {
-  const pathname = usePathname() || "/offline";
+  const routerPathname = usePathname() || "/offline";
+  const browserPathname = useSyncExternalStore(
+    subscribeBrowserPathname,
+    () => window.location.pathname || "/offline",
+    () => "/offline",
+  );
+  const pathname =
+    routerPathname === "/offline" && browserPathname !== "/offline"
+      ? browserPathname
+      : routerPathname;
   const [vaultUnlocked, setVaultUnlocked] = useState(false);
   const [routeData, setRouteData] = useState<OfflineRouteData | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);

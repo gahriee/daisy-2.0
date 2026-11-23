@@ -234,10 +234,10 @@ export function useAttachmentUploader(params: {
   }
 
   async function handleFileSelect(event: ChangeEvent<HTMLInputElement>) {
-    const fileList = event.target.files;
+    const files = Array.from(event.target.files ?? []);
     event.target.value = "";
-    if (!fileList || fileList.length === 0) return;
-    await addFiles(Array.from(fileList));
+    if (files.length === 0) return;
+    await addFiles(files);
   }
 
   function removeItem(localId: string) {

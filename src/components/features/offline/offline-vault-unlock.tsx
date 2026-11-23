@@ -774,8 +774,14 @@ export function useOfflineSnapshotState<T>(input: {
 }) {
   const online = useBrowserOnline();
   const isOfflineView = input.offlineMode || !online;
+  const [prevInitialData, setPrevInitialData] = useState<T>(input.initialData);
   const [serverData, setServerData] = useState<T>(input.initialData);
   const [data, setData] = useState<T>(input.initialData);
+  if (input.initialData !== prevInitialData) {
+    setPrevInitialData(input.initialData);
+    setServerData(input.initialData);
+    setData(input.initialData);
+  }
   const [lastSyncedAt, setLastSyncedAt] = useState<string | null>(
     input.initialLastSyncedAt ?? null,
   );

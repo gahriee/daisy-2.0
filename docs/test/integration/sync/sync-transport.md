@@ -27,3 +27,4 @@ Teardown deleted all `sync-test-*` records across `SecurityRateLimit`, `Maintena
 | 2026-11-16 13:58:06 | `pnpm test:integration tests/integration/sync/sync-transport.test.ts` | 1 passed, 1 failed (`minSeq` check conflicted with normal `allocateSyncSequence` lock holes) | 7.69 s (8.56 s suite) |
 | 2026-11-16 13:59:43 | `pnpm test:integration tests/integration/sync/sync-transport.test.ts` | 2 passed, 0 failed | 12.46 s (13.36 s suite) |
 | 2026-11-16 23:31:26 | `pnpm test:integration` | 2 passed (suite: 64/64 across 17 files) | 11.56 s (509.94 s suite) |
+| 2026-11-23 22:32:47 | `pnpm test:integration tests/integration/sync/sync-transport.test.ts tests/integration/settings/settings-and-devices.test.ts` | 0 passed, 2 failed — blocked: `.env.test.local` `TEST_DATABASE_URL` branch credentials expired/invalid (`Authentication failed against the database server`); no database substituted | 891 ms |

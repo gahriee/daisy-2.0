@@ -12,7 +12,7 @@ import {
   type ReactNode,
 } from "react";
 import Link from "next/link";
-import { usePathname } from "next/navigation";
+import { usePathname, useRouter } from "next/navigation";
 import { DaisyBrand } from "@/components/layout/daisy-brand";
 import { NotificationCard } from "@/components/features/notifications/notification-card";
 import { OfflineStatusBar } from "@/components/features/offline/offline-status-bar";
@@ -987,6 +987,27 @@ export function WorkspaceShell({
   children,
 }: WorkspaceShellProps) {
   const pathname = usePathname();
+  const router = useRouter();
+  const lastPathnameRef = useRef(pathname);
+
+  useEffect(() => {
+    if (lastPathnameRef.current !== pathname) {
+      lastPathnameRef.current = pathname;
+      if (typeof navigator === "undefined" || navigator.onLine) {
+        router.refresh();
+      }
+    }
+  }, [pathname, router]);
+
+  useEffect(() => {
+    function handlePageShow(event: PageTransitionEvent) {
+      if (event.persisted && navigator.onLine) {
+        router.refresh();
+      }
+    }
+    window.addEventListener("pageshow", handlePageShow);
+    return () => window.removeEventListener("pageshow", handlePageShow);
+  }, [router]);
   const [titleOverride, setTitleOverride] =
     useState<WorkspaceTitleOverride>(null);
   const resolvedTitle =

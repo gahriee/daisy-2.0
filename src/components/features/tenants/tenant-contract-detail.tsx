@@ -31,7 +31,13 @@ export function TenantContractDetail({
   contract: TenantContractDto;
 }) {
   const router = useRouter();
+  const [prevInitialContract, setPrevInitialContract] =
+    useState(initialContract);
   const [contract, setContract] = useState(initialContract);
+  if (initialContract !== prevInitialContract) {
+    setPrevInitialContract(initialContract);
+    setContract(initialContract);
+  }
   const [confirmOpen, setConfirmOpen] = useState(false);
   const [archiveError, setArchiveError] = useState<string | null>(null);
   const [archivePending, startArchive] = useTransition();

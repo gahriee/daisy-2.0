@@ -115,7 +115,13 @@ export function AuditLogExplorer({
   initialEntries: AuditLogEntryDto[];
   initialFilters: AuditFiltersState;
 }) {
+  const [prevInitialEntries, setPrevInitialEntries] =
+    useState<AuditLogEntryDto[]>(initialEntries);
   const [entries, setEntries] = useState<AuditLogEntryDto[]>(initialEntries);
+  if (initialEntries !== prevInitialEntries) {
+    setPrevInitialEntries(initialEntries);
+    setEntries(initialEntries);
+  }
   const [filters, setFilters] = useState<AuditFiltersState>(initialFilters);
   const [searchInput, setSearchInput] = useState<string>(
     initialFilters.query || initialFilters.action,

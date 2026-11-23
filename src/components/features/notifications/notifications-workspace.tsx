@@ -154,8 +154,14 @@ export function NotificationsWorkspace({
 }: {
   initialNotifications: OwnerNotification[];
 }) {
+  const [prevInitialNotifications, setPrevInitialNotifications] =
+    useState<OwnerNotification[]>(initialNotifications);
   const [notifications, setNotifications] =
     useState<OwnerNotification[]>(initialNotifications);
+  if (initialNotifications !== prevInitialNotifications) {
+    setPrevInitialNotifications(initialNotifications);
+    setNotifications(initialNotifications);
+  }
   const [searchQuery, setSearchQuery] = useState("");
   const [readFilter, setReadFilter] = useState<ReadFilter>("ALL");
   const [categoryFilter, setCategoryFilter] = useState<CategoryFilter>("ALL");

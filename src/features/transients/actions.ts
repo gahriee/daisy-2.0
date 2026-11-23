@@ -64,6 +64,8 @@ function revalidateTransientPaths(requestId?: string, roomId?: string) {
   revalidatePath("/rooms");
   revalidatePath("/billing");
   revalidatePath("/payments");
+  revalidatePath("/reports");
+  revalidatePath("/notifications");
   revalidatePath("/audit");
   revalidatePath("/book");
   revalidatePath("/");

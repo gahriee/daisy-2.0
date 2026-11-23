@@ -88,12 +88,18 @@ function handleActionError(
 
 function revalidateTenantPaths(tenantId?: string) {
   revalidatePath("/tenants");
+  revalidatePath("/tenants", "layout");
   if (tenantId) {
     revalidatePath(`/tenants/${tenantId}`);
     revalidatePath(`/tenants/${tenantId}/contracts/new`);
   }
   revalidatePath("/rooms");
+  revalidatePath("/billing");
+  revalidatePath("/payments");
+  revalidatePath("/reports");
+  revalidatePath("/notifications");
   revalidatePath("/audit");
+  revalidatePath("/");
 }
 
 export async function createTenantAction(

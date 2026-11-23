@@ -78,7 +78,13 @@ export function ReportsWorkspace({
     building: initialOverview.filters.building,
   };
 
+  const [prevInitialOverview, setPrevInitialOverview] =
+    useState<ReportsOverviewDto>(initialOverview);
   const [overview, setOverview] = useState<ReportsOverviewDto>(initialOverview);
+  if (initialOverview !== prevInitialOverview) {
+    setPrevInitialOverview(initialOverview);
+    setOverview(initialOverview);
+  }
   const [activeTab, setActiveTab] = useState<ReportTypeValue>("occupancy");
   const [asOfDate, setAsOfDate] = useState(defaultFilters.asOfDate);
   const [fromDate, setFromDate] = useState(defaultFilters.fromDate);

@@ -73,7 +73,13 @@ export function RoomTypesWorkspace({
   building?: RoomBuildingValue;
 }) {
   const isTransient = building === "TRANSIENT";
+  const [prevInitialRoomTypes, setPrevInitialRoomTypes] =
+    useState<RoomTypeDto[]>(initialRoomTypes);
   const [roomTypes, setRoomTypes] = useState<RoomTypeDto[]>(initialRoomTypes);
+  if (initialRoomTypes !== prevInitialRoomTypes) {
+    setPrevInitialRoomTypes(initialRoomTypes);
+    setRoomTypes(initialRoomTypes);
+  }
   const [searchQuery, setSearchQuery] = useState("");
   const [viewFilter, setViewFilter] = useState<RoomTypeViewFilter>("active");
   const [editingRoomType, setEditingRoomType] = useState<RoomTypeDto | null>(

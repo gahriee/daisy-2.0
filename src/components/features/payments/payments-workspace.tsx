@@ -206,8 +206,15 @@ export function PaymentsWorkspace({
 }) {
   const online = useBrowserOnline();
   const isOfflineView = offlineMode || !online;
+  const [prevInitialOverview, setPrevInitialOverview] =
+    useState(initialOverview);
   const [serverOverview, setServerOverview] = useState(initialOverview);
   const [overview, setOverview] = useState(initialOverview);
+  if (initialOverview !== prevInitialOverview) {
+    setPrevInitialOverview(initialOverview);
+    setServerOverview(initialOverview);
+    setOverview(initialOverview);
+  }
   const [syncBadges, setSyncBadges] =
     useState<Record<string, OfflineEntitySyncBadge>>(initialSyncBadges);
   const [lastSyncedAt, setLastSyncedAt] = useState<string | null>(

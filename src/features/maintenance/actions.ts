@@ -50,6 +50,8 @@ function revalidateMaintenancePaths(requestId?: string) {
   revalidatePath("/transients", "layout");
   revalidatePath("/transients/stays");
   revalidatePath("/transients/rooms");
+  revalidatePath("/reports");
+  revalidatePath("/notifications");
   revalidatePath("/audit");
   revalidatePath("/book");
   revalidatePath("/");

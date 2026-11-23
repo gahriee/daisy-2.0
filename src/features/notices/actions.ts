@@ -33,7 +33,9 @@ function handleNoticeActionError(
 
 function revalidateNoticePaths() {
   revalidatePath("/notices");
+  revalidatePath("/notifications");
   revalidatePath("/audit");
+  revalidatePath("/");
 }
 
 function readOptionalString(

@@ -1,7 +1,7 @@
 // Executable Service Worker matching src/sw.ts & src/offline/sw-policy.ts.
-// Precaches strictly the PII-free public /offline shell and static shell assets.
+// Precaches strictly the PII-free public /offline shell, its static JS/CSS chunks, and static shell assets.
 
-const SW_CACHE_VERSION = "daisy-shell-v3";
+const SW_CACHE_VERSION = "daisy-shell-v4";
 const OFFLINE_SHELL_PATH = "/offline";
 const SW_PRECACHE_URLS = [
   "/offline",
@@ -25,15 +25,14 @@ const OFFLINE_NAVIGABLE_PREFIXES = [
   "/offline",
 ];
 
-const NEVER_CACHE_PREFIXES = [
-  "/api/",
-  "/auth/",
-  "/book",
+const ONLINE_ONLY_WORKSPACE_PREFIXES = [
   "/settings",
   "/audit",
   "/reports",
   "/notifications",
 ];
+
+const NEVER_INTERCEPT_PREFIXES = ["/api/", "/auth/", "/book"];
 
 const STATIC_PUBLIC_PREFIXES = [
   "/_next/static/",
@@ -44,6 +43,8 @@ const STATIC_PUBLIC_PREFIXES = [
 const DEV_ENTRY_CHUNK_PATTERN =
   /^\/_next\/static\/chunks\/(?:main-app|webpack|polyfills|app-pages-internals)\.js$/i;
 const HASHED_ASSET_SUFFIX = /-[0-9a-f]{8,}\.(?:js|css)$/i;
+const OFFLINE_HTML_ASSET_PATTERN =
+  /(?:src|href)=["'](\/_next\/static\/[^"'?#\s]+)["']|["'](\/_next\/static\/(?:chunks|css)\/[^"'\\?#\s]+\.(?:js|css))["']/gi;
 
 function isNextDevStaticAsset(pathname) {
   if (
@@ -71,6 +72,27 @@ function isNextDevStaticAsset(pathname) {
   return false;
 }
 
+function extractOfflineShellAssetUrls(html) {
+  const assets = new Set();
+  OFFLINE_HTML_ASSET_PATTERN.lastIndex = 0;
+  let match = null;
+  while ((match = OFFLINE_HTML_ASSET_PATTERN.exec(html)) !== null) {
+    const candidate = match[1] || match[2] || "";
+    if (!candidate.startsWith("/_next/static/")) continue;
+    if (isNextDevStaticAsset(candidate)) continue;
+    assets.add(candidate);
+  }
+  return Array.from(assets);
+}
+
+function matchesPrefix(pathname, prefixes) {
+  return prefixes.some(
+    (prefix) =>
+      prefix !== "/" &&
+      (pathname === prefix || pathname.startsWith(`${prefix}/`)),
+  );
+}
+
 function classifyRequest(request, url) {
   if (url.origin !== self.location.origin || request.method !== "GET") {
     return "network-only";
@@ -79,7 +101,7 @@ function classifyRequest(request, url) {
     return "network-only";
   }
   if (
-    NEVER_CACHE_PREFIXES.some(
+    NEVER_INTERCEPT_PREFIXES.some(
       (prefix) => url.pathname === prefix || url.pathname.startsWith(prefix),
     ) ||
     isNextDevStaticAsset(url.pathname)
@@ -98,21 +120,47 @@ function classifyRequest(request, url) {
   if (request.mode === "navigate") {
     const supported =
       url.pathname === "/" ||
-      OFFLINE_NAVIGABLE_PREFIXES.some(
-        (prefix) =>
-          prefix !== "/" &&
-          (url.pathname === prefix || url.pathname.startsWith(`${prefix}/`)),
-      );
+      matchesPrefix(url.pathname, OFFLINE_NAVIGABLE_PREFIXES) ||
+      matchesPrefix(url.pathname, ONLINE_ONLY_WORKSPACE_PREFIXES);
     return supported ? "navigation-offline-fallback" : "network-only";
   }
   return "network-only";
 }
 
+async function precacheOfflineShell(cache) {
+  const staticUrls = SW_PRECACHE_URLS.filter(
+    (url) => url !== OFFLINE_SHELL_PATH,
+  );
+  await Promise.allSettled(staticUrls.map((url) => cache.add(url)));
+
+  const shellResponse = await fetch(OFFLINE_SHELL_PATH, { cache: "reload" });
+  if (!shellResponse.ok) {
+    throw new Error("Could not precache /offline shell.");
+  }
+  const html = await shellResponse.clone().text();
+  await cache.put(OFFLINE_SHELL_PATH, shellResponse);
+
+  const assetUrls = extractOfflineShellAssetUrls(html);
+  await Promise.allSettled(
+    assetUrls.map(async (assetUrl) => {
+      const existing = await cache.match(assetUrl);
+      if (existing) return;
+      const res = await fetch(assetUrl);
+      const cacheControl = res.headers.get("cache-control") ?? "";
+      if (
+        res.ok &&
+        res.type === "basic" &&
+        !/(no-store|no-cache)/i.test(cacheControl)
+      ) {
+        await cache.put(assetUrl, res);
+      }
+    }),
+  );
+}
+
 self.addEventListener("install", (event) => {
   event.waitUntil(
-    caches.open(SW_CACHE_VERSION).then(async (cache) => {
-      await cache.addAll(SW_PRECACHE_URLS);
-    }),
+    caches.open(SW_CACHE_VERSION).then((cache) => precacheOfflineShell(cache)),
   );
 });
 
@@ -173,7 +221,9 @@ self.addEventListener("fetch", (event) => {
   event.respondWith(
     fetch(request).catch(async () => {
       const cache = await caches.open(SW_CACHE_VERSION);
-      const fallback = await cache.match(OFFLINE_SHELL_PATH);
+      const fallback = await cache.match(OFFLINE_SHELL_PATH, {
+        ignoreSearch: true,
+      });
       if (fallback) return fallback;
       return new Response("Offline shell unavailable. Connect to reload.", {
         status: 503,
@@ -198,7 +248,11 @@ self.addEventListener("push", (event) => {
       if (parsed && typeof parsed.body === "string" && parsed.body.trim()) {
         body = parsed.body.trim();
       }
-      if (parsed && typeof parsed.url === "string" && parsed.url.startsWith("/")) {
+      if (
+        parsed &&
+        typeof parsed.url === "string" &&
+        parsed.url.startsWith("/")
+      ) {
         url = parsed.url;
       }
       if (parsed && typeof parsed.tag === "string" && parsed.tag.trim()) {
@@ -249,4 +303,3 @@ self.addEventListener("notificationclick", (event) => {
       }),
   );
 });
-

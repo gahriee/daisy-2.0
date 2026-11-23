@@ -111,7 +111,13 @@ export function DeviceManagementPanel({
   initialDevices: ClientDeviceSummary[];
   onDevicesChange?: (devices: ClientDeviceSummary[]) => void;
 }) {
+  const [prevInitialDevices, setPrevInitialDevices] =
+    useState<ClientDeviceSummary[]>(initialDevices);
   const [devices, setDevices] = useState<ClientDeviceSummary[]>(initialDevices);
+  if (initialDevices !== prevInitialDevices) {
+    setPrevInitialDevices(initialDevices);
+    setDevices(initialDevices);
+  }
   const [label, setLabel] = useState("");
   const [labelError, setLabelError] = useState("");
   const [errorMessage, setErrorMessage] = useState("");

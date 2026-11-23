@@ -85,7 +85,10 @@ function revalidateInventoryPaths(roomId?: string) {
   revalidatePath("/transients/stays");
   revalidatePath("/book");
   revalidatePath("/tenants");
+  revalidatePath("/reports");
+  revalidatePath("/notifications");
   revalidatePath("/audit");
+  revalidatePath("/");
 }
 
 export async function createRoomTypeAction(

@@ -151,9 +151,16 @@ export function TenantsWorkspace({
 }) {
   const online = useBrowserOnline();
   const isOfflineView = offlineMode || !online;
+  const [prevInitialOverview, setPrevInitialOverview] =
+    useState<TenantsOverviewDto>(initialOverview);
   const [serverOverview, setServerOverview] =
     useState<TenantsOverviewDto>(initialOverview);
   const [overview, setOverview] = useState<TenantsOverviewDto>(initialOverview);
+  if (initialOverview !== prevInitialOverview) {
+    setPrevInitialOverview(initialOverview);
+    setServerOverview(initialOverview);
+    setOverview(initialOverview);
+  }
   const [syncBadges, setSyncBadges] =
     useState<Record<string, OfflineEntitySyncBadge>>(initialSyncBadges);
   const [lastSyncedAt, setLastSyncedAt] = useState<string | null>(

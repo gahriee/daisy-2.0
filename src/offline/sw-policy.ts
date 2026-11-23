@@ -7,7 +7,7 @@
  * - NEVER cache `/api/*`, authenticated HTML/RSC routes, exports, or `/book` live data.
  */
 
-export const SW_CACHE_VERSION = "daisy-shell-v3";
+export const SW_CACHE_VERSION = "daisy-shell-v4";
 export const OFFLINE_SHELL_PATH = "/offline";
 
 export const SW_PRECACHE_URLS = [
@@ -32,15 +32,21 @@ export const OFFLINE_NAVIGABLE_PREFIXES = [
   "/offline",
 ] as const;
 
-const NEVER_CACHE_PREFIXES = [
-  "/api/",
-  "/auth/",
-  "/book",
+/**
+ * Authenticated workspace sections that require an online connection to run.
+ * Their HTML/RSC responses are NEVER cached; when a full browser navigation
+ * fails offline, the Service Worker serves the PII-free `/offline` shell so
+ * Daisy renders an in-app "only available while online" guidance screen with
+ * shortcuts to offline modules instead of a browser network-error page.
+ */
+export const ONLINE_ONLY_WORKSPACE_PREFIXES = [
   "/settings",
   "/audit",
   "/reports",
   "/notifications",
 ] as const;
+
+const NEVER_INTERCEPT_PREFIXES = ["/api/", "/auth/", "/book"] as const;
 
 const STATIC_PUBLIC_PREFIXES = [
   "/_next/static/",
@@ -51,6 +57,8 @@ const STATIC_PUBLIC_PREFIXES = [
 const DEV_ENTRY_CHUNK_PATTERN =
   /^\/_next\/static\/chunks\/(?:main-app|webpack|polyfills|app-pages-internals)\.js$/i;
 const HASHED_ASSET_SUFFIX = /-[0-9a-f]{8,}\.(?:js|css)$/i;
+const OFFLINE_HTML_ASSET_PATTERN =
+  /(?:src|href)=["'](\/_next\/static\/[^"'?#\s]+)["']|["'](\/_next\/static\/(?:chunks|css)\/[^"'\\?#\s]+\.(?:js|css))["']/gi;
 
 /**
  * Next.js dev server serves unhashed route chunks and HMR manifests under
@@ -83,8 +91,35 @@ export function isNextDevStaticAsset(pathname: string): boolean {
   return false;
 }
 
+/**
+ * Extracts deduplicated, cache-safe `/_next/static/*` JS/CSS URLs referenced by
+ * the PII-free `/offline` HTML shell so the Service Worker can precache every
+ * bundle required to hydrate `/offline` on iOS/Android even if the user never
+ * visited `/offline` while online.
+ */
+export function extractOfflineShellAssetUrls(html: string): string[] {
+  const assets = new Set<string>();
+  OFFLINE_HTML_ASSET_PATTERN.lastIndex = 0;
+  let match: RegExpExecArray | null = null;
+  while ((match = OFFLINE_HTML_ASSET_PATTERN.exec(html)) !== null) {
+    const candidate = match[1] ?? match[2] ?? "";
+    if (!candidate.startsWith("/_next/static/")) continue;
+    if (isNextDevStaticAsset(candidate)) continue;
+    assets.add(candidate);
+  }
+  return Array.from(assets);
+}
+
 export type SwFetchAction =
   "network-only" | "navigation-offline-fallback" | "cache-first-static";
+
+function matchesPrefix(pathname: string, prefixes: readonly string[]): boolean {
+  return prefixes.some(
+    (prefix) =>
+      prefix !== "/" &&
+      (pathname === prefix || pathname.startsWith(`${prefix}/`)),
+  );
+}
 
 /**
  * Classifies how the Service Worker handles an incoming HTTP request URL.
@@ -106,7 +141,7 @@ export function classifySwRequest(input: {
   }
 
   if (
-    NEVER_CACHE_PREFIXES.some(
+    NEVER_INTERCEPT_PREFIXES.some(
       (prefix) =>
         input.pathname === prefix || input.pathname.startsWith(prefix),
     ) ||
@@ -133,12 +168,8 @@ export function classifySwRequest(input: {
   if (input.mode === "navigate") {
     const supported =
       input.pathname === "/" ||
-      OFFLINE_NAVIGABLE_PREFIXES.some(
-        (prefix) =>
-          prefix !== "/" &&
-          (input.pathname === prefix ||
-            input.pathname.startsWith(`${prefix}/`)),
-      );
+      matchesPrefix(input.pathname, OFFLINE_NAVIGABLE_PREFIXES) ||
+      matchesPrefix(input.pathname, ONLINE_ONLY_WORKSPACE_PREFIXES);
     return supported ? "navigation-offline-fallback" : "network-only";
   }
 

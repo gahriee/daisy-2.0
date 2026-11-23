@@ -1,3 +1,4 @@
+import { revalidatePath } from "next/cache";
 import { DeviceIdSchema } from "@/features/devices/schemas";
 import { ValidationError } from "@/lib/errors";
 import { revokeOwnerDevice } from "@/server/auth/device";
@@ -25,6 +26,12 @@ export async function POST(
       ownerUserId,
       deviceId: parsed.data,
     });
+    try {
+      revalidatePath("/settings/devices");
+      revalidatePath("/audit");
+    } catch {
+      // Ignore outside Next.js request store (e.g. integration tests).
+    }
     return jsonPrivate(result);
   } catch (error) {
     return errorToResponse(error);

@@ -1,3 +1,4 @@
+import { revalidatePath } from "next/cache";
 import { SYNC_PUSH_MAX_BYTES } from "@/features/sync/contracts";
 import { readDeviceTokenFromCookieHeader } from "@/server/auth/device";
 import { requireOwnerUserId } from "@/server/auth/owner";
@@ -28,6 +29,13 @@ export async function POST(request: Request): Promise<Response> {
       deviceToken,
       rawBody,
     });
+    if (result.outcomes.some((outcome) => outcome.status === "applied")) {
+      try {
+        revalidatePath("/", "layout");
+      } catch {
+        // Ignore when invoked outside a Next.js request store (e.g. integration tests).
+      }
+    }
     return jsonPrivate(result);
   } catch (error) {
     return errorToResponse(error);

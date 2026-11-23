@@ -52,10 +52,10 @@ export function AttachmentDropbox({
   }
 
   function handleInputChange(event: ChangeEvent<HTMLInputElement>) {
-    const fileList = event.target.files;
+    const files = Array.from(event.target.files ?? []);
     event.target.value = "";
-    if (!fileList || fileList.length === 0) return;
-    emitFiles(Array.from(fileList));
+    if (files.length === 0) return;
+    emitFiles(files);
   }
 
   function handleDragEnter(event: DragEvent<HTMLDivElement>) {
