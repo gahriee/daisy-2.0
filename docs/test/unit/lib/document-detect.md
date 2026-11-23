@@ -1,10 +1,10 @@
 # Document boundary detection and perspective flattening (jscanify + @techstark/opencv-js)
 
 - Status: PASS
-- Last run: 2026-11-23 17:47:38 (UTC+8)
+- Last run: 2026-11-23 18:08:24 (UTC+8)
 - Runtime: Windows, Node 24.20.0, pnpm 12.18.0, Vitest 5.1.0
 - Command: `pnpm exec vitest run tests/unit/lib/document-scanner.test.ts tests/unit/lib/document-detect.test.ts`
-- Result: 10 passed here (278 ms); 14 passed, 0 failed, 0 skipped across 2 targeted files, 485 ms.
+- Result: 10 passed here (249 ms); 15 passed, 0 failed, 0 skipped across 2 targeted files, 433 ms.
 - Target file: [tests/unit/lib/document-detect.test.ts](../../../../tests/unit/lib/document-detect.test.ts) -> [src/lib/document-detect.ts](../../../../src/lib/document-detect.ts)
 
 ## Verified criteria
@@ -20,6 +20,7 @@
 
 | Run (UTC+8) | Command | Result | Duration |
 | --- | --- | --- | --- |
+| 2026-11-23 18:08:24 | `pnpm exec vitest run tests/unit/lib/document-scanner.test.ts tests/unit/lib/document-detect.test.ts` | 10 passed (targeted: 15/15 across 2 files) | 249 ms (433 ms total) |
 | 2026-11-23 17:47:38 | `pnpm exec vitest run tests/unit/lib/document-scanner.test.ts tests/unit/lib/document-detect.test.ts` | 10 passed (targeted: 14/14 across 2 files) | 278 ms (485 ms total) |
 | 2026-11-23 17:38:21 | `pnpm exec vitest run tests/unit/lib/document-detect.test.ts tests/unit/lib/document-scanner.test.ts` | 10 passed (targeted: 13/13 across 2 files) | 258 ms (452 ms total) |
 | 2026-11-23 17:10:18 | `pnpm exec vitest run tests/unit/lib/document-detect.test.ts tests/unit/lib/document-scanner.test.ts` | 9 passed (targeted: 12/12 across 2 files) | 275 ms (479 ms total) |

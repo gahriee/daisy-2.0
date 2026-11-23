@@ -189,8 +189,8 @@ function ContractCameraScanSession({
         const stream = await navigator.mediaDevices.getUserMedia({
           video: {
             facingMode: { ideal: "environment" },
-            width: { ideal: 1440 },
-            height: { ideal: 1920 },
+            width: { ideal: 2160 },
+            height: { ideal: 2880 },
           },
           audio: false,
         });
@@ -431,39 +431,98 @@ function ContractCameraScanSession({
 
     setCapturing(true);
     try {
-      const crop = computeCoverCrop(
-        video.videoWidth,
-        video.videoHeight,
-        PORTRAIT_ASPECT,
-      );
-      const canvas = document.createElement("canvas");
-      canvas.width = crop.width;
-      canvas.height = crop.height;
-      const ctx = canvas.getContext("2d");
-      if (!ctx) {
-        throw new Error("Could not capture camera frame.");
+      let blob: Blob | null = null;
+      const track = streamRef.current?.getVideoTracks()[0];
+      const ImageCaptureCtor = (
+        window as unknown as {
+          ImageCapture?: new (track: MediaStreamTrack) => {
+            takePhoto(): Promise<Blob>;
+          };
+        }
+      ).ImageCapture;
+
+      // Prefer full-resolution sensor still via ImageCapture when available.
+      if (track && typeof ImageCaptureCtor === "function") {
+        try {
+          const stillBlob = await new ImageCaptureCtor(track).takePhoto();
+          const stillBitmap = await createImageBitmap(stillBlob);
+          try {
+            const crop = computeCoverCrop(
+              stillBitmap.width,
+              stillBitmap.height,
+              PORTRAIT_ASPECT,
+            );
+            const stillCanvas = document.createElement("canvas");
+            stillCanvas.width = crop.width;
+            stillCanvas.height = crop.height;
+            const stillCtx = stillCanvas.getContext("2d");
+            if (stillCtx) {
+              stillCtx.drawImage(
+                stillBitmap,
+                crop.x,
+                crop.y,
+                crop.width,
+                crop.height,
+                0,
+                0,
+                crop.width,
+                crop.height,
+              );
+              blob = await new Promise<Blob>((resolve, reject) => {
+                stillCanvas.toBlob(
+                  (result) => {
+                    if (result) resolve(result);
+                    else reject(new Error("Could not encode still photo."));
+                  },
+                  "image/jpeg",
+                  0.94,
+                );
+              });
+            }
+          } finally {
+            stillBitmap.close();
+          }
+        } catch {
+          // Fall back cleanly to the live video frame below.
+        }
       }
-      ctx.drawImage(
-        video,
-        crop.x,
-        crop.y,
-        crop.width,
-        crop.height,
-        0,
-        0,
-        crop.width,
-        crop.height,
-      );
-      const blob = await new Promise<Blob>((resolve, reject) => {
-        canvas.toBlob(
-          (result) => {
-            if (result) resolve(result);
-            else reject(new Error("Could not save captured photo."));
-          },
-          "image/jpeg",
-          0.92,
+
+      if (!blob) {
+        const crop = computeCoverCrop(
+          video.videoWidth,
+          video.videoHeight,
+          PORTRAIT_ASPECT,
         );
-      });
+        const canvas = document.createElement("canvas");
+        canvas.width = crop.width;
+        canvas.height = crop.height;
+        const ctx = canvas.getContext("2d");
+        if (!ctx) {
+          throw new Error("Could not capture camera frame.");
+        }
+        ctx.drawImage(
+          video,
+          crop.x,
+          crop.y,
+          crop.width,
+          crop.height,
+          0,
+          0,
+          crop.width,
+          crop.height,
+        );
+        blob = await new Promise<Blob>((resolve, reject) => {
+          canvas.toBlob(
+            (result) => {
+              if (result) resolve(result);
+              else reject(new Error("Could not save captured photo."));
+            },
+            "image/jpeg",
+            0.94,
+          );
+        });
+      }
+
       const file = new File(
         [blob],
         `contract-scan-${Date.now().toString(36)}.jpg`,

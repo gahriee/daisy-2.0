@@ -111,4 +111,22 @@ describe("enhanceDocumentRgba", () => {
     // Flat background remains untouched at 200
     expect(sharpened[flatPaperIdx]).toBe(200);
   });
+
+  it("deepens faint handwritten/small printed strokes in MAGIC_WHITE instead of washing them out", () => {
+    // Shadowed paper (205) with faint pencil/pen stroke (168 — only 18% darker than paper)
+    const src = makeSolidImage(48, 36, [205, 202, 196], (x, y) => {
+      if (x >= 20 && x <= 21 && y >= 10 && y <= 24) {
+        return [168, 165, 162];
+      }
+      return null;
+    });
+
+    const out = enhanceDocumentRgba(src, 48, 36, "MAGIC_WHITE");
+    const paperIdx = (6 * 48 + 6) * 4;
+    const faintStrokeIdx = (17 * 48 + 20) * 4;
+
+    expect(out[paperIdx]).toBe(255);
+    // Faint stroke is significantly darkened below 110 instead of fading to white
+    expect(out[faintStrokeIdx]!).toBeLessThan(110);
+  });
 });
