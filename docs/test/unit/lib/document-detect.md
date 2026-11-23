@@ -1,10 +1,10 @@
 # Document boundary detection and perspective flattening (jscanify + @techstark/opencv-js)
 
 - Status: PASS
-- Last run: 2026-11-23 18:08:24 (UTC+8)
+- Last run: 2026-11-23 18:25:12 (UTC+8)
 - Runtime: Windows, Node 24.20.0, pnpm 12.18.0, Vitest 5.1.0
-- Command: `pnpm exec vitest run tests/unit/lib/document-scanner.test.ts tests/unit/lib/document-detect.test.ts`
-- Result: 10 passed here (249 ms); 15 passed, 0 failed, 0 skipped across 2 targeted files, 433 ms.
+- Command: `pnpm exec vitest run tests/unit/lib/document-detect.test.ts tests/unit/lib/document-scanner.test.ts`
+- Result: 13 passed here (275 ms); 18 passed, 0 failed, 0 skipped across 2 targeted files, 488 ms.
 - Target file: [tests/unit/lib/document-detect.test.ts](../../../../tests/unit/lib/document-detect.test.ts) -> [src/lib/document-detect.ts](../../../../src/lib/document-detect.ts)
 
 ## Verified criteria
@@ -14,12 +14,14 @@
 - `blendQuadCorners` interpolates live corner coordinates smoothly across camera frames.
 - `estimateFlattenedSize` derives upright document dimensions from the longer of opposite edges while capping the long side at `maxDimension`.
 - `warpPerspectiveRgba` uses OpenCV `cv.getPerspectiveTransform` and `cv.warpPerspective` to straighten a tilted 4-corner quadrilateral into an upright rectangular buffer while freeing WASM `cv.Mat` instances.
-- `detectDocumentQuad` combines chroma-suppressed OpenCV Otsu + morphology + convexHull + `jscanify.getCornerPoints` (with `jscanify.findPaperContour` fallback) to accurately locate all 4 corners of shadowed paper on both dark desks and bright warm wooden desks that share similar grayscale luminance, returning `null` when no valid page contour is present.
+- `detectDocumentQuad` runs `MORPH_OPEN` before `MORPH_CLOSE`, evaluates multi-threshold (`Otsu`, `Otsu + 24`, `Otsu + 44`) candidates scored by solidity (`>= 0.76`), rectangularity, and border margin (`<= 2` border corners), isolating paper accurately on dark desks, warm wooden desks, and striped plaid fabrics while rejecting full-frame false positives.
+- `DocumentQuadStabilizer` uses a 5-frame rolling median, `1.2%` jitter deadband, `11%` jump outlier hysteresis gate (3-frame confirmation), and 5-frame miss hold to lock cleanly onto steady paper outlines without flicker.
 
 ## Run History
 
 | Run (UTC+8) | Command | Result | Duration |
 | --- | --- | --- | --- |
+| 2026-11-23 18:25:12 | `pnpm exec vitest run tests/unit/lib/document-detect.test.ts tests/unit/lib/document-scanner.test.ts` | 13 passed (targeted: 18/18 across 2 files) | 275 ms (488 ms total) |
 | 2026-11-23 18:08:24 | `pnpm exec vitest run tests/unit/lib/document-scanner.test.ts tests/unit/lib/document-detect.test.ts` | 10 passed (targeted: 15/15 across 2 files) | 249 ms (433 ms total) |
 | 2026-11-23 17:47:38 | `pnpm exec vitest run tests/unit/lib/document-scanner.test.ts tests/unit/lib/document-detect.test.ts` | 10 passed (targeted: 14/14 across 2 files) | 278 ms (485 ms total) |
 | 2026-11-23 17:38:21 | `pnpm exec vitest run tests/unit/lib/document-detect.test.ts tests/unit/lib/document-scanner.test.ts` | 10 passed (targeted: 13/13 across 2 files) | 258 ms (452 ms total) |

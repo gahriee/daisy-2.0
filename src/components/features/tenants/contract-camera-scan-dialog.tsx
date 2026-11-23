@@ -17,12 +17,13 @@ import {
   type ContractScanModeValue,
 } from "@/features/tenants/schemas";
 import {
-  blendQuadCorners,
   computeCoverCrop,
   detectDocumentQuadSync,
+  DocumentQuadStabilizer,
   getLoadedJScanifyEngine,
   loadJScanifyEngine,
   type QuadCorners,
+  type StabilizerState,
 } from "@/lib/document-detect";
 import {
   flattenDocumentPhoto,
@@ -91,6 +92,8 @@ function ContractCameraScanSession({
   const [cameraError, setCameraError] = useState<string | null>(null);
   const [capturing, setCapturing] = useState(false);
   const [liveCorners, setLiveCorners] = useState<QuadCorners | null>(null);
+  const [liveDetectState, setLiveDetectState] =
+    useState<StabilizerState>("searching");
 
   const [rawSourceFile, setRawSourceFile] = useState<File | null>(null);
   const [trimmedDocFile, setTrimmedDocFile] = useState<File | null>(null);
@@ -119,8 +122,7 @@ function ContractCameraScanSession({
   const currentPreviewRef = useRef<string | null>(null);
   const enhanceGenRef = useRef(0);
   const revealTimerRef = useRef<number | null>(null);
-  const liveCornersRef = useRef<QuadCorners | null>(null);
-  const missedDetectionsRef = useRef(0);
+  const stabilizerRef = useRef(new DocumentQuadStabilizer());
 
   const activeSourceFile =
     useDocumentOnly && trimmedDocFile ? trimmedDocFile : rawSourceFile;
@@ -149,7 +151,7 @@ function ContractCameraScanSession({
     if (videoRef.current) {
       videoRef.current.srcObject = null;
     }
-    liveCornersRef.current = null;
+    stabilizerRef.current.reset();
   }, []);
 
   const clearRevealTimer = useCallback(() => {
@@ -229,10 +231,10 @@ function ContractCameraScanSession({
     };
   }, [step, cameraAttempt, stopCameraStream]);
 
-  // Periodically detect the paper document boundary inside the portrait viewfinder.
+  // Periodically detect and temporally stabilize the paper boundary inside the portrait frame.
   useEffect(() => {
     if (step !== "camera" || cameraState !== "ready") {
-      liveCornersRef.current = null;
+      stabilizerRef.current.reset();
       return;
     }
 
@@ -288,22 +290,10 @@ function ContractCameraScanSession({
         LIVE_DETECT_WIDTH,
         LIVE_DETECT_HEIGHT,
       );
-
-      if (detected) {
-        missedDetectionsRef.current = 0;
-        const blended = liveCornersRef.current
-          ? blendQuadCorners(liveCornersRef.current, detected.corners, 0.55)
-          : detected.corners;
-        liveCornersRef.current = blended;
-        setLiveCorners(blended);
-      } else {
-        missedDetectionsRef.current += 1;
-        if (missedDetectionsRef.current >= 3 && liveCornersRef.current) {
-          liveCornersRef.current = null;
-          setLiveCorners(null);
-        }
-      }
-    }, 180);
+      const stabilized = stabilizerRef.current.push(detected);
+      setLiveCorners(stabilized.corners);
+      setLiveDetectState(stabilized.state);
+    }, 160);
 
     return () => {
       window.clearInterval(timer);
@@ -378,9 +368,13 @@ function ContractCameraScanSession({
     [clearRevealTimer, trackObjectUrl],
   );
 
-  async function beginReviewFromFile(capturedFile: File) {
+  async function beginReviewFromFile(
+    capturedFile: File,
+    preferredCorners: QuadCorners | null = null,
+  ) {
     stopCameraStream();
     setLiveCorners(null);
+    setLiveDetectState("searching");
     releaseAllObjectUrls();
 
     setRawSourceFile(capturedFile);
@@ -397,6 +391,7 @@ function ContractCameraScanSession({
     try {
       const flattened = await flattenDocumentPhoto({
         sourceFile: capturedFile,
+        preferredCorners,
       });
       if (flattened) {
         setTrimmedDocFile(flattened.file);
@@ -523,12 +518,13 @@ function ContractCameraScanSession({
         });
       }
 
+      const lockedCorners = stabilizerRef.current.getLockedCorners();
       const file = new File(
         [blob],
         `contract-scan-${Date.now().toString(36)}.jpg`,
         { type: "image/jpeg" },
       );
-      await beginReviewFromFile(file);
+      await beginReviewFromFile(file, lockedCorners);
     } catch (error) {
       setCameraError(
         error instanceof Error
@@ -588,6 +584,7 @@ function ContractCameraScanSession({
     clearRevealTimer();
     releaseAllObjectUrls();
     setLiveCorners(null);
+    setLiveDetectState("searching");
     setRawSourceFile(null);
     setTrimmedDocFile(null);
     setUseDocumentOnly(true);
@@ -707,9 +704,11 @@ function ContractCameraScanSession({
                   className="pointer-events-none absolute inset-x-3 bottom-3 flex justify-center"
                 >
                   <span className="rounded-full bg-foreground/85 px-3 py-1 text-center text-xs font-medium text-surface shadow-sm">
-                    {liveCorners
-                      ? "Document detected — background will be excluded"
-                      : "Hold paper page inside the portrait frame"}
+                    {liveDetectState === "locked"
+                      ? "Document locked — ready to capture"
+                      : liveDetectState === "stabilizing"
+                        ? "Hold steady — locking onto document..."
+                        : "Hold paper page inside the portrait frame"}
                   </span>
                 </div>
               )}

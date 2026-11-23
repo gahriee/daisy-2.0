@@ -1,10 +1,10 @@
 # Document scanner Canvas RGBA enhancer
 
 - Status: PASS
-- Last run: 2026-11-23 18:08:24 (UTC+8)
+- Last run: 2026-11-23 18:25:12 (UTC+8)
 - Runtime: Windows, Node 24.20.0, pnpm 12.18.0, Vitest 5.1.0
-- Command: `pnpm exec vitest run tests/unit/lib/document-scanner.test.ts tests/unit/lib/document-detect.test.ts`
-- Result: 5 passed here (14 ms); 15 passed, 0 failed, 0 skipped across 2 targeted files, 433 ms.
+- Command: `pnpm exec vitest run tests/unit/lib/document-detect.test.ts tests/unit/lib/document-scanner.test.ts`
+- Result: 5 passed here (15 ms); 18 passed, 0 failed, 0 skipped across 2 targeted files, 488 ms.
 - Target file: [tests/unit/lib/document-scanner.test.ts](../../../../tests/unit/lib/document-scanner.test.ts) -> [src/lib/document-scanner.ts](../../../../src/lib/document-scanner.ts)
 
 ## Verified criteria
@@ -18,6 +18,7 @@
 
 | Run (UTC+8) | Command | Result | Duration |
 | --- | --- | --- | --- |
+| 2026-11-23 18:25:12 | `pnpm exec vitest run tests/unit/lib/document-detect.test.ts tests/unit/lib/document-scanner.test.ts` | 5 passed (targeted: 18/18 across 2 files) | 15 ms (488 ms total) |
 | 2026-11-23 18:08:24 | `pnpm exec vitest run tests/unit/lib/document-scanner.test.ts tests/unit/lib/document-detect.test.ts` | 5 passed (targeted: 15/15 across 2 files) | 14 ms (433 ms total) |
 | 2026-11-23 17:47:38 | `pnpm exec vitest run tests/unit/lib/document-scanner.test.ts tests/unit/lib/document-detect.test.ts` | 4 passed (targeted: 14/14 across 2 files) | 14 ms (485 ms total) |
 | 2026-11-23 17:38:21 | `pnpm exec vitest run tests/unit/lib/document-detect.test.ts tests/unit/lib/document-scanner.test.ts` | 3 passed (targeted: 13/13 across 2 files) | 11 ms (452 ms total) |

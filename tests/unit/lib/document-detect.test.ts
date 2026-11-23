@@ -2,10 +2,13 @@ import { describe, expect, it } from "vitest";
 import {
   blendQuadCorners,
   computeCoverCrop,
+  DEFAULT_DOCUMENT_DETECTOR_CONFIG,
   detectDocumentQuad,
+  DocumentQuadStabilizer,
   estimateFlattenedSize,
   loadJScanifyEngine,
   warpPerspectiveRgba,
+  type DetectedDocument,
   type Point,
   type QuadCorners,
 } from "@/lib/document-detect";
@@ -206,6 +209,34 @@ describe("detectDocumentQuad (jscanify + @techstark/opencv-js)", () => {
     });
   });
 
+  it("isolates bright white paper on a purple-and-white striped plaid bedsheet without snapping to the stripes", async () => {
+    const img = makeImage(width, height, (x, y) => {
+      const p = { x: x + 0.5, y: y + 0.5 };
+      if (isInsideConvex(p, page)) {
+        const inMargin = x > 44 && x < 112 && y > 50 && y < 160;
+        if (inMargin && y % 9 < 2) return [60, 56, 58];
+        return [220, 200, 195];
+      }
+      // Vertical light stripes on dark purple plaid fabric passing behind the paper
+      const isLightStripe = (x >= 10 && x <= 18) || (x >= 105 && x <= 114);
+      return isLightStripe ? [158, 145, 138] : [75, 64, 74];
+    });
+
+    const detected = await detectDocumentQuad(img, width, height);
+    expect(detected).not.toBeNull();
+    expect(detected!.solidity).toBeGreaterThanOrEqual(
+      DEFAULT_DOCUMENT_DETECTOR_CONFIG.minSolidity,
+    );
+    const tolerance = 0.05;
+    detected!.corners.forEach((corner, i) => {
+      expectPointNear(
+        corner,
+        { x: page[i]!.x / width, y: page[i]!.y / height },
+        tolerance,
+      );
+    });
+  });
+
   it("returns null for a plain frame with no page", async () => {
     const plain = makeImage(width, height, () => [120, 110, 100]);
     expect(await detectDocumentQuad(plain, width, height)).toBeNull();
@@ -214,5 +245,61 @@ describe("detectDocumentQuad (jscanify + @techstark/opencv-js)", () => {
   it("returns null when the frame is too small to analyse", async () => {
     const tiny = makeImage(8, 8, () => [255, 255, 255]);
     expect(await detectDocumentQuad(tiny, 8, 8)).toBeNull();
+  });
+});
+
+describe("DocumentQuadStabilizer", () => {
+  const baseQuad: QuadCorners = [
+    { x: 0.2, y: 0.15 },
+    { x: 0.8, y: 0.15 },
+    { x: 0.82, y: 0.85 },
+    { x: 0.18, y: 0.85 },
+  ];
+  const glitchQuad: QuadCorners = [
+    { x: 0.01, y: 0.01 },
+    { x: 0.99, y: 0.01 },
+    { x: 0.99, y: 0.99 },
+    { x: 0.01, y: 0.99 },
+  ];
+
+  function doc(corners: QuadCorners): DetectedDocument {
+    return { corners, coverage: 0.45, solidity: 0.95, score: 0.4 };
+  }
+
+  it("locks after consecutive stable frames, freezes micro-jitter, and rejects single-frame jumps", () => {
+    const stabilizer = new DocumentQuadStabilizer();
+
+    const r1 = stabilizer.push(doc(baseQuad));
+    expect(r1.state).toBe("stabilizing");
+
+    // Micro-jitter within deadband (< 0.012)
+    const jittered: QuadCorners = [
+      { x: 0.205, y: 0.154 },
+      { x: 0.796, y: 0.153 },
+      { x: 0.818, y: 0.848 },
+      { x: 0.184, y: 0.852 },
+    ];
+    stabilizer.push(doc(jittered));
+    const r3 = stabilizer.push(doc(baseQuad));
+    expect(r3.state).toBe("locked");
+    expect(r3.corners).toEqual(baseQuad);
+
+    // Sudden 1-frame outlier jump to screen edges is rejected completely
+    const afterGlitch = stabilizer.push(doc(glitchQuad));
+    expect(afterGlitch.state).toBe("locked");
+    expect(afterGlitch.corners).toEqual(baseQuad);
+  });
+
+  it("holds locked outline across brief misses and resets after maxMissedFrames", () => {
+    const stabilizer = new DocumentQuadStabilizer({ maxMissedFrames: 2 });
+    stabilizer.push(doc(baseQuad));
+    stabilizer.push(doc(baseQuad));
+    expect(stabilizer.push(doc(baseQuad)).state).toBe("locked");
+
+    expect(stabilizer.push(null).corners).toEqual(baseQuad);
+    expect(stabilizer.push(null).corners).toEqual(baseQuad);
+    const reset = stabilizer.push(null);
+    expect(reset.corners).toBeNull();
+    expect(reset.state).toBe("searching");
   });
 });

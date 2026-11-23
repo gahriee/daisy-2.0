@@ -11,9 +11,77 @@ export type DetectedDocument = {
   corners: QuadCorners;
   /** Fraction of the frame covered by the page. */
   coverage: number;
+  /** Ratio of actual contour area to fitted quad area (`0..1+`). */
+  solidity: number;
+  /** Composite candidate quality score used to pick the best detection. */
+  score: number;
 };
 
 export type CoverCrop = { x: number; y: number; width: number; height: number };
+
+export type DocumentDetectorConfig = {
+  /** Minimum fraction of the frame a valid document must occupy. */
+  minCoverage: number;
+  /** Maximum fraction of the frame before rejecting full-frame false positives. */
+  maxCoverage: number;
+  /** Minimum contourArea / quadArea ratio (rejects merged-stripe convex hulls). */
+  minSolidity: number;
+  /** Valid interior corner angle bounds in degrees. */
+  minCornerAngleDeg: number;
+  maxCornerAngleDeg: number;
+  /** Minimum length ratio between opposite edges. */
+  minOppositeSideRatio: number;
+  /** Normalized edge margin for counting corners pinned to outer frame edges. */
+  borderMargin: number;
+  /** Maximum corners allowed on the outer frame border before rejecting candidate. */
+  maxBorderCorners: number;
+  /** Rolling history window for per-corner median stabilization. */
+  medianWindowFrames: number;
+  /** Consecutive stable frames required to enter the locked state. */
+  lockFramesRequired: number;
+  /** Consecutive missed frames tolerated before releasing a locked outline. */
+  maxMissedFrames: number;
+  /** Corner movement below this normalized distance is frozen (0-jitter deadband). */
+  jitterDeadband: number;
+  /** Sudden jump above this normalized distance requires multi-frame confirmation. */
+  jumpGateThreshold: number;
+  /** Consecutive consistent frames required to accept a large jump. */
+  jumpConfirmFrames: number;
+  /** Low-pass EMA smoothing factor for steady tracking once locked. */
+  emaAlpha: number;
+};
+
+/**
+ * Default detection and temporal stabilization parameters modeled after
+ * standard real-time document scanners (OpenCV + WeScan / Apple Vision style
+ * multi-frame consensus, deadband, and jump hysteresis).
+ */
+export const DEFAULT_DOCUMENT_DETECTOR_CONFIG: Readonly<DocumentDetectorConfig> =
+  {
+    minCoverage: 0.14,
+    maxCoverage: 0.9,
+    minSolidity: 0.76,
+    minCornerAngleDeg: 52,
+    maxCornerAngleDeg: 128,
+    minOppositeSideRatio: 0.52,
+    borderMargin: 0.015,
+    maxBorderCorners: 2,
+    medianWindowFrames: 5,
+    lockFramesRequired: 3,
+    maxMissedFrames: 5,
+    jitterDeadband: 0.012,
+    jumpGateThreshold: 0.11,
+    jumpConfirmFrames: 3,
+    emaAlpha: 0.28,
+  };
+
+export type StabilizerState = "searching" | "stabilizing" | "locked";
+
+export type StabilizedDocumentResult = {
+  corners: QuadCorners | null;
+  state: StabilizerState;
+  stableFrames: number;
+};
 
 type OpenCvMat = {
   rows: number;
@@ -109,11 +177,6 @@ export type JScanifyEngine = {
   scanner: JScanify;
 };
 
-const MIN_COVERAGE = 0.1;
-const MAX_COVERAGE = 0.94;
-const MIN_CORNER_ANGLE = 45;
-const MAX_CORNER_ANGLE = 135;
-const MIN_OPPOSITE_SIDE_RATIO = 0.48;
 const MIN_PAPER_SCORE_CONTRAST = 20;
 const MIN_PAPER_SCORE_MEAN = 55;
 
@@ -178,6 +241,15 @@ function distance(a: Point, b: Point): number {
   return Math.hypot(a.x - b.x, a.y - b.y);
 }
 
+export function maxCornerDelta(a: QuadCorners, b: QuadCorners): number {
+  let max = 0;
+  for (let i = 0; i < 4; i++) {
+    const d = distance(a[i]!, b[i]!);
+    if (d > max) max = d;
+  }
+  return max;
+}
+
 export function polygonArea(points: readonly Point[]): number {
   let sum = 0;
   for (let i = 0; i < points.length; i++) {
@@ -205,6 +277,165 @@ export function blendQuadCorners(
     mix(previous[2], next[2]),
     mix(previous[3], next[3]),
   ];
+}
+
+function medianNumber(values: number[]): number {
+  const sorted = [...values].sort((a, b) => a - b);
+  const mid = Math.floor(sorted.length / 2);
+  return sorted.length % 2 === 1
+    ? sorted[mid]!
+    : (sorted[mid - 1]! + sorted[mid]!) / 2;
+}
+
+function medianQuadCorners(history: readonly QuadCorners[]): QuadCorners {
+  const pts: Point[] = [];
+  for (let i = 0; i < 4; i++) {
+    pts.push({
+      x: medianNumber(history.map((q) => q[i]!.x)),
+      y: medianNumber(history.map((q) => q[i]!.y)),
+    });
+  }
+  return [pts[0]!, pts[1]!, pts[2]!, pts[3]!];
+}
+
+/**
+ * Multi-frame temporal stabilizer for live camera document detection:
+ * - Rolling median filter across recent frames suppresses single-frame noise.
+ * - Jump/outlier hysteresis gate ignores sudden large jumps (e.g., transient
+ *   flicker or hand movement) until confirmed across consecutive frames.
+ * - Jitter deadband freezes tiny sub-1.2% oscillations when holding still.
+ * - Miss hysteresis holds a locked outline briefly during autofocus blur.
+ */
+export class DocumentQuadStabilizer {
+  private readonly cfg: DocumentDetectorConfig;
+  private history: QuadCorners[] = [];
+  private displayed: QuadCorners | null = null;
+  private pendingJump: QuadCorners[] = [];
+  private stableFrames = 0;
+  private missedFrames = 0;
+
+  constructor(config: Partial<DocumentDetectorConfig> = {}) {
+    this.cfg = { ...DEFAULT_DOCUMENT_DETECTOR_CONFIG, ...config };
+  }
+
+  reset(): void {
+    this.history = [];
+    this.displayed = null;
+    this.pendingJump = [];
+    this.stableFrames = 0;
+    this.missedFrames = 0;
+  }
+
+  getLockedCorners(): QuadCorners | null {
+    return this.stableFrames >= this.cfg.lockFramesRequired
+      ? this.displayed
+      : null;
+  }
+
+  push(detected: DetectedDocument | null): StabilizedDocumentResult {
+    if (!detected) {
+      this.pendingJump = [];
+      this.missedFrames += 1;
+      if (this.missedFrames > this.cfg.maxMissedFrames) {
+        this.reset();
+        return { corners: null, state: "searching", stableFrames: 0 };
+      }
+      return {
+        corners: this.displayed,
+        state:
+          this.displayed && this.stableFrames >= this.cfg.lockFramesRequired
+            ? "locked"
+            : this.displayed
+              ? "stabilizing"
+              : "searching",
+        stableFrames: this.stableFrames,
+      };
+    }
+
+    this.missedFrames = 0;
+    const incoming = detected.corners;
+
+    // Outlier / jump hysteresis gate: ignore sudden jumps unless confirmed.
+    if (this.displayed) {
+      const deltaFromDisplayed = maxCornerDelta(this.displayed, incoming);
+      if (deltaFromDisplayed > this.cfg.jumpGateThreshold) {
+        const lastJump = this.pendingJump[this.pendingJump.length - 1];
+        if (
+          lastJump &&
+          maxCornerDelta(lastJump, incoming) <= this.cfg.jumpGateThreshold
+        ) {
+          this.pendingJump.push(incoming);
+        } else {
+          this.pendingJump = [incoming];
+        }
+
+        if (this.pendingJump.length < this.cfg.jumpConfirmFrames) {
+          // Reject momentary jump and keep the stable displayed outline.
+          return {
+            corners: this.displayed,
+            state:
+              this.stableFrames >= this.cfg.lockFramesRequired
+                ? "locked"
+                : "stabilizing",
+            stableFrames: this.stableFrames,
+          };
+        }
+
+        // Confirmed deliberate camera/page movement: reset to new position.
+        const confirmed = medianQuadCorners(this.pendingJump);
+        this.history = [...this.pendingJump];
+        this.pendingJump = [];
+        this.displayed = confirmed;
+        this.stableFrames = 1;
+        return {
+          corners: this.displayed,
+          state: "stabilizing",
+          stableFrames: this.stableFrames,
+        };
+      }
+    }
+
+    this.pendingJump = [];
+    this.history.push(incoming);
+    if (this.history.length > this.cfg.medianWindowFrames) {
+      this.history.shift();
+    }
+
+    const median = medianQuadCorners(this.history);
+    if (!this.displayed) {
+      this.displayed = median;
+      this.stableFrames = 1;
+    } else {
+      const delta = maxCornerDelta(this.displayed, median);
+      if (delta <= this.cfg.jitterDeadband) {
+        // Freeze micro-jitter completely while counting toward lock.
+        this.stableFrames = Math.min(
+          this.cfg.lockFramesRequired + 4,
+          this.stableFrames + 1,
+        );
+      } else {
+        this.displayed = blendQuadCorners(
+          this.displayed,
+          median,
+          this.cfg.emaAlpha,
+        );
+        this.stableFrames =
+          delta <= this.cfg.jitterDeadband * 4
+            ? Math.min(this.cfg.lockFramesRequired + 4, this.stableFrames + 1)
+            : Math.max(1, this.stableFrames - 1);
+      }
+    }
+
+    const state: StabilizerState =
+      this.stableFrames >= this.cfg.lockFramesRequired
+        ? "locked"
+        : "stabilizing";
+    return {
+      corners: this.displayed,
+      state,
+      stableFrames: this.stableFrames,
+    };
+  }
 }
 
 /**
@@ -236,10 +467,12 @@ function cornerAngleDegrees(prev: Point, corner: Point, next: Point): number {
   return (Math.acos(cos) * 180) / Math.PI;
 }
 
-function validateDetectedQuad(
+function validateAndScoreCandidate(
   corners: JScanifyCornerPoints,
+  contourArea: number,
   width: number,
   height: number,
+  cfg: DocumentDetectorConfig = DEFAULT_DOCUMENT_DETECTOR_CONFIG,
 ): DetectedDocument | null {
   const {
     topLeftCorner: tl,
@@ -251,16 +484,24 @@ function validateDetectedQuad(
 
   const ordered: QuadCorners = [tl, tr, br, bl];
   const quadArea = polygonArea(ordered);
-  const coverage = quadArea / (width * height);
-  if (coverage < MIN_COVERAGE || coverage > MAX_COVERAGE) return null;
+  const frameArea = width * height;
+  const coverage = quadArea / frameArea;
+  if (coverage < cfg.minCoverage || coverage > cfg.maxCoverage) return null;
 
+  const solidity = contourArea / Math.max(1, quadArea);
+  if (solidity < cfg.minSolidity) return null;
+
+  let anglePenalty = 0;
   for (let i = 0; i < 4; i++) {
     const angle = cornerAngleDegrees(
       ordered[(i + 3) % 4]!,
       ordered[i]!,
       ordered[(i + 1) % 4]!,
     );
-    if (angle < MIN_CORNER_ANGLE || angle > MAX_CORNER_ANGLE) return null;
+    if (angle < cfg.minCornerAngleDeg || angle > cfg.maxCornerAngleDeg) {
+      return null;
+    }
+    anglePenalty += Math.abs(90 - angle) / 90;
   }
 
   const horizontalRatio =
@@ -270,8 +511,8 @@ function validateDetectedQuad(
     Math.min(distance(tl, bl), distance(tr, br)) /
     Math.max(distance(tl, bl), distance(tr, br), 1e-6);
   if (
-    horizontalRatio < MIN_OPPOSITE_SIDE_RATIO ||
-    verticalRatio < MIN_OPPOSITE_SIDE_RATIO
+    horizontalRatio < cfg.minOppositeSideRatio ||
+    verticalRatio < cfg.minOppositeSideRatio
   ) {
     return null;
   }
@@ -280,10 +521,56 @@ function validateDetectedQuad(
     x: Math.max(0, Math.min(1, p.x / width)),
     y: Math.max(0, Math.min(1, p.y / height)),
   });
+  const normalized: QuadCorners = [
+    normalize(tl),
+    normalize(tr),
+    normalize(br),
+    normalize(bl),
+  ];
+
+  let borderCorners = 0;
+  for (const p of normalized) {
+    if (
+      p.x <= cfg.borderMargin ||
+      p.x >= 1 - cfg.borderMargin ||
+      p.y <= cfg.borderMargin ||
+      p.y >= 1 - cfg.borderMargin
+    ) {
+      borderCorners += 1;
+    }
+  }
+  if (borderCorners > cfg.maxBorderCorners) return null;
+
+  const clampedSolidity = Math.min(1, solidity);
+  const rectScore = Math.max(0, 1 - anglePenalty / 4);
+  const borderBonus =
+    borderCorners === 0 ? 1 : borderCorners === 1 ? 0.85 : 0.7;
+  const score = coverage * clampedSolidity * rectScore * borderBonus;
+
+  let borderCorners = 0;
+  for (const p of normalized) {
+    if (
+      p.x <= cfg.borderMargin ||
+      p.x >= 1 - cfg.borderMargin ||
+      p.y <= cfg.borderMargin ||
+      p.y >= 1 - cfg.borderMargin
+    ) {
+      borderCorners += 1;
+    }
+  }
+  if (borderCorners > cfg.maxBorderCorners) return null;
+
+  const clampedSolidity = Math.min(1, solidity);
+  const rectScore = Math.max(0, 1 - anglePenalty / 4);
+  const borderBonus =
+    borderCorners === 0 ? 1 : borderCorners === 1 ? 0.85 : 0.7;
+  const score = coverage * clampedSolidity * rectScore * borderBonus;
 
   return {
-    corners: [normalize(tl), normalize(tr), normalize(br), normalize(bl)],
+    corners: normalized,
     coverage,
+    solidity: clampedSolidity,
+    score,
   };
 }
 
@@ -303,7 +590,7 @@ function buildNeutralPaperRgba(rgba: Uint8ClampedArray): Uint8ClampedArray {
     const sat = Math.max(r, g, b) - Math.min(r, g, b);
     const v = Math.max(
       0,
-      Math.min(255, Math.round(b - 1.6 * yellowWarmth - 0.35 * sat)),
+      Math.min(255, Math.round(b - 1.5 * yellowWarmth - 0.25 * sat)),
     );
     out[i] = v;
     out[i + 1] = v;
@@ -314,45 +601,51 @@ function buildNeutralPaperRgba(rgba: Uint8ClampedArray): Uint8ClampedArray {
 }
 
 /**
- * Segments the paper sheet in OpenCV using the chroma-suppressed neutrality
- * image, morphological closing/opening, convex hull, and `jscanify`'s
- * `getCornerPoints` so warm wooden desks that match the paper's grayscale
- * brightness are never merged into the document contour.
+ * Multi-threshold chroma-suppressed OpenCV + `jscanify` paper segmentation:
+ * - Applies `MORPH_OPEN` BEFORE `MORPH_CLOSE` so thin light stripes (e.g.
+ *   plaid bedsheets) are severed before closing printed text gaps.
+ * - Evaluates `[Otsu, Otsu + 24, Otsu + 44]` thresholds and scores candidates
+ *   by solidity (`contourArea / quadArea`), rectangularity, and border margin,
+ *   preventing merged background hulls from winning.
  */
-function detectByChromaSuppressedOpenCv(
+function detectByMultiThresholdOpenCv(
   engine: JScanifyEngine,
   rgba: Uint8ClampedArray,
   width: number,
   height: number,
+  cfg: DocumentDetectorConfig,
 ): DetectedDocument | null {
   const { cv, scanner } = engine;
   const neutralRgba = buildNeutralPaperRgba(rgba);
   const mat = cv.matFromImageData({ data: neutralRgba, width, height });
   const gray = new cv.Mat!();
   const blurred = new cv.Mat!();
-  const thresh = new cv.Mat!();
-  const closeSize = Math.max(3, Math.round(Math.min(width, height) / 40) | 1);
-  const openSize = Math.max(3, Math.round(Math.min(width, height) / 55) | 1);
-  const kernelClose = cv.getStructuringElement(
-    cv.MORPH_RECT,
-    new cv.Size(closeSize, closeSize),
-  );
+  const otsuMask = new cv.Mat!();
+  const minSide = Math.min(width, height);
+  const openSize = Math.max(5, Math.round(minSide / 26) | 1);
+  const closeSize = Math.max(5, Math.round(minSide / 32) | 1);
   const kernelOpen = cv.getStructuringElement(
     cv.MORPH_RECT,
     new cv.Size(openSize, openSize),
   );
-  const contours = new cv.MatVector();
-  const hierarchy = new cv.Mat!();
-  let bestContour: OpenCvMat | null = null;
-  let hull: OpenCvMat | null = null;
+  const kernelClose = cv.getStructuringElement(
+    cv.MORPH_RECT,
+    new cv.Size(closeSize, closeSize),
+  );
 
   try {
     cv.cvtColor(mat, gray, cv.COLOR_RGBA2GRAY);
     cv.GaussianBlur(gray, blurred, new cv.Size(5, 5), 0);
-    cv.threshold(blurred, thresh, 0, 255, cv.THRESH_BINARY + cv.THRESH_OTSU);
+    const otsuVal = cv.threshold(
+      blurred,
+      otsuMask,
+      0,
+      255,
+      cv.THRESH_BINARY + cv.THRESH_OTSU,
+    );
 
-    // Ensure the thresholded foreground is genuinely brighter than background.
-    const maskBytes = thresh.data;
+    // Ensure the scene actually has a bright paper region distinct from background.
+    const maskBytes = otsuMask.data;
     const scoreBytes = blurred.data;
     let fgSum = 0;
     let fgCount = 0;
@@ -376,43 +669,72 @@ function detectByChromaSuppressedOpenCv(
       return null;
     }
 
-    cv.morphologyEx(thresh, thresh, cv.MORPH_CLOSE, kernelClose);
-    cv.morphologyEx(thresh, thresh, cv.MORPH_OPEN, kernelOpen);
+    let bestDetected: DetectedDocument | null = null;
+    const offsets = [0, 24, 44];
 
-    cv.findContours(
-      thresh,
-      contours,
-      hierarchy,
-      cv.RETR_EXTERNAL,
-      cv.CHAIN_APPROX_SIMPLE,
-    );
+    for (const offset of offsets) {
+      const thresholdVal = Math.min(238, otsuVal + offset);
+      const thresh = new cv.Mat!();
+      const contours = new cv.MatVector();
+      const hierarchy = new cv.Mat!();
+      let bestContour: OpenCvMat | null = null;
+      let hull: OpenCvMat | null = null;
 
-    let maxArea = 0;
-    let maxIdx = -1;
-    for (let i = 0; i < contours.size(); i++) {
-      const candidate = contours.get(i);
-      const area = cv.contourArea(candidate);
-      candidate.delete();
-      if (area > maxArea) {
-        maxArea = area;
-        maxIdx = i;
+      try {
+        cv.threshold(blurred, thresh, thresholdVal, 255, cv.THRESH_BINARY);
+        // Open first to disconnect thin bright stripes/objects, then close text gaps.
+        cv.morphologyEx(thresh, thresh, cv.MORPH_OPEN, kernelOpen);
+        cv.morphologyEx(thresh, thresh, cv.MORPH_CLOSE, kernelClose);
+
+        cv.findContours(
+          thresh,
+          contours,
+          hierarchy,
+          cv.RETR_EXTERNAL,
+          cv.CHAIN_APPROX_SIMPLE,
+        );
+
+        let maxArea = 0;
+        let maxIdx = -1;
+        for (let i = 0; i < contours.size(); i++) {
+          const candidate = contours.get(i);
+          const area = cv.contourArea(candidate);
+          candidate.delete();
+          if (area > maxArea) {
+            maxArea = area;
+            maxIdx = i;
+          }
+        }
+        if (maxIdx < 0) continue;
+
+        bestContour = contours.get(maxIdx);
+        hull = new cv.Mat!();
+        cv.convexHull(bestContour, hull, false, true);
+        const rawCorners = scanner.getCornerPoints(hull, mat);
+        const scored = validateAndScoreCandidate(
+          rawCorners,
+          maxArea,
+          width,
+          height,
+          cfg,
+        );
+        if (scored && (!bestDetected || scored.score > bestDetected.score)) {
+          bestDetected = scored;
+        }
+      } finally {
+        if (hull) hull.delete();
+        if (bestContour) bestContour.delete();
+        hierarchy.delete();
+        contours.delete();
+        thresh.delete();
       }
     }
-    if (maxIdx < 0) return null;
 
-    bestContour = contours.get(maxIdx);
-    hull = new cv.Mat!();
-    cv.convexHull(bestContour, hull, false, true);
-    const rawCorners = scanner.getCornerPoints(hull, mat);
-    return validateDetectedQuad(rawCorners, width, height);
+    return bestDetected;
   } finally {
-    if (hull) hull.delete();
-    if (bestContour) bestContour.delete();
-    hierarchy.delete();
-    contours.delete();
-    kernelOpen.delete();
     kernelClose.delete();
-    thresh.delete();
+    kernelOpen.delete();
+    otsuMask.delete();
     blurred.delete();
     gray.delete();
     mat.delete();
@@ -421,36 +743,39 @@ function detectByChromaSuppressedOpenCv(
 
 /**
  * Synchronous paper quad detection using OpenCV + `jscanify`:
- * 1. First runs chroma-suppressed OpenCV Otsu + morphology + convexHull +
- *    `jscanify.getCornerPoints`, which accurately isolates white/shadowed paper
- *    even on bright warm wooden desks.
- * 2. Falls back to `jscanify.findPaperContour` + `getCornerPoints` for neutral
- *    backgrounds where edge contrast dominates.
+ * 1. Multi-threshold chroma-suppressed OpenCV segmentation + solidity scoring
+ *    (handles wooden desks, dark surfaces, and striped/plaid fabrics).
+ * 2. Fallback to `jscanify.findPaperContour` + `getCornerPoints` with the same
+ *    solidity and border-corner validation guards.
  */
 export function detectDocumentQuadSync(
   engine: JScanifyEngine,
   rgba: Uint8ClampedArray,
   width: number,
   height: number,
+  config: Partial<DocumentDetectorConfig> = {},
 ): DetectedDocument | null {
   const total = width * height;
   if (width < 16 || height < 16 || rgba.length < total * 4) return null;
 
-  const chromaResult = detectByChromaSuppressedOpenCv(
+  const cfg = { ...DEFAULT_DOCUMENT_DETECTOR_CONFIG, ...config };
+  const multiThresholdResult = detectByMultiThresholdOpenCv(
     engine,
     rgba,
     width,
     height,
+    cfg,
   );
-  if (chromaResult) return chromaResult;
+  if (multiThresholdResult) return multiThresholdResult;
 
   const img = engine.cv.matFromImageData({ data: rgba, width, height });
   let contour: OpenCvMat | null = null;
   try {
     contour = engine.scanner.findPaperContour(img) as OpenCvMat | null;
     if (!contour) return null;
+    const area = engine.cv.contourArea(contour);
     const rawCorners = engine.scanner.getCornerPoints(contour, img);
-    return validateDetectedQuad(rawCorners, width, height);
+    return validateAndScoreCandidate(rawCorners, area, width, height, cfg);
   } finally {
     if (contour) contour.delete();
     img.delete();
@@ -465,9 +790,10 @@ export async function detectDocumentQuad(
   rgba: Uint8ClampedArray,
   width: number,
   height: number,
+  config: Partial<DocumentDetectorConfig> = {},
 ): Promise<DetectedDocument | null> {
   const engine = await loadJScanifyEngine();
-  return detectDocumentQuadSync(engine, rgba, width, height);
+  return detectDocumentQuadSync(engine, rgba, width, height, config);
 }
 
 /**

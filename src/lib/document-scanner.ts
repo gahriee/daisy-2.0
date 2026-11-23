@@ -401,6 +401,8 @@ export type FlattenedDocumentPhoto = {
  */
 export async function flattenDocumentPhoto(params: {
   sourceFile: File;
+  /** Optional locked normalized `[0, 1]` corners from the live viewfinder stabilizer. */
+  preferredCorners?: QuadCorners | null;
   detectionMaxDimension?: number;
   sourceMaxDimension?: number;
   outputMaxDimension?: number;
@@ -412,26 +414,30 @@ export async function flattenDocumentPhoto(params: {
     const naturalH = bitmap.height;
     if (naturalW <= 0 || naturalH <= 0) return null;
 
-    const detectScale = Math.min(
-      1,
-      (params.detectionMaxDimension ?? 320) / Math.max(naturalW, naturalH),
-    );
-    const detectW = Math.max(1, Math.round(naturalW * detectScale));
-    const detectH = Math.max(1, Math.round(naturalH * detectScale));
-    const detectCanvas = document.createElement("canvas");
-    detectCanvas.width = detectW;
-    detectCanvas.height = detectH;
-    const detectCtx = detectCanvas.getContext("2d", {
-      willReadFrequently: true,
-    });
-    if (!detectCtx) return null;
-    detectCtx.drawImage(bitmap, 0, 0, detectW, detectH);
-    const detected = await detectDocumentQuad(
-      detectCtx.getImageData(0, 0, detectW, detectH).data,
-      detectW,
-      detectH,
-    );
-    if (!detected) return null;
+    let cornersToUse: QuadCorners | null = params.preferredCorners ?? null;
+    if (!cornersToUse) {
+      const detectScale = Math.min(
+        1,
+        (params.detectionMaxDimension ?? 320) / Math.max(naturalW, naturalH),
+      );
+      const detectW = Math.max(1, Math.round(naturalW * detectScale));
+      const detectH = Math.max(1, Math.round(naturalH * detectScale));
+      const detectCanvas = document.createElement("canvas");
+      detectCanvas.width = detectW;
+      detectCanvas.height = detectH;
+      const detectCtx = detectCanvas.getContext("2d", {
+        willReadFrequently: true,
+      });
+      if (!detectCtx) return null;
+      detectCtx.drawImage(bitmap, 0, 0, detectW, detectH);
+      const detected = await detectDocumentQuad(
+        detectCtx.getImageData(0, 0, detectW, detectH).data,
+        detectW,
+        detectH,
+      );
+      cornersToUse = detected?.corners ?? null;
+    }
+    if (!cornersToUse) return null;
 
     const sourceScale = Math.min(
       1,
@@ -452,14 +458,14 @@ export async function flattenDocumentPhoto(params: {
       y: p.y * srcH,
     });
     const sourceCorners: QuadCorners = [
-      toSourcePixels(detected.corners[0]),
-      toSourcePixels(detected.corners[1]),
-      toSourcePixels(detected.corners[2]),
-      toSourcePixels(detected.corners[3]),
+      toSourcePixels(cornersToUse[0]),
+      toSourcePixels(cornersToUse[1]),
+      toSourcePixels(cornersToUse[2]),
+      toSourcePixels(cornersToUse[3]),
     ];
     const size = estimateFlattenedSize(
       sourceCorners,
-      params.outputMaxDimension ?? 2000,
+      params.outputMaxDimension ?? 2200,
     );
     const warped = await warpPerspectiveRgba(
       srcData,
@@ -487,7 +493,7 @@ export async function flattenDocumentPhoto(params: {
     const baseName = params.sourceFile.name.replace(/\.[^.]+$/, "") || "page";
     return {
       file: new File([blob], `${baseName}-page.jpg`, { type: "image/jpeg" }),
-      corners: detected.corners,
+      corners: cornersToUse,
       width: size.width,
       height: size.height,
     };
