@@ -143,16 +143,19 @@ export async function runWithSyncLeader<T>(
   return runLeaseProtected();
 }
 
+const defaultFetch: FetchLike = (url, init) => globalThis.fetch(url, init);
+
 async function runBootstrapLoop(input: {
   db: DaisyOfflineDatabase;
   key: CryptoKey;
   fetchFn: FetchLike;
 }): Promise<number> {
+  const { fetchFn } = input;
   let total = 0;
   let cursor: string | undefined;
 
   for (let pageIndex = 0; pageIndex < 200; pageIndex += 1) {
-    const res = await input.fetchFn("/api/sync/bootstrap", {
+    const res = await fetchFn("/api/sync/bootstrap", {
       method: "POST",
       headers: { "content-type": "application/json" },
       body: JSON.stringify({
@@ -198,7 +201,7 @@ export async function syncOfflineWorkspace(input: {
   fetchFn?: FetchLike;
   nowMs?: number;
 }): Promise<SyncRunResult> {
-  const fetchFn = input.fetchFn ?? fetch;
+  const fetchFn: FetchLike = input.fetchFn ?? defaultFetch;
   const nowMs = input.nowMs ?? Date.now();
   const nowIso = new Date(nowMs).toISOString();
 

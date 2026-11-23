@@ -6,6 +6,7 @@ import { Alert } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
+import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import { Dialog } from "@/components/ui/dialog";
 import { Field } from "@/components/ui/field";
 import { Input } from "@/components/ui/input";
@@ -14,11 +15,13 @@ import { formatManilaDateTime } from "@/lib/dates";
 import {
   getBrowserOfflineDb,
   getVaultCustody,
+  resetOfflineVaultForNewPassphrase,
   unlockOrInitializeOfflineVault,
 } from "@/offline/client";
 import { generateVaultPassphrase } from "@/offline/crypto";
 import type { DaisyOfflineDatabase } from "@/offline/db";
 import type { OfflineEntitySyncBadge } from "@/offline/snapshot-selectors";
+import { getOfflineSyncStatus } from "@/offline/sync-engine";
 import {
   DAISY_OFFLINE_VAULT_EVENT,
   getOfflineVaultClientState,
@@ -106,6 +109,9 @@ export function VaultPassphraseForm({
   const [showPassphrase, setShowPassphrase] = useState(false);
   const [copied, setCopied] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const [resetDialogOpen, setResetDialogOpen] = useState(false);
+  const [resetUnsyncedCount, setResetUnsyncedCount] = useState(0);
+  const [resetError, setResetError] = useState<string | null>(null);
   const [busy, startBusy] = useTransition();
 
   useEffect(() => {
@@ -188,6 +194,108 @@ export function VaultPassphraseForm({
     setGeneratedPassphrase(generateVaultPassphrase());
     setCopied(false);
     setErrorMessage(null);
+  }
+
+  function handleOpenForgotDialog() {
+    setErrorMessage(null);
+    setResetError(null);
+    if (!navigator.onLine) {
+      setErrorMessage(
+        "Connect to the internet first to reset your sync password and download a fresh copy.",
+      );
+      return;
+    }
+    startBusy(async () => {
+      try {
+        const db = getBrowserOfflineDb();
+        const status = await getOfflineSyncStatus(db);
+        setResetUnsyncedCount(status.pendingCount + status.needsAttentionCount);
+      } catch {
+        setResetUnsyncedCount(0);
+      }
+      setResetDialogOpen(true);
+    });
+  }
+
+  function handleConfirmResetVault() {
+    setResetError(null);
+    startBusy(async () => {
+      try {
+        const db = getBrowserOfflineDb();
+        const custody = getVaultCustody();
+        await resetOfflineVaultForNewPassphrase({ db, custody });
+        setResetDialogOpen(false);
+        setPassphrase("");
+        setErrorMessage(null);
+        setVaultConfigured(false);
+        onConfiguredChange?.(false);
+        notifyOfflineVaultChanged();
+        setCopied(false);
+        setShowPassphrase(true);
+        setGeneratedPassphrase(generateVaultPassphrase());
+        setSetupModalOpen(true);
+        toast.info(
+          "Local copy cleared. Save your new sync password to reconnect.",
+        );
+      } catch (error) {
+        setResetError(
+          error instanceof Error
+            ? error.message
+            : "Could not clear the local copy on this browser.",
+        );
+      }
+    });
+  }
+
+  function handleOpenForgotDialog() {
+    setErrorMessage(null);
+    setResetError(null);
+    if (!navigator.onLine) {
+      setErrorMessage(
+        "Connect to the internet first to reset your sync password and download a fresh copy.",
+      );
+      return;
+    }
+    startBusy(async () => {
+      try {
+        const db = getBrowserOfflineDb();
+        const status = await getOfflineSyncStatus(db);
+        setResetUnsyncedCount(status.pendingCount + status.needsAttentionCount);
+      } catch {
+        setResetUnsyncedCount(0);
+      }
+      setResetDialogOpen(true);
+    });
+  }
+
+  function handleConfirmResetVault() {
+    setResetError(null);
+    startBusy(async () => {
+      try {
+        const db = getBrowserOfflineDb();
+        const custody = getVaultCustody();
+        await resetOfflineVaultForNewPassphrase({ db, custody });
+        setResetDialogOpen(false);
+        setPassphrase("");
+        setErrorMessage(null);
+        setVaultConfigured(false);
+        onConfiguredChange?.(false);
+        notifyOfflineVaultChanged();
+        setCopied(false);
+        setShowPassphrase(true);
+        setGeneratedPassphrase(generateVaultPassphrase());
+        setSetupModalOpen(true);
+        toast.info(
+          "Local copy cleared. Save your new sync password to reconnect.",
+        );
+      } catch (error) {
+        setResetError(
+          error instanceof Error
+            ? error.message
+            : "Could not clear the local copy on this browser.",
+        );
+      }
+    });
   }
 
   function handleSubmit(event: React.FormEvent) {
@@ -445,28 +553,60 @@ export function VaultPassphraseForm({
         )}
       </Field>
 
-      <div className="flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
-        {showCancel && onCancel && (
+      <div className="flex flex-col-reverse gap-2 sm:flex-row sm:items-center sm:justify-between">
+        <button
+          type="button"
+          disabled={busy}
+          onClick={handleOpenForgotDialog}
+          className="inline-flex min-h-11 cursor-pointer items-center justify-center text-sm font-medium text-primary underline underline-offset-2 transition-colors hover:text-primary-hover disabled:cursor-not-allowed disabled:opacity-50 sm:min-h-9 sm:justify-start"
+        >
+          Forgot sync password?
+        </button>
+
+        <div className="flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
+          {showCancel && onCancel && (
+            <Button
+              type="button"
+              variant="secondary"
+              disabled={busy}
+              onClick={onCancel}
+              className="w-full sm:w-auto"
+            >
+              Cancel
+            </Button>
+          )}
           <Button
-            type="button"
-            variant="secondary"
+            type="submit"
+            variant="primary"
+            loading={busy}
             disabled={busy}
-            onClick={onCancel}
             className="w-full sm:w-auto"
           >
-            Cancel
+            {submitUnlockLabel}
           </Button>
-        )}
-        <Button
-          type="submit"
-          variant="primary"
-          loading={busy}
-          disabled={busy}
-          className="w-full sm:w-auto"
-        >
-          {submitUnlockLabel}
-        </Button>
+        </div>
       </div>
+
+      <ConfirmDialog
+        open={resetDialogOpen}
+        onClose={() => {
+          if (!busy) {
+            setResetError(null);
+            setResetDialogOpen(false);
+          }
+        }}
+        onConfirm={handleConfirmResetVault}
+        title="Reset sync password on this browser?"
+        description={
+          resetUnsyncedCount > 0
+            ? `Warning: ${resetUnsyncedCount} unsynced ${resetUnsyncedCount === 1 ? "change" : "changes"} saved only on this browser will be removed because the old password is required to unlock them. All synced records stay safe on the server, and you can generate a new sync password right away.`
+            : "This clears the locked offline copy on this browser so you can generate a new sync password and download a fresh copy from the server. Your online records are not affected."
+        }
+        errorMessage={resetError}
+        confirmLabel="Reset & create new password"
+        confirmVariant="danger"
+        loading={busy}
+      />
     </form>
   );
 }

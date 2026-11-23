@@ -104,6 +104,8 @@ export type FetchLike = (
   init?: RequestInit,
 ) => Promise<Response>;
 
+const defaultFetch: FetchLike = (url, init) => globalThis.fetch(url, init);
+
 /**
  * Uploads any un-uploaded encrypted attachments belonging to an operation,
  * reusing `(opId, clientFileId)` upload intents and renewing expired presigned
@@ -115,7 +117,7 @@ export async function uploadQueuedAttachmentsForOp(input: {
   opId: string;
   fetchFn?: FetchLike;
 }): Promise<string[]> {
-  const fetchFn = input.fetchFn ?? fetch;
+  const fetchFn: FetchLike = input.fetchFn ?? defaultFetch;
   const rows = await input.db.attachments
     .where("opId")
     .equals(input.opId)

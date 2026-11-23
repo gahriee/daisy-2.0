@@ -14,6 +14,7 @@ import {
   getVaultCustody,
   inspectAndRequestStorageQuota,
   listDecryptedNeedsAttention,
+  listDecryptedPendingOutbox,
   listDecryptedProjections,
   type NeedsAttentionView,
   type StorageQuotaStatus,
@@ -69,6 +70,7 @@ export function OfflineSyncDialog({
   const [needsAttention, setNeedsAttention] = useState<NeedsAttentionView[]>(
     [],
   );
+  const [pendingOutbox, setPendingOutbox] = useState<NeedsAttentionView[]>([]);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [discardTarget, setDiscardTarget] = useState<NeedsAttentionView | null>(
     null,
@@ -92,16 +94,19 @@ export function OfflineSyncDialog({
 
       if (custody.isUnlocked()) {
         const key = custody.getKey();
-        const [projList, attentionList] = await Promise.all([
+        const [projList, attentionList, pendingList] = await Promise.all([
           listDecryptedProjections(db, key),
           listDecryptedNeedsAttention(db, key),
+          listDecryptedPendingOutbox(db, key),
         ]);
         setCachedCount(projList.length);
         setNeedsAttention(attentionList);
+        setPendingOutbox(pendingList);
         setUnlocked(true);
       } else {
         setCachedCount(0);
         setNeedsAttention([]);
+        setPendingOutbox([]);
         setUnlocked(false);
       }
     } catch {
@@ -176,6 +181,7 @@ export function OfflineSyncDialog({
     setUnlocked(false);
     setCachedCount(0);
     setNeedsAttention([]);
+    setPendingOutbox([]);
     notifyOfflineVaultChanged();
     toast.info("Offline copy locked for privacy.");
   }
@@ -404,6 +410,45 @@ export function OfflineSyncDialog({
                           Discard
                         </Button>
                       </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {pendingOutbox.length > 0 && (
+              <div className="grid gap-2 border-b border-border pb-4">
+                <div className="grid gap-0.5">
+                  <h3 className="flex items-center gap-2 text-sm font-semibold text-foreground">
+                    <span>Waiting to save online</span>
+                    <CountPill tone="warning">{pendingOutbox.length}</CountPill>
+                  </h3>
+                  <p className="text-xs text-muted-foreground">
+                    Saved on this device and queued to upload when you update
+                    online.
+                  </p>
+                </div>
+
+                <div className="divide-y divide-border">
+                  {pendingOutbox.map(({ record, envelope }) => (
+                    <div
+                      key={record.opId}
+                      className="flex flex-wrap items-center justify-between gap-2 py-2 first:pt-1 last:pb-0"
+                    >
+                      <div className="grid gap-0.5">
+                        <span className="text-xs font-medium text-foreground sm:text-sm">
+                          {formatOfflineOperationType(envelope.type)}
+                        </span>
+                        <span className="text-[11px] text-muted-foreground tabular-nums">
+                          Saved on this device{" "}
+                          {formatManilaDateTime(new Date(envelope.occurredAt))}
+                        </span>
+                      </div>
+                      <Badge
+                        tone={record.status === "syncing" ? "info" : "warning"}
+                      >
+                        {record.status === "syncing" ? "Saving..." : "Pending"}
+                      </Badge>
                     </div>
                   ))}
                 </div>

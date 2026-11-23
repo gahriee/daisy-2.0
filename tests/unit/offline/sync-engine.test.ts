@@ -4,7 +4,14 @@ import { IDBFactory, IDBKeyRange } from "fake-indexeddb";
 import {
   decryptJsonPayload,
   initializeVaultKeyMetadata,
+  VaultKeyCustody,
 } from "../../../src/offline/crypto";
+import {
+  listDecryptedPendingOutbox,
+  recordOnlineSessionAnchor,
+  resetOfflineVaultForNewPassphrase,
+  unlockOrInitializeOfflineVault,
+} from "../../../src/offline/client";
 import {
   DaisyOfflineDatabase,
   enqueueOfflineOperationAtomic,
@@ -309,5 +316,98 @@ describe("offline sync engine (push-before-pull, dependencies, attachments, back
       return "ok";
     });
     expect(concurrent).toEqual({ acquired: true, result: "ok" });
+  });
+
+  it("invokes default globalThis.fetch with globalThis receiver during bootstrap (prevents browser Illegal invocation)", async () => {
+    const originalFetch = globalThis.fetch;
+    const strictWindowFetch = vi.fn(function (
+      this: unknown,
+      url: string | URL | Request,
+    ) {
+      if (this !== globalThis) {
+        throw new TypeError(
+          "Failed to execute 'fetch' on 'Window': Illegal invocation",
+        );
+      }
+      if (String(url) === "/api/sync/bootstrap") {
+        return Promise.resolve(
+          new Response(
+            JSON.stringify({
+              protocolVersion: 1,
+              watermark: "2",
+              records: [],
+              hasMore: false,
+              cursor: null,
+              syncCursor: "sync-cursor-2",
+            }),
+            { status: 200 },
+          ),
+        );
+      }
+      throw new Error(`Unexpected URL ${String(url)}`);
+    });
+
+    globalThis.fetch = strictWindowFetch as typeof globalThis.fetch;
+    try {
+      const result = await syncOfflineWorkspace({
+        db,
+        key,
+        ownerToken: "leader-window",
+      });
+      expect(result.status).toBe("completed");
+      expect(strictWindowFetch).toHaveBeenCalledTimes(1);
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
+  });
+
+  it("resets encrypted local copy for a forgotten sync password while preserving trusted-device auth anchor and lists pending outbox items", async () => {
+    const custody = new VaultKeyCustody();
+    await recordOnlineSessionAnchor(db, {
+      ownerUserId: "owner-1",
+      deviceId: "device-abc",
+    });
+
+    const initial = await unlockOrInitializeOfflineVault({
+      db,
+      custody,
+      passphrase: "old-passphrase-1234",
+      isOnline: true,
+    });
+    expect(initial.initializedNew).toBe(true);
+
+    await enqueueOfflineOperationAtomic(db, custody.getKey(), {
+      opId: randomUUID(),
+      deviceId: "device-abc",
+      type: "tenant.create",
+      entityId: randomUUID(),
+      baseVersion: 0,
+      payload: { fullName: "Draft Tenant", phone: "09171234567" },
+    });
+
+    const pendingBefore = await listDecryptedPendingOutbox(
+      db,
+      custody.getKey(),
+    );
+    expect(pendingBefore).toHaveLength(1);
+    expect(pendingBefore[0]!.envelope.type).toBe("tenant.create");
+
+    await resetOfflineVaultForNewPassphrase({ db, custody });
+    expect(custody.isUnlocked()).toBe(false);
+    expect(await db.outbox.count()).toBe(0);
+    expect(await db.vaultMeta.get("crypto")).toBeUndefined();
+    const authAnchor = await db.vaultMeta.get("auth");
+    expect(authAnchor?.key === "auth" ? authAnchor.deviceId : null).toBe(
+      "device-abc",
+    );
+
+    const reinit = await unlockOrInitializeOfflineVault({
+      db,
+      custody,
+      passphrase: "new-passphrase-5678",
+      isOnline: true,
+    });
+    expect(reinit.initializedNew).toBe(true);
+    expect(custody.isUnlocked()).toBe(true);
   });
 });

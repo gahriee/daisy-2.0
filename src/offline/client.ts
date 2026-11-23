@@ -294,3 +294,58 @@ export async function listDecryptedNeedsAttention(
     })),
   );
 }
+
+export async function listDecryptedPendingOutbox(
+  db: DaisyOfflineDatabase,
+  key: CryptoKey,
+): Promise<NeedsAttentionView[]> {
+  const rows = await db.outbox
+    .where("status")
+    .anyOf(["pending", "syncing"])
+    .sortBy("localSequence");
+
+  return Promise.all(
+    rows.map(async (record) => ({
+      record,
+      envelope: await decryptJsonPayload<OutboxOperationEnvelope>(
+        key,
+        record.encryptedOperation,
+      ),
+    })),
+  );
+}
+
+/**
+ * Clears the encrypted local copy on this browser (snapshots, projections,
+ * outbox, attachments, sync locks, and crypto/sync metadata) while preserving
+ * the trusted-device auth anchor so the Owner can generate a new sync password
+ * and download a fresh copy from the server.
+ */
+export async function resetOfflineVaultForNewPassphrase(input: {
+  db: DaisyOfflineDatabase;
+  custody: VaultKeyCustody;
+}): Promise<void> {
+  input.custody.lock();
+  await input.db.transaction(
+    "rw",
+    [
+      input.db.vaultMeta,
+      input.db.snapshots,
+      input.db.projections,
+      input.db.outbox,
+      input.db.attachments,
+      input.db.syncLocks,
+    ],
+    async () => {
+      await Promise.all([
+        input.db.snapshots.clear(),
+        input.db.projections.clear(),
+        input.db.outbox.clear(),
+        input.db.attachments.clear(),
+        input.db.syncLocks.clear(),
+        input.db.vaultMeta.delete("crypto"),
+        input.db.vaultMeta.delete("sync"),
+      ]);
+    },
+  );
+}

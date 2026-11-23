@@ -547,25 +547,6 @@ function validateAndScoreCandidate(
     borderCorners === 0 ? 1 : borderCorners === 1 ? 0.85 : 0.7;
   const score = coverage * clampedSolidity * rectScore * borderBonus;
 
-  let borderCorners = 0;
-  for (const p of normalized) {
-    if (
-      p.x <= cfg.borderMargin ||
-      p.x >= 1 - cfg.borderMargin ||
-      p.y <= cfg.borderMargin ||
-      p.y >= 1 - cfg.borderMargin
-    ) {
-      borderCorners += 1;
-    }
-  }
-  if (borderCorners > cfg.maxBorderCorners) return null;
-
-  const clampedSolidity = Math.min(1, solidity);
-  const rectScore = Math.max(0, 1 - anglePenalty / 4);
-  const borderBonus =
-    borderCorners === 0 ? 1 : borderCorners === 1 ? 0.85 : 0.7;
-  const score = coverage * clampedSolidity * rectScore * borderBonus;
-
   return {
     corners: normalized,
     coverage,
