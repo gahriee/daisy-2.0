@@ -5,6 +5,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { OfflineVaultUnlockDialog } from "@/components/features/offline/offline-vault-unlock";
 import { Alert } from "@/components/ui/alert";
+import { AttachmentDropbox } from "@/components/ui/attachment-dropbox";
 import { Badge } from "@/components/ui/badge";
 import { BackLink, Button, buttonClasses } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
@@ -377,27 +378,22 @@ export function MaintenanceCreateForm({
                   Photos or quotes (optional)
                 </h2>
                 <p className="text-xs text-muted-foreground">
-                  Up to {proofMaxFilesPerRecord} file(s), max {proofMaxMb} MB
-                  each (JPG, PNG, WebP, HEIC, PDF).
+                  Up to {proofMaxFilesPerRecord} files, max {proofMaxMb} MB each
+                  (JPG, PNG, WebP, HEIC, or PDF).
                 </p>
               </div>
 
-              <Field
-                id="maint-create-files"
-                label="Select files"
-                description="Files upload directly before saving the request."
-              >
-                {(fieldProps) => (
-                  <Input
-                    {...fieldProps}
-                    type="file"
-                    multiple
-                    accept={ATTACHMENT_ACCEPT_ATTR}
-                    onChange={uploader.handleFileSelect}
-                    disabled={pending}
-                  />
-                )}
-              </Field>
+              <AttachmentDropbox
+                accept={ATTACHMENT_ACCEPT_ATTR}
+                multiple
+                disabled={
+                  pending || uploader.items.length >= proofMaxFilesPerRecord
+                }
+                title="Drop repair photos or quotes here"
+                description="Files upload right away before saving the request"
+                buttonLabel="Add attachment"
+                onFilesSelected={(files) => void uploader.addFiles(files)}
+              />
 
               {uploader.notice && (
                 <Alert tone="warning" role="status">

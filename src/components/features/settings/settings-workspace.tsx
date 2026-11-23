@@ -7,6 +7,7 @@ import {
   DeviceManagementPanel,
   type ClientDeviceSummary,
 } from "./device-management-panel";
+import { EmailSettingsPanel } from "./email-settings-panel";
 import { HouseRulesEditor } from "./house-rules-editor";
 
 const SECTION_HEADERS: Record<
@@ -37,6 +38,11 @@ const SECTION_HEADERS: Record<
     title: "Overdue SMS",
     description:
       "Semaphore account, schedule, and message for overdue rent texts.",
+  },
+  email: {
+    title: "Email",
+    description:
+      "Connect your Gmail account to send approved booking confirmation emails.",
   },
   devices: {
     title: "Trusted devices",
@@ -75,6 +81,10 @@ export function SettingsWorkspace({
       ) : section === "house_rules" ? (
         initialSettings && (
           <HouseRulesEditor initialSettings={initialSettings} />
+        )
+      ) : section === "email" ? (
+        initialSettings && (
+          <EmailSettingsPanel initialSettings={initialSettings} />
         )
       ) : (
         initialSettings && (

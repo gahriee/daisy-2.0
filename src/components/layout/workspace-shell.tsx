@@ -107,6 +107,7 @@ const SETTINGS_SECTIONS = [
   { href: "/settings/policies", label: "Billing & policies" },
   { href: "/settings/operations", label: "Stays & limits" },
   { href: "/settings/sms", label: "Overdue SMS" },
+  { href: "/settings/email", label: "Email" },
 ] as const;
 
 function getInitials(label: string): string {

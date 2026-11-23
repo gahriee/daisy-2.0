@@ -703,6 +703,12 @@ export function RoomsWorkspace({
                       <span className="text-xs text-muted-foreground">
                         {room.roomTypeName}
                       </span>
+                      {isTransient && (
+                        <span className="text-xs text-muted-foreground tabular-nums">
+                          Up to {room.capacity}{" "}
+                          {room.capacity === 1 ? "guest" : "guests"}
+                        </span>
+                      )}
                       {isTransient && room.transientTitle && (
                         <span className="text-xs text-muted-foreground">
                           {room.transientTitle}
@@ -846,12 +852,20 @@ export function RoomsWorkspace({
                         </div>
                       </TableCell>
                       <TableCell>
-                        <div className="flex flex-wrap items-center gap-1.5">
-                          <span className="text-foreground">
-                            {room.roomTypeName}
-                          </span>
-                          {room.roomTypeArchived && (
-                            <Badge tone="neutral">Archived type</Badge>
+                        <div className="grid gap-0.5">
+                          <div className="flex flex-wrap items-center gap-1.5">
+                            <span className="text-foreground">
+                              {room.roomTypeName}
+                            </span>
+                            {room.roomTypeArchived && (
+                              <Badge tone="neutral">Archived type</Badge>
+                            )}
+                          </div>
+                          {isTransient && (
+                            <span className="text-xs text-muted-foreground tabular-nums">
+                              Up to {room.capacity}{" "}
+                              {room.capacity === 1 ? "guest" : "guests"}
+                            </span>
                           )}
                         </div>
                       </TableCell>

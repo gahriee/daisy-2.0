@@ -14,13 +14,15 @@ import { PublicStayDateRangePicker } from "@/components/features/transients/publ
 import { parseHouseRulesList } from "@/features/settings/schemas";
 import { computeTransientStayTotalCentavos } from "@/features/transients/calculations";
 import {
-  buildOsmAreaSearchUrl,
+  buildGrabBookingUrl,
+  buildMapDirectionsUrl,
   buildPublicStayQueryString,
   buildRoomGallerySlides,
   formatGuestsSummary,
   formatStayTime,
   getRoomAvailabilityStatus,
   getScopeLabel,
+  hasValidMapCoordinates,
 } from "@/features/transients/public-booking-view";
 import type {
   PublicAvailabilityDto,
@@ -34,6 +36,10 @@ import { Alert } from "@/components/ui/alert";
 import { Badge, CountPill } from "@/components/ui/badge";
 import { Button, buttonClasses } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
+import {
+  GrabBookingLinkButton,
+  PropertyMapPreview,
+} from "@/components/ui/property-map-pin";
 import { diffManilaDays, formatManilaDate } from "@/lib/dates";
 import {
   formatMoneyDecimal,
@@ -617,42 +623,77 @@ export function PublicRoomDetailClient({
               </h2>
               <div
                 className={cn(
-                  "flex flex-wrap items-center justify-between gap-4 rounded-2xl p-5",
+                  "grid gap-4 rounded-2xl p-5",
                   PUBLIC_BOOKING_CARD_ELEVATED,
                 )}
               >
-                <div className="grid gap-1">
-                  <span className="text-sm font-semibold text-foreground">
-                    {availability.propertyName}
-                  </span>
-                  {availability.propertyAddress && (
-                    <span className="text-sm text-muted-foreground">
-                      {availability.propertyAddress}
+                <div className="flex flex-wrap items-center justify-between gap-4">
+                  <div className="grid gap-1">
+                    <span className="text-sm font-semibold text-foreground">
+                      {availability.propertyName}
                     </span>
-                  )}
-                  {availability.contactPhone && (
-                    <a
-                      href={`tel:${availability.contactPhone.replace(/[^+\d]/g, "")}`}
-                      className="inline-flex min-h-11 items-center text-sm font-medium text-foreground underline underline-offset-4 hover:text-primary sm:min-h-7"
-                    >
-                      Call front desk: {availability.contactPhone}
-                    </a>
-                  )}
+                    {availability.propertyAddress && (
+                      <span className="text-sm text-muted-foreground">
+                        {availability.propertyAddress}
+                      </span>
+                    )}
+                    {availability.contactPhone && (
+                      <a
+                        href={`tel:${availability.contactPhone.replace(/[^+\d]/g, "")}`}
+                        className="inline-flex min-h-11 items-center text-sm font-medium text-foreground underline underline-offset-4 hover:text-primary sm:min-h-7"
+                      >
+                        Call front desk: {availability.contactPhone}
+                      </a>
+                    )}
+                  </div>
+
+                  {(() => {
+                    const directionsUrl = buildMapDirectionsUrl({
+                      address: availability.propertyAddress,
+                      latitude: availability.propertyLatitude,
+                      longitude: availability.propertyLongitude,
+                    });
+                    const grabUrl = buildGrabBookingUrl({
+                      address: availability.propertyAddress,
+                      latitude: availability.propertyLatitude,
+                      longitude: availability.propertyLongitude,
+                      propertyName: availability.propertyName,
+                    });
+                    if (!directionsUrl && !grabUrl) return null;
+                    return (
+                      <div className="flex flex-wrap items-center gap-2">
+                        {directionsUrl && (
+                          <a
+                            href={directionsUrl}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className={buttonClasses({
+                              variant: "primary",
+                              size: "md",
+                              className: "rounded-xl",
+                            })}
+                          >
+                            Get directions
+                          </a>
+                        )}
+                        {grabUrl && (
+                          <GrabBookingLinkButton href={grabUrl} size="md" />
+                        )}
+                      </div>
+                    );
+                  })()}
                 </div>
 
-                {availability.propertyAddress && (
-                  <a
-                    href={buildOsmAreaSearchUrl(availability.propertyAddress)}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className={buttonClasses({
-                      variant: "secondary",
-                      size: "md",
-                      className: "rounded-xl",
-                    })}
-                  >
-                    See area map
-                  </a>
+                {hasValidMapCoordinates(
+                  availability.propertyLatitude,
+                  availability.propertyLongitude,
+                ) && (
+                  <PropertyMapPreview
+                    latitude={availability.propertyLatitude!}
+                    longitude={availability.propertyLongitude!}
+                    propertyName={availability.propertyName}
+                    propertyAddress={availability.propertyAddress}
+                  />
                 )}
               </div>
             </section>
@@ -826,6 +867,8 @@ export function PublicRoomDetailClient({
       <PublicBookingFooter
         propertyName={availability.propertyName}
         propertyAddress={availability.propertyAddress}
+        propertyLatitude={availability.propertyLatitude}
+        propertyLongitude={availability.propertyLongitude}
         contactPhone={availability.contactPhone}
       />
     </div>

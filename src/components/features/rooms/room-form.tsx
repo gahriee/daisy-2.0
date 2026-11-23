@@ -86,10 +86,19 @@ export function RoomForm({
   const [published, setPublished] = useState(
     room?.isTransientPublished ?? false,
   );
+  const [capacityInput, setCapacityInput] = useState(
+    String(Math.max(1, room?.capacity ?? 1)),
+  );
   if (room && room.version !== syncedRoomVersion) {
     setSyncedRoomVersion(room.version);
     setPublished(room.isTransientPublished);
+    setCapacityInput(String(Math.max(1, room.capacity)));
   }
+  const parsedCapacity = Number.parseInt(capacityInput, 10);
+  const validCapacity =
+    Number.isInteger(parsedCapacity) && parsedCapacity >= 1
+      ? parsedCapacity
+      : null;
   const [photosUploading, setPhotosUploading] = useState(false);
   const [archivePending, startArchiveTransition] = useTransition();
 
@@ -258,11 +267,6 @@ export function RoomForm({
                   />
                 </>
               )}
-              <input
-                type="hidden"
-                name="capacity"
-                value={String(Math.max(1, room?.capacity ?? 1))}
-              />
 
               <div className="grid gap-5 lg:col-span-8">
                 <Card className="grid gap-4">
@@ -320,7 +324,6 @@ export function RoomForm({
                       id="room-type"
                       label="Room type"
                       required
-                      className="sm:col-span-2"
                       error={
                         state.status === "error"
                           ? state.fieldErrors.roomTypeId
@@ -341,6 +344,37 @@ export function RoomForm({
                             </option>
                           ))}
                         </Select>
+                      )}
+                    </Field>
+
+                    <Field
+                      id="room-capacity"
+                      label={isTransient ? "Max guests" : "Max occupants"}
+                      required
+                      description={
+                        isTransient
+                          ? "Maximum guests allowed for this room on /book."
+                          : "Maximum boarders allowed in this room."
+                      }
+                      error={
+                        state.status === "error"
+                          ? state.fieldErrors.capacity
+                          : undefined
+                      }
+                    >
+                      {(fieldProps) => (
+                        <Input
+                          {...fieldProps}
+                          type="number"
+                          inputMode="numeric"
+                          name="capacity"
+                          min={1}
+                          max={50}
+                          step={1}
+                          value={capacityInput}
+                          onChange={(e) => setCapacityInput(e.target.value)}
+                          placeholder="e.g. 2"
+                        />
                       )}
                     </Field>
 
@@ -491,6 +525,24 @@ export function RoomForm({
                     <dt className="text-muted-foreground">Room type</dt>
                     <dd className="text-right font-medium text-foreground">
                       {selectedType?.name ?? "None selected"}
+                    </dd>
+                  </div>
+                  <div className="flex items-start justify-between gap-3">
+                    <dt className="text-muted-foreground">
+                      {isTransient ? "Max guests" : "Max occupants"}
+                    </dt>
+                    <dd className="text-right font-medium text-foreground tabular-nums">
+                      {validCapacity !== null
+                        ? `${validCapacity} ${
+                            isTransient
+                              ? validCapacity === 1
+                                ? "guest"
+                                : "guests"
+                              : validCapacity === 1
+                                ? "occupant"
+                                : "occupants"
+                          }`
+                        : "—"}
                     </dd>
                   </div>
                   {isTransient ? (

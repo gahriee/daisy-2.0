@@ -675,12 +675,7 @@ export function DashboardWorkspace({
             title="Today's bookings & stays"
             count={`${currentBookings.length} ${currentBookings.length === 1 ? "item" : "items"}`}
             actions={
-              <Link
-                href="/transients/stays"
-                className={buttonClasses({ variant: "secondary", size: "sm" })}
-              >
-                Transients
-              </Link>
+              <ActionLink href="/transients/stays">Transients</ActionLink>
             }
           />
           {visibleBookings.length === 0 ? (
@@ -780,14 +775,7 @@ export function DashboardWorkspace({
                 ? `${snapshot.billing.overdueInvoiceCount} overdue`
                 : `${snapshot.billing.openInvoiceCount} open`
             }
-            actions={
-              <Link
-                href="/billing"
-                className={buttonClasses({ variant: "secondary", size: "sm" })}
-              >
-                Billing
-              </Link>
-            }
+            actions={<ActionLink href="/billing">Billing</ActionLink>}
           />
           {visibleInvoices.length === 0 ? (
             <TableEmptyState

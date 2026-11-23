@@ -3,12 +3,18 @@
 import { revalidatePath } from "next/cache";
 import { AppError } from "@/lib/errors";
 import { requireOwnerUserId } from "@/server/auth/owner";
+import { getDatabase } from "@/server/db/client";
+import {
+  resolveOwnerSmtpConfig,
+  sendTestSmtpEmailSafe,
+} from "@/server/mail/booking-mailer";
+import { writeAuditEntry } from "@/server/sync/publish";
 import {
   BusinessSettingsModuleUpdateSchema,
   type BusinessSettingsDto,
   type SettingsModule,
 } from "./schemas";
-import { updateBusinessSettingsModule } from "./service";
+import { getBusinessSettings, updateBusinessSettingsModule } from "./service";
 
 export type SaveSettingsActionState =
   | { status: "idle" }
@@ -49,6 +55,13 @@ function readRequiredInt(formData: FormData, key: string): number {
   return Number.isFinite(parsed) ? parsed : Number.NaN;
 }
 
+function readNullableFloat(formData: FormData, key: string): number | null {
+  const trimmed = readString(formData, key).trim();
+  if (trimmed === "") return null;
+  const parsed = Number(trimmed);
+  return Number.isFinite(parsed) ? parsed : Number.NaN;
+}
+
 function buildModuleRawInput(formData: FormData, settingsModule: string) {
   const expectedVersion = readRequiredInt(formData, "expectedVersion");
 
@@ -60,6 +73,8 @@ function buildModuleRawInput(formData: FormData, settingsModule: string) {
         businessName: readString(formData, "businessName"),
         businessPhone: readNullableString(formData, "businessPhone"),
         businessAddress: readNullableString(formData, "businessAddress"),
+        businessLatitude: readNullableFloat(formData, "businessLatitude"),
+        businessLongitude: readNullableFloat(formData, "businessLongitude"),
         tin: readNullableString(formData, "tin"),
       };
     case "policies":
@@ -114,6 +129,20 @@ function buildModuleRawInput(formData: FormData, settingsModule: string) {
         smsSenderName: readNullableString(formData, "smsSenderName"),
         smsOverdueTemplate: readNullableString(formData, "smsOverdueTemplate"),
       };
+    case "email":
+      return {
+        module: "email",
+        expectedVersion,
+        smtpEnabled: formData.get("smtpEnabled") === "on",
+        smtpHost: readNullableString(formData, "smtpHost") ?? "smtp.gmail.com",
+        smtpPort: readNullableInt(formData, "smtpPort") ?? 587,
+        smtpSecure: formData.get("smtpSecure") === "true",
+        smtpUser: readNullableString(formData, "smtpUser"),
+        smtpPass: readNullableString(formData, "smtpPass"),
+        clearSmtpPass: formData.get("clearSmtpPass") === "on",
+        smtpFromName: readNullableString(formData, "smtpFromName"),
+        smtpFromEmail: readNullableString(formData, "smtpFromEmail"),
+      };
     default:
       return { module: settingsModule, expectedVersion };
   }
@@ -140,6 +169,10 @@ function formatSavedMessage(
       return updated.smsOverdueEnabled
         ? "Overdue SMS settings saved and enabled."
         : "Overdue SMS settings saved.";
+    case "email":
+      return updated.smtpEnabled
+        ? "Email settings saved and enabled."
+        : "Email settings saved.";
   }
 }
 
@@ -167,7 +200,8 @@ export async function saveBusinessSettingsAction(
         rawModule === "policies" ||
         rawModule === "operations" ||
         rawModule === "house_rules" ||
-        rawModule === "sms"
+        rawModule === "sms" ||
+        rawModule === "email"
           ? { module: rawModule }
           : {}),
         message: "Review the highlighted fields before saving.",
@@ -205,6 +239,90 @@ export async function saveBusinessSettingsAction(
       status: "error",
       message: "Could not save settings right now. Try again.",
       fieldErrors: {},
+    };
+  }
+}
+
+export type TestEmailActionResult =
+  { status: "sent"; message: string } | { status: "error"; message: string };
+
+export async function sendTestEmailAction(
+  recipientEmail: string,
+): Promise<TestEmailActionResult> {
+  try {
+    const ownerUserId = await requireOwnerUserId();
+    const cleaned = recipientEmail.trim().toLowerCase();
+    if (!cleaned || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(cleaned)) {
+      return {
+        status: "error",
+        message: "Enter a valid email address to receive the test email.",
+      };
+    }
+
+    const [settings, smtpConfig] = await Promise.all([
+      getBusinessSettings(ownerUserId),
+      resolveOwnerSmtpConfig(ownerUserId),
+    ]);
+
+    if (!smtpConfig) {
+      return {
+        status: "error",
+        message:
+          "Save and turn on your email server settings first before sending a test email.",
+      };
+    }
+
+    const appOrigin =
+      process.env.APP_ORIGIN?.trim().replace(/\/+$/, "") ||
+      "http://localhost:3000";
+    const outcome = await sendTestSmtpEmailSafe({
+      toEmail: cleaned,
+      propertyName: settings.businessName || "Daisy Residences",
+      propertyAddress: settings.businessAddress,
+      propertyLatitude: settings.businessLatitude,
+      propertyLongitude: settings.businessLongitude,
+      contactPhone: settings.businessPhone,
+      checkInTimeLabel: settings.checkInTimeManila ?? "2:00 PM",
+      checkOutTimeLabel: settings.checkOutTimeManila ?? "12:00 PM",
+      trackUrl: `${appOrigin}/book#track`,
+      smtpConfig,
+    });
+
+    if (outcome.status !== "sent") {
+      return {
+        status: "error",
+        message: outcome.reason,
+      };
+    }
+
+    await getDatabase().$transaction(async (tx) => {
+      await writeAuditEntry(tx, {
+        ownerUserId,
+        area: "settings",
+        action: "settings.email_test_sent",
+        actorType: "owner",
+        actorId: ownerUserId,
+        entityType: "business_settings",
+        entityId: settings.id ?? ownerUserId,
+        metadata: {
+          host: smtpConfig.host,
+          port: smtpConfig.port,
+        },
+      });
+    });
+
+    return {
+      status: "sent",
+      message: `Test email sent to ${cleaned}. Check your inbox (and spam folder).`,
+    };
+  } catch (error) {
+    if (error instanceof AppError) {
+      return { status: "error", message: error.message };
+    }
+    return {
+      status: "error",
+      message:
+        "Could not send a test email right now. Check your SMTP details.",
     };
   }
 }

@@ -1082,6 +1082,8 @@ export function PublicBookingClient({
       <EditorialBookingFooter
         propertyName={availability.propertyName}
         propertyAddress={availability.propertyAddress}
+        propertyLatitude={availability.propertyLatitude}
+        propertyLongitude={availability.propertyLongitude}
         contactPhone={availability.contactPhone}
         checkInTimeManila={availability.checkInTimeManila}
         checkOutTimeManila={availability.checkOutTimeManila}

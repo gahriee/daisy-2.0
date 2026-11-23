@@ -226,6 +226,8 @@ model BusinessSettings {
   businessName           String
   businessPhone          String?
   businessAddress        String?
+  businessLatitude       Float?
+  businessLongitude      Float?
   tin                    String?
   billingDayOfMonth      Int?
   gracePeriodDays        Int?
@@ -244,6 +246,15 @@ model BusinessSettings {
   smsApiKeyLast4         String?
   smsSenderName          String?
   smsOverdueTemplate     String?
+  smtpEnabled            Boolean            @default(false)
+  smtpHost               String?
+  smtpPort               Int?
+  smtpSecure             Boolean            @default(false)
+  smtpUser               String?
+  smtpPassEncrypted      String?
+  smtpPassLast4          String?
+  smtpFromName           String?
+  smtpFromEmail          String?
   offlineUnlockMaxDays   Int                @default(7)
   proofMaxBytes          Int                @default(5242880)
   proofMaxFilesPerRecord Int                @default(5)

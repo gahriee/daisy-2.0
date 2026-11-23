@@ -851,10 +851,67 @@ html[data-book-intro="active"] .book-intro-content {
   animation: daisy-petal-bloom 1.25s cubic-bezier(0.4, 0, 0.2, 1) infinite;
 }
 
+@keyframes daisy-scan-reveal {
+  from {
+    clip-path: inset(0 0 100% 0);
+  }
+  to {
+    clip-path: inset(0 0 0 0);
+  }
+}
+
+@keyframes daisy-scan-beam-sweep {
+  0% {
+    top: 0%;
+    opacity: 0;
+  }
+  10% {
+    opacity: 1;
+  }
+  88% {
+    opacity: 1;
+  }
+  100% {
+    top: 100%;
+    opacity: 0;
+  }
+}
+
+@keyframes daisy-scan-beam-loading {
+  0% {
+    top: 6%;
+    opacity: 0.75;
+  }
+  50% {
+    top: 90%;
+    opacity: 1;
+  }
+  100% {
+    top: 6%;
+    opacity: 0.75;
+  }
+}
+
+.daisy-scan-reveal {
+  animation: daisy-scan-reveal 650ms cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+.daisy-scan-beam-sweep {
+  animation: daisy-scan-beam-sweep 650ms cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+.daisy-scan-beam-loading {
+  animation: daisy-scan-beam-loading 1.2s ease-in-out infinite;
+}
+
 @media (prefers-reduced-motion: reduce) {
   .daisy-logo-orbit,
-  .daisy-petal-bloom {
+  .daisy-petal-bloom,
+  .daisy-scan-reveal,
+  .daisy-scan-beam-sweep,
+  .daisy-scan-beam-loading {
     animation: none !important;
+    clip-path: none !important;
     opacity: 1 !important;
   }
   .daisy-toaster[data-sonner-toaster],

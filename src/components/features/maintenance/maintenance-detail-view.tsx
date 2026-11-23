@@ -9,6 +9,7 @@ import {
   OfflineVaultUnlockDialog,
 } from "@/components/features/offline/offline-vault-unlock";
 import { Alert } from "@/components/ui/alert";
+import { AttachmentDropbox } from "@/components/ui/attachment-dropbox";
 import { Badge } from "@/components/ui/badge";
 import { BackLink, Button, buttonClasses } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
@@ -718,48 +719,43 @@ export function MaintenanceDetailView({
 
               <CompactFormScope>
                 <form onSubmit={handleUpdateSubmit} className="grid gap-3">
-                  <div className="grid gap-3 sm:grid-cols-2">
-                    <Field id="maint-update-status" label="New status">
-                      {(fieldProps) => (
-                        <Select
-                          {...fieldProps}
-                          value={statusTo}
-                          onChange={(e) =>
-                            setStatusTo(
-                              e.target.value as "" | MaintenanceStatusValue,
-                            )
-                          }
-                          disabled={pending}
-                        >
-                          <option value="">Keep current status</option>
-                          {MAINTENANCE_STATUSES.map((status) => (
-                            <option key={status} value={status}>
-                              {MAINTENANCE_STATUS_LABELS[status]}
-                            </option>
-                          ))}
-                        </Select>
-                      )}
-                    </Field>
-
-                    {remainingAttachmentSlots > 0 && (
-                      <Field
-                        id="maint-update-files"
-                        label="Add photos/files"
-                        description={`${remainingAttachmentSlots} slot(s) remaining (max ${proofMaxMb} MB)`}
+                  <Field id="maint-update-status" label="New status">
+                    {(fieldProps) => (
+                      <Select
+                        {...fieldProps}
+                        value={statusTo}
+                        onChange={(e) =>
+                          setStatusTo(
+                            e.target.value as "" | MaintenanceStatusValue,
+                          )
+                        }
+                        disabled={pending}
                       >
-                        {(fieldProps) => (
-                          <Input
-                            {...fieldProps}
-                            type="file"
-                            multiple
-                            accept={ATTACHMENT_ACCEPT_ATTR}
-                            onChange={uploader.handleFileSelect}
-                            disabled={pending}
-                          />
-                        )}
-                      </Field>
+                        <option value="">Keep current status</option>
+                        {MAINTENANCE_STATUSES.map((status) => (
+                          <option key={status} value={status}>
+                            {MAINTENANCE_STATUS_LABELS[status]}
+                          </option>
+                        ))}
+                      </Select>
                     )}
-                  </div>
+                  </Field>
+
+                  {remainingAttachmentSlots > 0 && (
+                    <AttachmentDropbox
+                      compact
+                      accept={ATTACHMENT_ACCEPT_ATTR}
+                      multiple
+                      disabled={
+                        pending ||
+                        uploader.items.length >= remainingAttachmentSlots
+                      }
+                      title="Drop update photos or files here"
+                      description={`Up to ${remainingAttachmentSlots} more ${remainingAttachmentSlots === 1 ? "file" : "files"}, max ${proofMaxMb} MB each`}
+                      buttonLabel="Add attachment"
+                      onFilesSelected={(files) => void uploader.addFiles(files)}
+                    />
+                  )}
 
                   {uploader.notice && (
                     <Alert tone="warning" role="status">

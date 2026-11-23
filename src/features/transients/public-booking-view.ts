@@ -267,6 +267,83 @@ export function filterAndSortPublicRooms(
   return [...filtered].sort((a, b) => b.capacity - a.capacity);
 }
 
+export function hasValidMapCoordinates(
+  latitude: number | null | undefined,
+  longitude: number | null | undefined,
+): boolean {
+  return (
+    typeof latitude === "number" &&
+    typeof longitude === "number" &&
+    Number.isFinite(latitude) &&
+    Number.isFinite(longitude) &&
+    latitude >= -90 &&
+    latitude <= 90 &&
+    longitude >= -180 &&
+    longitude <= 180
+  );
+}
+
+/**
+ * Builds a turn-by-turn Google Maps directions link (`google.com/maps/dir`)
+ * that automatically routes from the guest's current location to the pinned
+ * coordinates (`lat,lng`), falling back to the street address when no pin is set.
+ */
+export function buildMapDirectionsUrl(input: {
+  address?: string | null | undefined;
+  latitude?: number | null | undefined;
+  longitude?: number | null | undefined;
+}): string | null {
+  if (hasValidMapCoordinates(input.latitude, input.longitude)) {
+    const dest = `${input.latitude!.toFixed(6)},${input.longitude!.toFixed(6)}`;
+    return `https://www.google.com/maps/dir/?api=1&destination=${encodeURIComponent(dest)}`;
+  }
+  const cleanAddress = input.address?.trim() ?? "";
+  if (!cleanAddress) return null;
+  return `https://www.google.com/maps/dir/?api=1&destination=${encodeURIComponent(cleanAddress)}`;
+}
+
+/**
+ * Builds a Grab passenger ride-booking link (`grab.onelink.me`) that opens the
+ * Grab app with the property's pinned drop-off coordinates and destination name
+ * pre-filled (`grab://open?screenType=BOOKING&dropOffLatitude=...`), falling
+ * back to Grab Transport PH on desktop browsers.
+ */
+export function buildGrabBookingUrl(input: {
+  address?: string | null | undefined;
+  latitude?: number | null | undefined;
+  longitude?: number | null | undefined;
+  propertyName?: string | null | undefined;
+}): string | null {
+  const cleanAddress = input.address?.trim() ?? "";
+  const cleanName = input.propertyName?.trim() ?? "";
+  const hasCoords = hasValidMapCoordinates(input.latitude, input.longitude);
+  if (!hasCoords && !cleanAddress) return null;
+
+  const dropOffTitle =
+    cleanName && cleanAddress
+      ? `${cleanName}, ${cleanAddress}`
+      : cleanAddress || cleanName || "Pinned destination";
+
+  const deepLinkParams = new URLSearchParams({
+    screenType: "BOOKING",
+    dropOffTitle,
+  });
+  if (hasCoords) {
+    deepLinkParams.set("dropOffLatitude", input.latitude!.toFixed(6));
+    deepLinkParams.set("dropOffLongitude", input.longitude!.toFixed(6));
+  }
+
+  const grabAppUri = `grab://open?${deepLinkParams.toString()}`;
+  const oneLinkParams = new URLSearchParams({
+    pid: "website",
+    c: "direct_booking",
+    is_retargeting: "true",
+    af_dp: grabAppUri,
+    af_web_dp: "https://www.grab.com/ph/transport/",
+  });
+  return `https://grab.onelink.me/2695613898?${oneLinkParams.toString()}`;
+}
+
 export function buildOsmAreaSearchUrl(address: string): string {
   return `https://www.openstreetmap.org/search?query=${encodeURIComponent(address.trim())}`;
 }

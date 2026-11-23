@@ -327,6 +327,8 @@ export async function approveBookingRequestAction(
           select: {
             businessName: true,
             businessAddress: true,
+            businessLatitude: true,
+            businessLongitude: true,
             businessPhone: true,
             checkInTimeManila: true,
             checkOutTimeManila: true,
@@ -334,34 +336,53 @@ export async function approveBookingRequestAction(
         }),
         db.room.findFirst({
           where: { id: result.reservation.roomId, ownerUserId },
-          select: { number: true, transientTitle: true },
+          select: {
+            number: true,
+            transientTitle: true,
+            photos: {
+              where: { role: "PREVIEW" },
+              select: { id: true },
+              take: 1,
+            },
+          },
         }),
       ]);
 
       const appOrigin =
         process.env.APP_ORIGIN?.trim().replace(/\/+$/, "") ||
         "http://localhost:3000";
-      const emailOutcome = await sendBookingApprovedEmailSafe({
-        toEmail: guestEmail,
-        guestName: result.reservation.guestName,
-        referenceCode: result.request.referenceCode,
-        propertyName: settings?.businessName || "Daisy Residences",
-        propertyAddress: settings?.businessAddress ?? null,
-        contactPhone: settings?.businessPhone ?? null,
-        roomTitle:
-          roomInfo?.transientTitle?.trim() ||
-          `Room ${result.reservation.roomNumber}`,
-        scopeLabel: getScopeLabel(result.reservation.scope),
-        checkInDateManila: result.reservation.checkInDateManila,
-        checkOutDateManila: result.reservation.checkOutDateManila,
-        checkInTimeLabel: formatStayTime(settings?.checkInTimeManila ?? ""),
-        checkOutTimeLabel: formatStayTime(settings?.checkOutTimeManila ?? ""),
-        nights: result.reservation.nights,
-        partySize: result.reservation.partySize,
-        dailyRate: result.reservation.dailyRate,
-        totalAmount: result.reservation.totalAmount,
-        trackUrl: `${appOrigin}/book#track`,
-      });
+      const previewPhotoId = roomInfo?.photos?.[0]?.id ?? null;
+      const roomPhotoUrl =
+        previewPhotoId && /^https:\/\//i.test(appOrigin)
+          ? `${appOrigin}/api/public/room-photos/${previewPhotoId}`
+          : null;
+      const emailOutcome = await sendBookingApprovedEmailSafe(
+        {
+          toEmail: guestEmail,
+          guestName: result.reservation.guestName,
+          referenceCode: result.request.referenceCode,
+          propertyName: settings?.businessName || "Daisy Residences",
+          propertyAddress: settings?.businessAddress ?? null,
+          propertyLatitude: settings?.businessLatitude ?? null,
+          propertyLongitude: settings?.businessLongitude ?? null,
+          contactPhone: settings?.businessPhone ?? null,
+          roomTitle:
+            roomInfo?.transientTitle?.trim() ||
+            `Room ${result.reservation.roomNumber}`,
+          scopeLabel: getScopeLabel(result.reservation.scope),
+          roomPhotoUrl,
+          checkInDateManila: result.reservation.checkInDateManila,
+          checkOutDateManila: result.reservation.checkOutDateManila,
+          checkInTimeLabel: formatStayTime(settings?.checkInTimeManila ?? ""),
+          checkOutTimeLabel: formatStayTime(settings?.checkOutTimeManila ?? ""),
+          nights: result.reservation.nights,
+          partySize: result.reservation.partySize,
+          dailyRate: result.reservation.dailyRate,
+          totalAmount: result.reservation.totalAmount,
+          trackUrl: `${appOrigin}/book#track`,
+        },
+        { ownerUserId },
+      );
 
       if (emailOutcome.status === "sent") {
         emailNotice = " Confirmation email sent to the guest.";

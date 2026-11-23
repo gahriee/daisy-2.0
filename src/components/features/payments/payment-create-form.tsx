@@ -1,10 +1,11 @@
 "use client";
 
-import { useActionState, useEffect, useState, type ChangeEvent } from "react";
+import { useActionState, useEffect, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { OfflineVaultUnlockDialog } from "@/components/features/offline/offline-vault-unlock";
 import { Alert } from "@/components/ui/alert";
+import { AttachmentDropbox } from "@/components/ui/attachment-dropbox";
 import { Badge } from "@/components/ui/badge";
 import { BackLink, Button, buttonClasses } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
@@ -455,9 +456,7 @@ export function PaymentCreateForm({
     });
   }
 
-  async function handleFileSelect(event: ChangeEvent<HTMLInputElement>) {
-    const selected = Array.from(event.target.files ?? []);
-    event.target.value = "";
+  async function addProofFiles(selected: File[]) {
     setUploadNotice(null);
 
     if (selected.length === 0) return;
@@ -1071,36 +1070,27 @@ export function PaymentCreateForm({
                 )}
             </Card>
 
-            <Card className="grid gap-3">
-              <div className="flex flex-wrap items-center justify-between gap-2">
-                <div>
-                  <h2 className="text-base font-semibold text-foreground">
-                    Proof attachments (optional)
-                  </h2>
-                  <div className="grid gap-0.5 text-xs text-muted-foreground tabular-nums">
-                    <span>Up to {proofMaxFilesPerRecord} files</span>
-                    <span>
-                      Max {formatByteSize(proofMaxBytes)} each (JPG, PNG, WebP,
-                      HEIC, PDF)
-                    </span>
-                  </div>
-                </div>
-                <label
-                  className={buttonClasses({
-                    variant: "secondary",
-                    size: "sm",
-                  })}
-                >
-                  <span>Attach proof</span>
-                  <input
-                    type="file"
-                    className="sr-only"
-                    accept={PROOF_ALLOWED_ACCEPT_ATTR}
-                    multiple
-                    onChange={handleFileSelect}
-                  />
-                </label>
+            <Card className="grid gap-4">
+              <div className="grid gap-0.5">
+                <h2 className="text-base font-semibold text-foreground">
+                  Proof attachments (optional)
+                </h2>
+                <p className="text-xs text-muted-foreground tabular-nums">
+                  Up to {proofMaxFilesPerRecord} files, max{" "}
+                  {formatByteSize(proofMaxBytes)} each (JPG, PNG, WebP, HEIC, or
+                  PDF).
+                </p>
               </div>
+
+              <AttachmentDropbox
+                accept={PROOF_ALLOWED_ACCEPT_ATTR}
+                multiple
+                disabled={pending || proofs.length >= proofMaxFilesPerRecord}
+                title="Drop payment receipts or screenshots here"
+                description="GCash, Maya, bank transfer slips, or PDF receipts"
+                buttonLabel="Add attachment"
+                onFilesSelected={(files) => void addProofFiles(files)}
+              />
 
               {uploadNotice && (
                 <Alert tone="warning" role="status">

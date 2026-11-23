@@ -8,6 +8,10 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import { Field } from "@/components/ui/field";
 import { Input } from "@/components/ui/input";
+import {
+  PropertyAddressAutocompleteInput,
+  PropertyMapPinPicker,
+} from "@/components/ui/property-map-pin";
 import { Select } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
 import { TimePicker } from "@/components/ui/time-picker";
@@ -35,13 +39,18 @@ import {
 import { sendTestOverdueSmsAction } from "@/features/sms/actions";
 
 export type SettingsSectionKey = SettingsModule | "devices";
-type BusinessSettingsFormSection = Exclude<SettingsModule, "house_rules">;
+type BusinessSettingsFormSection = Exclude<
+  SettingsModule,
+  "house_rules" | "email"
+>;
 
 type DraftState = {
   version: number;
   businessName: string;
   businessPhone: string;
   businessAddress: string;
+  businessLatitude: string;
+  businessLongitude: string;
   tin: string;
   billingDayOfMonth: string;
   gracePeriodDays: string;
@@ -72,7 +81,14 @@ const MODULE_DRAFT_KEYS: Record<
   BusinessSettingsFormSection,
   readonly (keyof DraftState)[]
 > = {
-  profile: ["businessName", "businessPhone", "businessAddress", "tin"],
+  profile: [
+    "businessName",
+    "businessPhone",
+    "businessAddress",
+    "businessLatitude",
+    "businessLongitude",
+    "tin",
+  ],
   policies: [
     "billingDayOfMonth",
     "gracePeriodDays",
@@ -200,6 +216,14 @@ function toDraft(settings: BusinessSettingsDto): DraftState {
     businessName: settings.businessName,
     businessPhone: settings.businessPhone ?? "",
     businessAddress: settings.businessAddress ?? "",
+    businessLatitude:
+      settings.businessLatitude !== null
+        ? String(settings.businessLatitude)
+        : "",
+    businessLongitude:
+      settings.businessLongitude !== null
+        ? String(settings.businessLongitude)
+        : "",
     tin: settings.tin ?? "",
     billingDayOfMonth:
       settings.billingDayOfMonth !== null
@@ -472,27 +496,71 @@ export function BusinessSettingsForm({
               <Field
                 id="settings-business-address"
                 label="Property address"
+                description="Linked with the map pin below: typing an address moves the pin, and pinning on the map fills this address."
                 className="sm:col-span-2"
                 {...(fieldErrors.businessAddress
                   ? { error: fieldErrors.businessAddress }
                   : {})}
               >
                 {(props) => (
-                  <Textarea
+                  <PropertyAddressAutocompleteInput
                     {...props}
                     name="businessAddress"
                     value={draft.businessAddress}
-                    onChange={(event) =>
+                    onValueChange={(nextAddress) =>
                       setDraft((prev) => ({
                         ...prev,
-                        businessAddress: event.target.value,
+                        businessAddress: nextAddress,
                       }))
                     }
-                    placeholder="Street, barangay, city"
-                    className="min-h-20"
+                    onCoordinatesResolved={({ address, latitude, longitude }) =>
+                      setDraft((prev) => ({
+                        ...prev,
+                        ...(address ? { businessAddress: address } : {}),
+                        businessLatitude: String(latitude),
+                        businessLongitude: String(longitude),
+                      }))
+                    }
+                    placeholder="Start typing street, barangay, or city, or pin on the map below…"
+                    autoComplete="street-address"
                   />
                 )}
               </Field>
+
+              <input
+                type="hidden"
+                name="businessLatitude"
+                value={draft.businessLatitude}
+              />
+              <input
+                type="hidden"
+                name="businessLongitude"
+                value={draft.businessLongitude}
+              />
+              <PropertyMapPinPicker
+                latitude={
+                  draft.businessLatitude.trim() !== ""
+                    ? Number(draft.businessLatitude)
+                    : null
+                }
+                longitude={
+                  draft.businessLongitude.trim() !== ""
+                    ? Number(draft.businessLongitude)
+                    : null
+                }
+                addressQuery={draft.businessAddress}
+                onChange={({ latitude, longitude, resolvedAddress }) =>
+                  setDraft((prev) => ({
+                    ...prev,
+                    ...(resolvedAddress
+                      ? { businessAddress: resolvedAddress }
+                      : {}),
+                    businessLatitude: latitude !== null ? String(latitude) : "",
+                    businessLongitude:
+                      longitude !== null ? String(longitude) : "",
+                  }))
+                }
+              />
             </SettingsRow>
 
             <SettingsRow

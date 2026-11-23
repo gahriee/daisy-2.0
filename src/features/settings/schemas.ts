@@ -69,8 +69,21 @@ export const SETTINGS_MODULES = [
   "operations",
   "house_rules",
   "sms",
+  "email",
 ] as const;
 export type SettingsModule = (typeof SETTINGS_MODULES)[number];
+
+const latitudeSchema = z
+  .number()
+  .min(-90, "Latitude must be between -90 and 90.")
+  .max(90, "Latitude must be between -90 and 90.")
+  .nullable();
+
+const longitudeSchema = z
+  .number()
+  .min(-180, "Longitude must be between -180 and 180.")
+  .max(180, "Longitude must be between -180 and 180.")
+  .nullable();
 
 const profileFields = {
   businessName: z
@@ -80,6 +93,8 @@ const profileFields = {
     .max(120, "Keep business name under 120 characters."),
   businessPhone: optionalShortText(40),
   businessAddress: optionalShortText(240),
+  businessLatitude: latitudeSchema.optional().default(null),
+  businessLongitude: longitudeSchema.optional().default(null),
   tin: optionalShortText(40),
 };
 
@@ -253,6 +268,55 @@ export const SmsSettingsUpdateSchema = z.object({
   smsOverdueTemplate: smsOverdueTemplateSchema,
 });
 
+const optionalEmailSchema = z
+  .string()
+  .trim()
+  .max(254, "Keep email under 254 characters.")
+  .refine(
+    (val) => val === "" || /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(val),
+    "Enter a valid email address.",
+  )
+  .transform((val) => (val === "" ? null : val))
+  .nullable();
+
+const smtpHostSchema = z
+  .string()
+  .trim()
+  .max(255, "Keep mail server host under 255 characters.")
+  .refine(
+    (val) => val === "" || /^[A-Za-z0-9.-]+$/.test(val),
+    "Enter a valid mail server address (e.g. smtp.gmail.com).",
+  )
+  .transform((val) => (val === "" ? null : val))
+  .nullable();
+
+const smtpPassInputSchema = z
+  .string()
+  .trim()
+  .max(256, "App password looks too long.")
+  .transform((val) => (val === "" ? null : val))
+  .nullable()
+  .optional();
+
+export const EmailSettingsUpdateSchema = z.object({
+  module: z.literal("email"),
+  expectedVersion: z.number().int().min(0),
+  smtpEnabled: z.boolean(),
+  smtpHost: smtpHostSchema,
+  smtpPort: z
+    .number()
+    .int("Enter a whole port number.")
+    .min(1, "Port must be between 1 and 65535.")
+    .max(65535, "Port must be between 1 and 65535.")
+    .nullable(),
+  smtpSecure: z.boolean(),
+  smtpUser: optionalEmailSchema,
+  smtpPass: smtpPassInputSchema,
+  clearSmtpPass: z.boolean().default(false),
+  smtpFromName: optionalShortText(120),
+  smtpFromEmail: optionalEmailSchema,
+});
+
 export const BusinessSettingsModuleUpdateSchema = z.discriminatedUnion(
   "module",
   [
@@ -261,6 +325,7 @@ export const BusinessSettingsModuleUpdateSchema = z.discriminatedUnion(
     OperationsSettingsUpdateSchema,
     HouseRulesSettingsUpdateSchema,
     SmsSettingsUpdateSchema,
+    EmailSettingsUpdateSchema,
   ],
 );
 
@@ -285,6 +350,8 @@ export type BusinessSettingsDto = {
   businessName: string;
   businessPhone: string | null;
   businessAddress: string | null;
+  businessLatitude: number | null;
+  businessLongitude: number | null;
   tin: string | null;
   billingDayOfMonth: number | null;
   gracePeriodDays: number | null;
@@ -306,6 +373,15 @@ export type BusinessSettingsDto = {
   smsApiKeyLast4: string | null;
   smsSenderName: string | null;
   smsOverdueTemplate: string | null;
+  smtpEnabled: boolean;
+  smtpHost: string | null;
+  smtpPort: number | null;
+  smtpSecure: boolean;
+  smtpUser: string | null;
+  smtpPassConfigured: boolean;
+  smtpPassLast4: string | null;
+  smtpFromName: string | null;
+  smtpFromEmail: string | null;
   updatedAt: string | null;
   policiesComplete: boolean;
   stayScheduleComplete: boolean;

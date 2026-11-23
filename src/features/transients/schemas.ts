@@ -692,6 +692,8 @@ export type PublicPublishedRoomDto = {
 export type PublicAvailabilityDto = {
   propertyName: string;
   propertyAddress: string | null;
+  propertyLatitude: number | null;
+  propertyLongitude: number | null;
   contactPhone: string | null;
   checkInTimeManila: string;
   checkOutTimeManila: string;
@@ -748,5 +750,7 @@ export type PublicBookingStatusDto = {
   reviewedAt: string | null;
   propertyName: string;
   propertyAddress: string | null;
+  propertyLatitude: number | null;
+  propertyLongitude: number | null;
   contactPhone: string | null;
 };

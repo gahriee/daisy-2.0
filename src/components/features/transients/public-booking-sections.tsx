@@ -16,12 +16,18 @@ import {
 import { DaisyBrand } from "@/components/layout/daisy-brand";
 import { parseHouseRulesList } from "@/features/settings/schemas";
 import {
-  buildOsmAreaSearchUrl,
+  buildGrabBookingUrl,
+  buildMapDirectionsUrl,
   buildRoomGallerySlides,
   formatGuestsSummary,
   formatStayTime,
   getScopeLabel,
+  hasValidMapCoordinates,
 } from "@/features/transients/public-booking-view";
+import {
+  GrabBookingLinkButton,
+  PropertyMapPreview,
+} from "@/components/ui/property-map-pin";
 import type {
   PublicAvailabilityDto,
   PublicPublishedRoomDto,
@@ -939,6 +945,8 @@ export function HouseRulesSection({ rulesText }: HouseRulesSectionProps) {
 type EditorialBookingFooterProps = {
   propertyName: string;
   propertyAddress: string | null;
+  propertyLatitude?: number | null | undefined;
+  propertyLongitude?: number | null | undefined;
   contactPhone: string | null;
   checkInTimeManila: string;
   checkOutTimeManila: string;
@@ -951,6 +959,8 @@ type EditorialBookingFooterProps = {
 export function EditorialBookingFooter({
   propertyName,
   propertyAddress,
+  propertyLatitude,
+  propertyLongitude,
   contactPhone,
   checkInTimeManila,
   checkOutTimeManila,
@@ -959,6 +969,18 @@ export function EditorialBookingFooter({
   const currentYear = new Date().getFullYear();
   const checkInClock = formatStayTime(checkInTimeManila);
   const checkOutClock = formatStayTime(checkOutTimeManila);
+  const directionsUrl = buildMapDirectionsUrl({
+    address: propertyAddress,
+    latitude: propertyLatitude,
+    longitude: propertyLongitude,
+  });
+  const grabUrl = buildGrabBookingUrl({
+    address: propertyAddress,
+    latitude: propertyLatitude,
+    longitude: propertyLongitude,
+    propertyName,
+  });
+  const hasPin = hasValidMapCoordinates(propertyLatitude, propertyLongitude);
 
   return (
     <footer className="relative overflow-hidden border-t border-border bg-surface text-muted-foreground">
@@ -1021,19 +1043,25 @@ export function EditorialBookingFooter({
 
             <div className="grid content-start gap-3">
               <h3 className="text-sm font-semibold text-foreground">
-                Front desk
+                Location &amp; front desk
               </h3>
               <ul className="grid gap-2 text-sm">
-                {propertyAddress && (
-                  <li>
-                    <a
-                      href={buildOsmAreaSearchUrl(propertyAddress)}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="inline-flex min-h-11 items-center underline decoration-control-border underline-offset-4 transition-colors hover:text-foreground sm:min-h-8"
-                    >
-                      {propertyAddress}
-                    </a>
+                {propertyAddress && <li>{propertyAddress}</li>}
+                {(directionsUrl || grabUrl) && (
+                  <li className="flex flex-wrap items-center gap-2">
+                    {directionsUrl && (
+                      <a
+                        href={directionsUrl}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="inline-flex min-h-11 items-center rounded-lg bg-primary px-4 text-xs font-semibold text-primary-foreground transition-colors duration-(--duration-control) ease-(--ease-control) hover:bg-primary-hover"
+                      >
+                        Get directions
+                      </a>
+                    )}
+                    {grabUrl && (
+                      <GrabBookingLinkButton href={grabUrl} size="sm" />
+                    )}
                   </li>
                 )}
                 {contactPhone ? (
@@ -1051,6 +1079,17 @@ export function EditorialBookingFooter({
                   </li>
                 )}
               </ul>
+              {hasPin && (
+                <div className="pt-2">
+                  <PropertyMapPreview
+                    latitude={propertyLatitude!}
+                    longitude={propertyLongitude!}
+                    propertyName={propertyName}
+                    propertyAddress={propertyAddress}
+                    className="h-44 sm:h-48"
+                  />
+                </div>
+              )}
             </div>
           </div>
         </ScrollReveal>

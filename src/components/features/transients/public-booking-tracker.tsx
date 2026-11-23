@@ -9,7 +9,10 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Field } from "@/components/ui/field";
 import { Input } from "@/components/ui/input";
+import { GrabBookingLinkButton } from "@/components/ui/property-map-pin";
 import {
+  buildGrabBookingUrl,
+  buildMapDirectionsUrl,
   formatGuestsSummary,
   formatStayTime,
   getScopeLabel,
@@ -395,17 +398,61 @@ export function PublicBookingTracker() {
                   </div>
                 </dl>
 
-                {result.contactPhone && (
-                  <p className="mt-4 border-t border-border pt-4 text-xs text-muted-foreground">
-                    Questions about your stay? Call the front desk at{" "}
-                    <a
-                      href={`tel:${result.contactPhone.replace(/[^+\d]/g, "")}`}
-                      className="font-medium text-foreground underline underline-offset-4 hover:text-primary"
-                    >
-                      {result.contactPhone}
-                    </a>
-                    .
-                  </p>
+                {(result.contactPhone ||
+                  result.propertyAddress ||
+                  (result.propertyLatitude !== null &&
+                    result.propertyLongitude !== null)) && (
+                  <div className="mt-4 flex flex-wrap items-center justify-between gap-3 border-t border-border pt-4 text-xs text-muted-foreground">
+                    <div className="grid gap-1">
+                      {result.propertyAddress && (
+                        <span>Location: {result.propertyAddress}</span>
+                      )}
+                      {result.contactPhone && (
+                        <span>
+                          Questions about your stay? Call the front desk at{" "}
+                          <a
+                            href={`tel:${result.contactPhone.replace(/[^+\d]/g, "")}`}
+                            className="font-medium text-foreground underline underline-offset-4 hover:text-primary"
+                          >
+                            {result.contactPhone}
+                          </a>
+                          .
+                        </span>
+                      )}
+                    </div>
+
+                    {(() => {
+                      const directionsUrl = buildMapDirectionsUrl({
+                        address: result.propertyAddress,
+                        latitude: result.propertyLatitude,
+                        longitude: result.propertyLongitude,
+                      });
+                      const grabUrl = buildGrabBookingUrl({
+                        address: result.propertyAddress,
+                        latitude: result.propertyLatitude,
+                        longitude: result.propertyLongitude,
+                        propertyName: result.propertyName,
+                      });
+                      if (!directionsUrl && !grabUrl) return null;
+                      return (
+                        <div className="flex flex-wrap items-center gap-2">
+                          {directionsUrl && (
+                            <a
+                              href={directionsUrl}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className="inline-flex min-h-11 items-center rounded-xl bg-primary px-4 text-xs font-semibold text-primary-foreground transition-colors duration-(--duration-control) ease-(--ease-control) hover:bg-primary-hover"
+                            >
+                              Get directions
+                            </a>
+                          )}
+                          {grabUrl && (
+                            <GrabBookingLinkButton href={grabUrl} size="sm" />
+                          )}
+                        </div>
+                      );
+                    })()}
+                  </div>
                 )}
               </div>
             )}

@@ -205,6 +205,8 @@ export async function getPublicPublishedAvailability(
       select: {
         businessName: true,
         businessAddress: true,
+        businessLatitude: true,
+        businessLongitude: true,
         businessPhone: true,
         checkInTimeManila: true,
         checkOutTimeManila: true,
@@ -257,6 +259,8 @@ export async function getPublicPublishedAvailability(
     return {
       propertyName: settings?.businessName || "Daisy Residences",
       propertyAddress: settings?.businessAddress ?? null,
+      propertyLatitude: settings?.businessLatitude ?? null,
+      propertyLongitude: settings?.businessLongitude ?? null,
       contactPhone: settings?.businessPhone ?? null,
       checkInTimeManila: settings?.checkInTimeManila ?? "",
       checkOutTimeManila: settings?.checkOutTimeManila ?? "",
@@ -343,6 +347,8 @@ export async function getPublicPublishedAvailability(
   return {
     propertyName: settings?.businessName || "Daisy Residences",
     propertyAddress: settings?.businessAddress ?? null,
+    propertyLatitude: settings?.businessLatitude ?? null,
+    propertyLongitude: settings?.businessLongitude ?? null,
     contactPhone: settings?.businessPhone ?? null,
     checkInTimeManila,
     checkOutTimeManila,
@@ -958,6 +964,8 @@ export async function lookupPublicBookingRequestStatus(
       select: {
         businessName: true,
         businessAddress: true,
+        businessLatitude: true,
+        businessLongitude: true,
         businessPhone: true,
         checkInTimeManila: true,
         checkOutTimeManila: true,
@@ -1011,6 +1019,8 @@ export async function lookupPublicBookingRequestStatus(
     reviewedAt: request.reviewedAt ? request.reviewedAt.toISOString() : null,
     propertyName: settings?.businessName || "Daisy Residences",
     propertyAddress: settings?.businessAddress ?? null,
+    propertyLatitude: settings?.businessLatitude ?? null,
+    propertyLongitude: settings?.businessLongitude ?? null,
     contactPhone: settings?.businessPhone ?? null,
   };
 }

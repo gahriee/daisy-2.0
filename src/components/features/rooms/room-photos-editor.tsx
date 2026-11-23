@@ -4,6 +4,7 @@ import { useEffect, useMemo, useRef, useState, type ChangeEvent } from "react";
 import dynamic from "next/dynamic";
 import Image from "next/image";
 import { Alert } from "@/components/ui/alert";
+import { AttachmentDropbox } from "@/components/ui/attachment-dropbox";
 import { CountPill } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { ConfirmDialog } from "@/components/ui/confirm-dialog";
@@ -209,7 +210,6 @@ export function RoomPhotosEditor({
   const [inspectPhotoId, setInspectPhotoId] = useState<string | null>(null);
 
   const previewInputRef = useRef<HTMLInputElement | null>(null);
-  const galleryInputRef = useRef<HTMLInputElement | null>(null);
   const objectUrlsRef = useRef<Set<string>>(new Set());
   const mountedRef = useRef(true);
 
@@ -340,9 +340,7 @@ export function RoomPhotosEditor({
     }
   }
 
-  function handlePreviewFileChange(event: ChangeEvent<HTMLInputElement>) {
-    const file = event.target.files?.[0];
-    event.target.value = "";
+  function addPreviewFile(file: File | undefined) {
     if (!file) return;
     setPickerError(null);
 
@@ -370,9 +368,13 @@ export function RoomPhotosEditor({
     ]);
   }
 
-  function handleGalleryFilesChange(event: ChangeEvent<HTMLInputElement>) {
-    const picked = Array.from(event.target.files ?? []);
+  function handlePreviewFileChange(event: ChangeEvent<HTMLInputElement>) {
+    const file = event.target.files?.[0];
     event.target.value = "";
+    addPreviewFile(file);
+  }
+
+  function addGalleryFiles(picked: File[]) {
     if (picked.length === 0) return;
     setPickerError(null);
 
@@ -639,15 +641,6 @@ export function RoomPhotosEditor({
         onChange={handlePreviewFileChange}
         className="sr-only"
       />
-      <input
-        ref={galleryInputRef}
-        type="file"
-        multiple
-        accept={PHOTO_ACCEPT_ATTR}
-        disabled={disabled}
-        onChange={handleGalleryFilesChange}
-        className="sr-only"
-      />
 
       {pickerError && (
         <Alert tone="danger" role="alert">
@@ -656,29 +649,29 @@ export function RoomPhotosEditor({
       )}
 
       {/* Preview card image */}
-      <div className="grid gap-1.5">
-        <div className="flex flex-wrap items-center justify-between gap-2">
-          <div className="grid gap-0.5">
-            <span className="text-[13px] font-medium leading-4 text-foreground">
-              Preview image
-            </span>
-            <span className="text-xs leading-4 text-muted-foreground">
-              Cropped to {ROOM_PHOTO_OUTPUT_WIDTH} × {ROOM_PHOTO_OUTPUT_HEIGHT}{" "}
-              px (4:3) to match the /book room cards.
-            </span>
-          </div>
-          {!previewItem && (
-            <Button
-              type="button"
-              variant="secondary"
-              size="sm"
-              disabled={disabled}
-              onClick={() => previewInputRef.current?.click()}
-            >
-              Upload preview
-            </Button>
-          )}
+      <div className="grid gap-2">
+        <div className="grid gap-0.5">
+          <span className="text-[13px] font-medium leading-4 text-foreground">
+            Preview image
+          </span>
+          <span className="text-xs leading-4 text-muted-foreground">
+            Cropped to {ROOM_PHOTO_OUTPUT_WIDTH} × {ROOM_PHOTO_OUTPUT_HEIGHT} px
+            (4:3) to match the /book room cards.
+          </span>
         </div>
+
+        {!previewItem && (
+          <AttachmentDropbox
+            compact
+            accept={PHOTO_ACCEPT_ATTR}
+            multiple={false}
+            disabled={disabled}
+            title="Drop room cover photo here"
+            description="JPEG, PNG, or WebP, cropped to 4:3"
+            buttonLabel="Add preview photo"
+            onFilesSelected={(files) => addPreviewFile(files[0])}
+          />
+        )}
 
         {previewItem && (
           <div className="flex flex-wrap items-center gap-3 pt-1">
@@ -770,32 +763,31 @@ export function RoomPhotosEditor({
       </div>
 
       {/* Unlimited multi-shot gallery with captions */}
-      <div className="grid gap-2 border-t border-border pt-2.5">
-        <div className="flex flex-wrap items-center justify-between gap-2">
-          <div className="grid gap-0.5">
-            <span className="inline-flex items-center gap-2 text-[13px] font-medium leading-4 text-foreground tabular-nums">
-              <span>Room shots</span>
-              <CountPill>{galleryItems.length}</CountPill>
-            </span>
-            <span className="text-xs leading-4 text-muted-foreground">
-              Add as many captioned shots as needed. Each image crops to{" "}
-              {ROOM_PHOTO_OUTPUT_WIDTH} × {ROOM_PHOTO_OUTPUT_HEIGHT} px for
-              /book.{" "}
-              {galleryItems.length > 1
-                ? "Drag rows to reorder or use Up and Down."
-                : ""}
-            </span>
-          </div>
-          <Button
-            type="button"
-            variant="secondary"
-            size="sm"
-            disabled={disabled}
-            onClick={() => galleryInputRef.current?.click()}
-          >
-            Add shots
-          </Button>
+      <div className="grid gap-2.5 border-t border-border pt-3">
+        <div className="grid gap-0.5">
+          <span className="inline-flex items-center gap-2 text-[13px] font-medium leading-4 text-foreground tabular-nums">
+            <span>Room shots</span>
+            <CountPill>{galleryItems.length}</CountPill>
+          </span>
+          <span className="text-xs leading-4 text-muted-foreground">
+            Add as many captioned shots as needed. Each image crops to{" "}
+            {ROOM_PHOTO_OUTPUT_WIDTH} × {ROOM_PHOTO_OUTPUT_HEIGHT} px for /book.{" "}
+            {galleryItems.length > 1
+              ? "Drag rows to reorder or use Up and Down."
+              : ""}
+          </span>
         </div>
+
+        <AttachmentDropbox
+          compact
+          accept={PHOTO_ACCEPT_ATTR}
+          multiple
+          disabled={disabled}
+          title="Drop room gallery photos here"
+          description="Select one or more JPEG, PNG, or WebP photos"
+          buttonLabel="Add shots"
+          onFilesSelected={addGalleryFiles}
+        />
 
         {galleryItems.length > 0 && (
           <div className="divide-y divide-border border-t border-border">

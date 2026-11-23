@@ -1,5 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
+  buildGrabBookingUrl,
+  buildMapDirectionsUrl,
   buildOsmAreaSearchUrl,
   buildPublicStayQueryString,
   buildRoomGallerySlides,
@@ -253,10 +255,57 @@ describe("public booking presentation helpers", () => {
     ).toEqual(["r-booked", "r-mid", "r-cheap"]);
   });
 
-  it("builds an encoded OpenStreetMap search URL", () => {
+  it("builds an encoded OpenStreetMap search URL and Google Maps directions URLs from pin or address", () => {
     expect(buildOsmAreaSearchUrl("Session Road, Baguio City")).toBe(
       "https://www.openstreetmap.org/search?query=Session%20Road%2C%20Baguio%20City",
     );
+    expect(
+      buildMapDirectionsUrl({
+        address: "Iloilo City",
+        latitude: 10.7202,
+        longitude: 122.5621,
+      }),
+    ).toBe(
+      "https://www.google.com/maps/dir/?api=1&destination=10.720200%2C122.562100",
+    );
+    expect(
+      buildMapDirectionsUrl({
+        address: "Session Road, Baguio City",
+        latitude: null,
+        longitude: null,
+      }),
+    ).toBe(
+      "https://www.google.com/maps/dir/?api=1&destination=Session%20Road%2C%20Baguio%20City",
+    );
+    expect(
+      buildMapDirectionsUrl({
+        address: "",
+        latitude: null,
+        longitude: null,
+      }),
+    ).toBeNull();
+
+    const grabPinned = buildGrabBookingUrl({
+      propertyName: "Daisy Residences",
+      address: "Iloilo City",
+      latitude: 10.7202,
+      longitude: 122.5621,
+    });
+    expect(grabPinned).toContain("https://grab.onelink.me/2695613898?");
+    expect(decodeURIComponent(grabPinned!)).toContain(
+      "dropOffLatitude=10.720200",
+    );
+    expect(decodeURIComponent(grabPinned!)).toContain(
+      "dropOffLongitude=122.562100",
+    );
+    expect(
+      buildGrabBookingUrl({
+        propertyName: "Daisy Residences",
+        address: "",
+        latitude: null,
+        longitude: null,
+      }),
+    ).toBeNull();
   });
 
   it("computes unavailable nights for WHOLE_ROOM with half-open turnover", () => {

@@ -1,15 +1,14 @@
 "use client";
 
-import {
-  useActionState,
-  useEffect,
-  useRef,
-  useState,
-  type ChangeEvent,
-} from "react";
+import { useActionState, useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
+import {
+  ContractCameraScanDialog,
+  type ConfirmedCameraScan,
+} from "@/components/features/tenants/contract-camera-scan-dialog";
 import { Alert } from "@/components/ui/alert";
+import { AttachmentDropbox } from "@/components/ui/attachment-dropbox";
 import { Badge } from "@/components/ui/badge";
 import { BackLink, Button, buttonClasses } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
@@ -159,8 +158,8 @@ export function TenantContractForm({
     useState<ContractScanModeValue>("MAGIC_WHITE");
   const [pages, setPages] = useState<EditableContractPage[]>([]);
   const [pickerError, setPickerError] = useState<string | null>(null);
+  const [cameraDialogOpen, setCameraDialogOpen] = useState(false);
 
-  const fileInputRef = useRef<HTMLInputElement | null>(null);
   const objectUrlsRef = useRef<Set<string>>(new Set());
   const generationByLocalIdRef = useRef<Map<string, number>>(new Map());
   const mountedRef = useRef(true);
@@ -324,12 +323,8 @@ export function TenantContractForm({
     }
   }
 
-  function handleFileChange(event: ChangeEvent<HTMLInputElement>) {
-    const fileList = event.target.files;
-    if (!fileList || fileList.length === 0) return;
-
-    const files = Array.from(fileList);
-    event.target.value = "";
+  function addFilesFromList(files: File[]) {
+    if (files.length === 0) return;
     setPickerError(null);
 
     if (pages.length + files.length > CONTRACT_MAX_PAGES) {
@@ -384,6 +379,92 @@ export function TenantContractForm({
         mode: entry.filterMode,
         rotationQuarterTurns: entry.rotationQuarterTurns,
       });
+    }
+  }
+
+  async function handleCameraScanConfirmed(scan: ConfirmedCameraScan) {
+    setPickerError(null);
+    if (pages.length >= CONTRACT_MAX_PAGES) {
+      setPickerError(
+        `Attach up to ${CONTRACT_MAX_PAGES} pages per signed contract.`,
+      );
+      return;
+    }
+
+    const localId = crypto.randomUUID();
+    const nextGen = (generationByLocalIdRef.current.get(localId) ?? 0) + 1;
+    generationByLocalIdRef.current.set(localId, nextGen);
+    const previewUrl = trackObjectUrl(URL.createObjectURL(scan.processed.blob));
+
+    setPages((prev) => [
+      ...prev,
+      {
+        localId,
+        sourceFile: scan.sourceFile,
+        isPdf: false,
+        filterMode: scan.mode,
+        rotationQuarterTurns: scan.rotationQuarterTurns,
+        label: "",
+        fileName: scan.processed.fileName,
+        mimeType: scan.processed.mimeType,
+        byteSize: scan.processed.byteSize,
+        intentId: null,
+        previewObjectUrl: previewUrl,
+        status: "uploading",
+        errorMessage: null,
+      },
+    ]);
+
+    try {
+      const uploaded = await uploadContractPageBlob({
+        tenantId: tenant.id,
+        blob: scan.processed.blob,
+        fileName: scan.processed.fileName,
+        mimeType: scan.processed.mimeType,
+        sha256: scan.processed.sha256,
+      });
+
+      if (
+        !mountedRef.current ||
+        generationByLocalIdRef.current.get(localId) !== nextGen
+      ) {
+        return;
+      }
+
+      setPages((prev) =>
+        prev.map((item) =>
+          item.localId === localId
+            ? {
+                ...item,
+                intentId: uploaded.intentId,
+                status: "ready",
+                errorMessage: null,
+              }
+            : item,
+        ),
+      );
+    } catch (error) {
+      if (
+        !mountedRef.current ||
+        generationByLocalIdRef.current.get(localId) !== nextGen
+      ) {
+        return;
+      }
+      setPages((prev) =>
+        prev.map((item) =>
+          item.localId === localId
+            ? {
+                ...item,
+                intentId: null,
+                status: "error",
+                errorMessage:
+                  error instanceof Error
+                    ? error.message
+                    : "Could not upload this scanned page.",
+              }
+            : item,
+        ),
+      );
     }
   }
 
@@ -607,24 +688,28 @@ export function TenantContractForm({
                       </option>
                     ))}
                   </Select>
-                  <Button
-                    type="button"
-                    variant="secondary"
-                    onClick={() => fileInputRef.current?.click()}
-                    disabled={pending || pages.length >= CONTRACT_MAX_PAGES}
-                  >
-                    Add contract pages
-                  </Button>
                 </div>
               </div>
 
-              <input
-                ref={fileInputRef}
-                type="file"
-                multiple
+              <AttachmentDropbox
                 accept={ACCEPT_ATTR}
-                className="sr-only"
-                onChange={handleFileChange}
+                multiple
+                disabled={pending || pages.length >= CONTRACT_MAX_PAGES}
+                title="Drop signed contract photos or PDFs here"
+                description="JPEG, PNG, WebP, or PDF, up to 15 MB per file"
+                buttonLabel="Add attachment"
+                onFilesSelected={addFilesFromList}
+                secondaryAction={
+                  <Button
+                    type="button"
+                    variant="primary"
+                    size="md"
+                    onClick={() => setCameraDialogOpen(true)}
+                    disabled={pending || pages.length >= CONTRACT_MAX_PAGES}
+                  >
+                    Scan with camera
+                  </Button>
+                }
               />
 
               {pickerError && (
@@ -639,9 +724,10 @@ export function TenantContractForm({
               )}
 
               {pages.length === 0 ? (
-                <p className="border-t border-border pt-4 text-sm text-muted-foreground">
-                  No pages attached yet. Use &ldquo;Add contract pages&rdquo; to
-                  take or select photos of the signed contract or attach a PDF.
+                <p className="text-sm text-muted-foreground">
+                  No pages attached yet. Drop files above, click &ldquo;Add
+                  attachment&rdquo;, or use &ldquo;Scan with camera&rdquo; to
+                  capture and enhance a paper page.
                 </p>
               ) : (
                 <div className="divide-y divide-border border-t border-border">
@@ -914,6 +1000,13 @@ export function TenantContractForm({
           </div>
         </form>
       </CompactFormScope>
+
+      <ContractCameraScanDialog
+        open={cameraDialogOpen}
+        initialMode={defaultFilterMode}
+        onClose={() => setCameraDialogOpen(false)}
+        onConfirm={(scan) => void handleCameraScanConfirmed(scan)}
+      />
     </div>
   );
 }

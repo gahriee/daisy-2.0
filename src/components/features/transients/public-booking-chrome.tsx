@@ -1,7 +1,10 @@
 import Link from "next/link";
 import { DaisyBrand } from "@/components/layout/daisy-brand";
 import { BackLink } from "@/components/ui/button";
-import { buildOsmAreaSearchUrl } from "@/features/transients/public-booking-view";
+import {
+  buildGrabBookingUrl,
+  buildMapDirectionsUrl,
+} from "@/features/transients/public-booking-view";
 
 /**
  * Shared warm-charcoal multi-layered elevation recipes for `/book` cards so
@@ -91,6 +94,8 @@ export function PublicBookingBackLink({
 type PublicBookingFooterProps = {
   propertyName: string;
   propertyAddress: string | null;
+  propertyLatitude?: number | null | undefined;
+  propertyLongitude?: number | null | undefined;
   contactPhone: string | null;
   heroPhotoCredit?: string | undefined;
 };
@@ -102,10 +107,23 @@ type PublicBookingFooterProps = {
 export function PublicBookingFooter({
   propertyName,
   propertyAddress,
+  propertyLatitude,
+  propertyLongitude,
   contactPhone,
   heroPhotoCredit,
 }: PublicBookingFooterProps) {
   const currentYear = new Date().getFullYear();
+  const directionsUrl = buildMapDirectionsUrl({
+    address: propertyAddress,
+    latitude: propertyLatitude,
+    longitude: propertyLongitude,
+  });
+  const grabUrl = buildGrabBookingUrl({
+    address: propertyAddress,
+    latitude: propertyLatitude,
+    longitude: propertyLongitude,
+    propertyName,
+  });
 
   return (
     <footer className="border-t border-border bg-surface">
@@ -114,14 +132,33 @@ export function PublicBookingFooter({
           <span className="font-semibold text-foreground">
             &copy; {currentYear} {propertyName}
           </span>
-          {propertyAddress && (
+          {propertyAddress && <span>{propertyAddress}</span>}
+          {directionsUrl && (
             <a
-              href={buildOsmAreaSearchUrl(propertyAddress)}
+              href={directionsUrl}
               target="_blank"
               rel="noopener noreferrer"
-              className="inline-flex min-h-11 items-center underline underline-offset-4 hover:text-foreground sm:min-h-8"
+              className="inline-flex min-h-11 items-center font-medium text-primary underline underline-offset-4 hover:text-primary-hover sm:min-h-8"
             >
-              {propertyAddress}
+              Get directions
+            </a>
+          )}
+          {grabUrl && (
+            <a
+              href={grabUrl}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="inline-flex min-h-11 items-center gap-1.5 font-semibold text-[#00b14f] underline underline-offset-4 hover:text-[#009944] sm:min-h-8"
+            >
+              <svg
+                aria-hidden="true"
+                viewBox="0 0 20 20"
+                fill="currentColor"
+                className="size-3.5 shrink-0"
+              >
+                <path d="M5.6 3.5A2.2 2.2 0 0 0 3.52 5l-1.15 3.46A2.25 2.25 0 0 0 1.5 10.2v4.05c0 .69.56 1.25 1.25 1.25h.75v1a1.25 1.25 0 1 0 2.5 0v-1h8v1a1.25 1.25 0 1 0 2.5 0v-1h.75c.69 0 1.25-.56 1.25-1.25V10.2c0-.76-.38-1.44-.87-1.74L16.48 5A2.2 2.2 0 0 0 14.4 3.5H5.6Zm-.62 2.02a.75.75 0 0 1 .71-.52h8.62c.32 0 .61.21.71.52l.95 2.86H4.03l.95-2.86ZM5 12.25a1.25 1.25 0 1 1 0-2.5 1.25 1.25 0 0 1 0 2.5Zm10 0a1.25 1.25 0 1 1 0-2.5 1.25 1.25 0 0 1 0 2.5Z" />
+              </svg>
+              <span>Book Grab</span>
             </a>
           )}
           {contactPhone && (

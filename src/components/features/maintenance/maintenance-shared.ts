@@ -87,14 +87,11 @@ export function useAttachmentUploader(params: {
   const [items, setItems] = useState<UploadedAttachmentItem[]>([]);
   const [notice, setNotice] = useState<string | null>(null);
 
-  async function handleFileSelect(event: ChangeEvent<HTMLInputElement>) {
-    const fileList = event.target.files;
-    event.target.value = "";
-    if (!fileList || fileList.length === 0) return;
+  async function addFiles(files: File[]) {
+    if (files.length === 0) return;
     setNotice(null);
 
     const maxBytes = params.maxMb * 1024 * 1024;
-    const files = Array.from(fileList);
     if (items.length + files.length > params.remainingSlots) {
       setNotice(
         `Maximum of ${params.remainingSlots} additional attachment(s) allowed on this request.`,
@@ -236,6 +233,13 @@ export function useAttachmentUploader(params: {
     }
   }
 
+  async function handleFileSelect(event: ChangeEvent<HTMLInputElement>) {
+    const fileList = event.target.files;
+    event.target.value = "";
+    if (!fileList || fileList.length === 0) return;
+    await addFiles(Array.from(fileList));
+  }
+
   function removeItem(localId: string) {
     setItems((prev) => prev.filter((item) => item.localId !== localId));
   }
@@ -261,6 +265,7 @@ export function useAttachmentUploader(params: {
     readyIntentIds,
     queuedAttachments,
     readyCount,
+    addFiles,
     handleFileSelect,
     removeItem,
     reset,

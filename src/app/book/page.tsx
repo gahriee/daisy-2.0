@@ -33,6 +33,8 @@ export default async function PublicBookPage({
   let initialAvailability: PublicAvailabilityDto = {
     propertyName: "Daisy Residences",
     propertyAddress: null,
+    propertyLatitude: null,
+    propertyLongitude: null,
     contactPhone: null,
     checkInTimeManila: "",
     checkOutTimeManila: "",

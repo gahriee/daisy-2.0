@@ -28,6 +28,8 @@ const SETTINGS_SELECT = {
   businessName: true,
   businessPhone: true,
   businessAddress: true,
+  businessLatitude: true,
+  businessLongitude: true,
   tin: true,
   billingDayOfMonth: true,
   gracePeriodDays: true,
@@ -46,6 +48,15 @@ const SETTINGS_SELECT = {
   smsApiKeyLast4: true,
   smsSenderName: true,
   smsOverdueTemplate: true,
+  smtpEnabled: true,
+  smtpHost: true,
+  smtpPort: true,
+  smtpSecure: true,
+  smtpUser: true,
+  smtpPassEncrypted: true,
+  smtpPassLast4: true,
+  smtpFromName: true,
+  smtpFromEmail: true,
   offlineUnlockMaxDays: true,
   proofMaxBytes: true,
   proofMaxFilesPerRecord: true,
@@ -59,6 +70,8 @@ const INITIAL_CREATE_DEFAULTS: Omit<
   businessName: "",
   businessPhone: null,
   businessAddress: null,
+  businessLatitude: null,
+  businessLongitude: null,
   tin: null,
   billingDayOfMonth: null,
   gracePeriodDays: null,
@@ -77,6 +90,15 @@ const INITIAL_CREATE_DEFAULTS: Omit<
   smsApiKeyLast4: null,
   smsSenderName: null,
   smsOverdueTemplate: null,
+  smtpEnabled: false,
+  smtpHost: null,
+  smtpPort: null,
+  smtpSecure: false,
+  smtpUser: null,
+  smtpPassEncrypted: null,
+  smtpPassLast4: null,
+  smtpFromName: null,
+  smtpFromEmail: null,
   offlineUnlockMaxDays: 7,
   proofMaxBytes: 5 * BYTES_PER_MB,
   proofMaxFilesPerRecord: 5,
@@ -88,6 +110,8 @@ function toSettingsDto(row: {
   businessName: string;
   businessPhone: string | null;
   businessAddress: string | null;
+  businessLatitude: number | null;
+  businessLongitude: number | null;
   tin: string | null;
   billingDayOfMonth: number | null;
   gracePeriodDays: number | null;
@@ -106,6 +130,15 @@ function toSettingsDto(row: {
   smsApiKeyLast4: string | null;
   smsSenderName: string | null;
   smsOverdueTemplate: string | null;
+  smtpEnabled: boolean;
+  smtpHost: string | null;
+  smtpPort: number | null;
+  smtpSecure: boolean;
+  smtpUser: string | null;
+  smtpPassEncrypted: string | null;
+  smtpPassLast4: string | null;
+  smtpFromName: string | null;
+  smtpFromEmail: string | null;
   offlineUnlockMaxDays: number;
   proofMaxBytes: number;
   proofMaxFilesPerRecord: number;
@@ -117,6 +150,8 @@ function toSettingsDto(row: {
     businessName: row.businessName,
     businessPhone: row.businessPhone,
     businessAddress: row.businessAddress,
+    businessLatitude: row.businessLatitude,
+    businessLongitude: row.businessLongitude,
     tin: row.tin,
     billingDayOfMonth: row.billingDayOfMonth,
     gracePeriodDays: row.gracePeriodDays,
@@ -135,6 +170,15 @@ function toSettingsDto(row: {
     smsApiKeyLast4: row.smsApiKeyEncrypted ? row.smsApiKeyLast4 : null,
     smsSenderName: row.smsSenderName,
     smsOverdueTemplate: row.smsOverdueTemplate,
+    smtpEnabled: row.smtpEnabled,
+    smtpHost: row.smtpHost,
+    smtpPort: row.smtpPort,
+    smtpSecure: row.smtpSecure,
+    smtpUser: row.smtpUser,
+    smtpPassConfigured: Boolean(row.smtpPassEncrypted),
+    smtpPassLast4: row.smtpPassEncrypted ? row.smtpPassLast4 : null,
+    smtpFromName: row.smtpFromName,
+    smtpFromEmail: row.smtpFromEmail,
     offlineUnlockMaxDays: row.offlineUnlockMaxDays,
     proofMaxBytes: row.proofMaxBytes,
     proofMaxFilesPerRecord: row.proofMaxFilesPerRecord,
@@ -159,6 +203,8 @@ export async function getBusinessSettings(
       businessName: "",
       businessPhone: null,
       businessAddress: null,
+      businessLatitude: null,
+      businessLongitude: null,
       tin: null,
       billingDayOfMonth: null,
       gracePeriodDays: null,
@@ -177,6 +223,15 @@ export async function getBusinessSettings(
       smsApiKeyLast4: null,
       smsSenderName: null,
       smsOverdueTemplate: null,
+      smtpEnabled: false,
+      smtpHost: null,
+      smtpPort: null,
+      smtpSecure: false,
+      smtpUser: null,
+      smtpPassConfigured: false,
+      smtpPassLast4: null,
+      smtpFromName: null,
+      smtpFromEmail: null,
       offlineUnlockMaxDays: 7,
       proofMaxBytes: 5 * BYTES_PER_MB,
       proofMaxFilesPerRecord: 5,
@@ -200,6 +255,14 @@ function buildModuleWriteData(
         businessName: input.businessName,
         businessPhone: input.businessPhone,
         businessAddress: input.businessAddress,
+        businessLatitude:
+          input.businessLatitude !== null && input.businessLongitude !== null
+            ? input.businessLatitude
+            : null,
+        businessLongitude:
+          input.businessLatitude !== null && input.businessLongitude !== null
+            ? input.businessLongitude
+            : null,
         tin: input.tin,
       };
     case "policies":
@@ -241,6 +304,25 @@ function buildModuleWriteData(
       } else if (input.smsApiKey) {
         next.smsApiKeyEncrypted = encryptAppSecret(input.smsApiKey);
         next.smsApiKeyLast4 = maskSecretLast4(input.smsApiKey);
+      }
+      return next;
+    }
+    case "email": {
+      const next: PersistedSettingsWriteData = {
+        smtpEnabled: input.smtpEnabled,
+        smtpHost: input.smtpHost ?? "smtp.gmail.com",
+        smtpPort: input.smtpPort ?? 587,
+        smtpSecure: input.smtpSecure,
+        smtpUser: input.smtpUser,
+        smtpFromName: input.smtpFromName,
+        smtpFromEmail: input.smtpFromEmail,
+      };
+      if (input.clearSmtpPass) {
+        next.smtpPassEncrypted = null;
+        next.smtpPassLast4 = null;
+      } else if (input.smtpPass) {
+        next.smtpPassEncrypted = encryptAppSecret(input.smtpPass);
+        next.smtpPassLast4 = maskSecretLast4(input.smtpPass);
       }
       return next;
     }
@@ -354,6 +436,33 @@ export async function updateBusinessSettingsModule(
       );
     }
   }
+  if (input.module === "email" && input.smtpEnabled) {
+    if (!input.smtpHost) {
+      throw new ValidationError(
+        "Enter your mail server address (for Gmail, use smtp.gmail.com).",
+      );
+    }
+    if (input.smtpPort === null) {
+      throw new ValidationError("Enter your mail server port (e.g. 587).");
+    }
+    if (!input.smtpUser) {
+      throw new ValidationError(
+        "Enter the email address used to sign in to your mail server.",
+      );
+    }
+    const existing = await getDatabase().businessSettings.findUnique({
+      where: { ownerUserId },
+      select: { smtpPassEncrypted: true },
+    });
+    const willHavePass =
+      !input.clearSmtpPass &&
+      (Boolean(input.smtpPass) || Boolean(existing?.smtpPassEncrypted));
+    if (!willHavePass) {
+      throw new ValidationError(
+        "Enter your Google App Password or SMTP password before turning on email delivery.",
+      );
+    }
+  }
   return persistSettingsChange(
     ownerUserId,
     input.expectedVersion,
@@ -381,6 +490,19 @@ export async function updateBusinessSettings(
     businessName: input.businessName,
     businessPhone: input.businessPhone,
     businessAddress: input.businessAddress,
+    ...(input.businessLatitude !== undefined &&
+    input.businessLongitude !== undefined
+      ? {
+          businessLatitude:
+            input.businessLatitude !== null && input.businessLongitude !== null
+              ? input.businessLatitude
+              : null,
+          businessLongitude:
+            input.businessLatitude !== null && input.businessLongitude !== null
+              ? input.businessLongitude
+              : null,
+        }
+      : {}),
     tin: input.tin,
     billingDayOfMonth: input.billingDayOfMonth,
     gracePeriodDays: input.gracePeriodDays,
