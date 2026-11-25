@@ -105,6 +105,13 @@ export function EmailSettingsPanel({
   const fieldErrors =
     actionState.status === "error" ? actionState.fieldErrors : {};
 
+  function handleDiscardChanges() {
+    setDraft(saved);
+    if (clearPassInputRef.current) {
+      clearPassInputRef.current.value = "";
+    }
+  }
+
   function handleConfirmDisconnect() {
     setDisconnectOpen(false);
     setDraft((prev) => ({
@@ -388,15 +395,29 @@ export function EmailSettingsPanel({
             <span>Saves right away.</span>
           </div>
 
-          <Button
-            type="submit"
-            size="md"
-            loading={pending}
-            disabled={pending}
-            className="w-full sm:w-auto"
-          >
-            {pending ? "Saving…" : "Save email settings"}
-          </Button>
+          <div className="flex w-full flex-col-reverse gap-2 sm:w-auto sm:flex-row sm:items-center">
+            {isDirty && (
+              <Button
+                type="button"
+                variant="ghost"
+                size="md"
+                disabled={pending}
+                onClick={handleDiscardChanges}
+                className="w-full sm:w-auto"
+              >
+                Discard changes
+              </Button>
+            )}
+            <Button
+              type="submit"
+              size="md"
+              loading={pending}
+              disabled={pending}
+              className="w-full sm:w-auto"
+            >
+              {pending ? "Saving…" : "Save email settings"}
+            </Button>
+          </div>
         </div>
       </form>
 

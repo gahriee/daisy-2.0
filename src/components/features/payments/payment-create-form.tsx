@@ -46,6 +46,7 @@ import {
   formatPhpCurrency,
   parseMoneyDecimal,
 } from "@/lib/money";
+import { navigateOfflineInMemory } from "@/offline/navigation";
 import {
   cacheOfflinePoliciesMeta,
   getOfflineVaultClientState,
@@ -337,14 +338,22 @@ export function PaymentCreateForm({
 
           if (res.delivery === "synced") {
             toast.success(res.message);
-            router.push(`/payments/${entityId}`);
+            if (offlineMode || !navigator.onLine) {
+              navigateOfflineInMemory(`/payments/${entityId}`);
+            } else {
+              router.push(`/payments/${entityId}`);
+            }
           } else {
             if (res.delivery === "needs_attention") {
               toast.warning(res.reason);
             } else {
               toast.info(res.message);
             }
-            router.push("/payments");
+            if (offlineMode || !navigator.onLine) {
+              navigateOfflineInMemory("/payments");
+            } else {
+              router.push("/payments");
+            }
           }
           if (navigator.onLine && !offlineMode) {
             router.refresh();

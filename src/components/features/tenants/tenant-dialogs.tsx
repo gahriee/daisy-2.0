@@ -2,7 +2,7 @@
 
 import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 
-import { useActionState, useState } from "react";
+import { useActionState, useRef, useState } from "react";
 import { Alert } from "@/components/ui/alert";
 import { CountPill } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -314,6 +314,37 @@ export function EditTenantDialog({
   onRequireVaultUnlock?: () => void;
   onSaved: (message: string, tone?: SavedFeedbackTone) => void | Promise<void>;
 }) {
+  const formRef = useRef<HTMLFormElement | null>(null);
+  const tenantKey = tenant ? `${tenant.id}-${tenant.version}` : null;
+  const [trackedKey, setTrackedKey] = useState<string | null>(tenantKey);
+  const [dirty, setDirty] = useState(false);
+
+  if (tenantKey !== trackedKey) {
+    setTrackedKey(tenantKey);
+    setDirty(false);
+  }
+
+  function syncDirtyState() {
+    if (!tenant || !formRef.current) {
+      setDirty(false);
+      return;
+    }
+    const data = new FormData(formRef.current);
+    setDirty(
+      String(data.get("fullName") ?? "") !== tenant.fullName ||
+        String(data.get("phone") ?? "") !== (tenant.phone ?? "") ||
+        String(data.get("email") ?? "") !== (tenant.email ?? "") ||
+        String(data.get("address") ?? "") !== (tenant.address ?? "") ||
+        String(data.get("emergencyContact") ?? "") !==
+          (tenant.emergencyContact ?? ""),
+    );
+  }
+
+  function handleDiscardChanges() {
+    formRef.current?.reset();
+    setDirty(false);
+  }
+
   const [state, submitAction, pending] = useActionState(
     async (
       prev: TenantActionResult,
@@ -412,8 +443,11 @@ export function EditTenantDialog({
     >
       {tenant && (
         <form
-          key={`${tenant.id}-${tenant.version}`}
+          ref={formRef}
+          key={tenantKey}
           action={submitAction}
+          onInput={syncDirtyState}
+          onChange={syncDirtyState}
           className="grid gap-4"
           noValidate
         >
@@ -493,7 +527,17 @@ export function EditTenantDialog({
             )}
           </Field>
 
-          <div className="flex flex-wrap justify-end gap-2.5 pt-2">
+          <div className="flex flex-wrap items-center justify-end gap-2.5 pt-2">
+            {dirty && (
+              <Button
+                type="button"
+                variant="ghost"
+                disabled={pending}
+                onClick={handleDiscardChanges}
+              >
+                Discard changes
+              </Button>
+            )}
             <Button variant="secondary" disabled={pending} onClick={onClose}>
               Cancel
             </Button>

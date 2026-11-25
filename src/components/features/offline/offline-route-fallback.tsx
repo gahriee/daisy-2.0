@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, useSyncExternalStore } from "react";
+import { useEffect, useRef, useState, useSyncExternalStore } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { DaisyLogoLoader } from "@/components/common/daisy-logo-loader";
@@ -51,6 +51,11 @@ import {
   loadRoomsOverviewFromVault,
   loadTransientsOverviewFromVault,
 } from "@/offline/snapshot-selectors-extra";
+import {
+  attachOfflineShellLinkInterceptor,
+  getOfflinePathname,
+  subscribeOfflineLocation,
+} from "@/offline/navigation";
 import { DAISY_OFFLINE_VAULT_EVENT } from "@/offline/workspace-bridge";
 import { OfflineVaultUnlockCard } from "./offline-vault-unlock";
 import { OfflineVaultWorkspace } from "./offline-vault-workspace";
@@ -154,11 +159,6 @@ function isSupportedOfflineDomainRoute(pathname: string): boolean {
   return false;
 }
 
-function subscribeBrowserPathname(callback: () => void) {
-  window.addEventListener("popstate", callback);
-  return () => window.removeEventListener("popstate", callback);
-}
-
 /**
  * PII-free Service Worker navigation fallback dispatcher.
  * Decrypts local snapshots only after passphrase unlock and renders shared
@@ -167,8 +167,8 @@ function subscribeBrowserPathname(callback: () => void) {
 export function OfflineRouteFallback() {
   const routerPathname = usePathname() || "/offline";
   const browserPathname = useSyncExternalStore(
-    subscribeBrowserPathname,
-    () => window.location.pathname || "/offline",
+    subscribeOfflineLocation,
+    () => getOfflinePathname("/offline"),
     () => "/offline",
   );
   const pathname =
@@ -176,91 +176,109 @@ export function OfflineRouteFallback() {
       ? browserPathname
       : routerPathname;
   const [vaultUnlocked, setVaultUnlocked] = useState(false);
-  const [routeData, setRouteData] = useState<OfflineRouteData | null>(null);
+  const [loadedRoute, setLoadedRoute] = useState<{
+    pathname: string;
+    data: OfflineRouteData;
+  } | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
+  const loadSeqRef = useRef(0);
+
+  const routeData =
+    loadedRoute && loadedRoute.pathname === pathname ? loadedRoute.data : null;
+
+  useEffect(() => {
+    return attachOfflineShellLinkInterceptor();
+  }, []);
 
   async function refreshFallbackView() {
+    const requestSeq = ++loadSeqRef.current;
+    const targetPathname = pathname;
     try {
       const custody = getVaultCustody();
       const unlocked = custody.isUnlocked();
+      if (loadSeqRef.current !== requestSeq) return;
       setVaultUnlocked(unlocked);
       setLoadError(null);
 
       if (!unlocked) {
-        setRouteData(null);
+        setLoadedRoute(null);
+        return;
+      }
+
+      if (targetPathname === "/offline") {
+        setLoadedRoute(null);
         return;
       }
 
       const db = getBrowserOfflineDb();
       const key = custody.getKey();
 
-      if (pathname === "/") {
+      let nextData: OfflineRouteData = { kind: "unsupported" };
+
+      if (targetPathname === "/") {
         const res = await loadDashboardSnapshotFromVault(db, key);
-        setRouteData({ kind: "dashboard", ...res });
-        return;
-      }
-      if (pathname === "/tenants") {
+        nextData = { kind: "dashboard", ...res };
+      } else if (targetPathname === "/tenants") {
         const res = await loadTenantsOverviewFromVault(db, key);
-        setRouteData({ kind: "tenants", ...res });
-        return;
-      }
-      if (
-        pathname === "/transients" ||
-        pathname === "/transients/stays" ||
-        pathname === "/transients/requests" ||
-        pathname === "/transients/guests"
+        nextData = { kind: "tenants", ...res };
+      } else if (
+        targetPathname === "/transients" ||
+        targetPathname === "/transients/stays" ||
+        targetPathname === "/transients/requests" ||
+        targetPathname === "/transients/guests"
       ) {
         const res = await loadTransientsOverviewFromVault(db, key);
-        setRouteData({
+        nextData = {
           kind: "transients",
-          section: resolveTransientOfflineSection(pathname),
+          section: resolveTransientOfflineSection(targetPathname),
           ...res,
-        });
-        return;
-      }
-      if (pathname === "/transients/rooms" || pathname === "/rooms") {
-        const building: RoomBuildingValue = pathname.startsWith("/transients")
+        };
+      } else if (
+        targetPathname === "/transients/rooms" ||
+        targetPathname === "/rooms"
+      ) {
+        const building: RoomBuildingValue = targetPathname.startsWith(
+          "/transients",
+        )
           ? "TRANSIENT"
           : "BOARDING";
         const res = await loadRoomsOverviewFromVault(db, key, building);
-        setRouteData({ kind: "rooms", building, ...res });
-        return;
-      }
-      if (pathname === "/billing") {
+        nextData = { kind: "rooms", building, ...res };
+      } else if (targetPathname === "/billing") {
         const res = await loadBillingOverviewFromVault(db, key);
-        setRouteData({ kind: "billing", ...res });
-        return;
-      }
-      if (pathname === "/notices") {
+        nextData = { kind: "billing", ...res };
+      } else if (targetPathname === "/notices") {
         const res = await loadNoticesOverviewFromVault(db, key);
-        setRouteData({ kind: "notices", ...res });
-        return;
-      }
-      if (pathname === "/payments" || pathname === "/payments/new") {
+        nextData = { kind: "notices", ...res };
+      } else if (
+        targetPathname === "/payments" ||
+        targetPathname === "/payments/new"
+      ) {
         const res = await loadPaymentsOverviewFromVault(db, key);
-        setRouteData({ kind: "payments", ...res });
-        return;
-      }
-      if (pathname === "/maintenance" || pathname === "/maintenance/new") {
+        nextData = { kind: "payments", ...res };
+      } else if (
+        targetPathname === "/maintenance" ||
+        targetPathname === "/maintenance/new"
+      ) {
         const res = await loadMaintenanceOverviewFromVault(db, key);
-        setRouteData({ kind: "maintenance", ...res });
-        return;
-      }
-      if (pathname.startsWith("/maintenance/")) {
+        nextData = { kind: "maintenance", ...res };
+      } else if (targetPathname.startsWith("/maintenance/")) {
         const requestId =
-          pathname.slice("/maintenance/".length).split("/")[0] ?? "";
+          targetPathname.slice("/maintenance/".length).split("/")[0] ?? "";
         const res = await loadMaintenanceDetailFromVault(db, key, requestId);
-        setRouteData({
+        nextData = {
           kind: "maintenance_detail",
           requestId,
           detail: res.detail,
           syncBadge: res.syncBadge,
           lastSyncedAt: res.lastSyncedAt,
-        });
-        return;
+        };
       }
-      setRouteData({ kind: "unsupported" });
+
+      if (loadSeqRef.current !== requestSeq) return;
+      setLoadedRoute({ pathname: targetPathname, data: nextData });
     } catch (error) {
+      if (loadSeqRef.current !== requestSeq) return;
       setLoadError(
         error instanceof Error
           ? error.message
@@ -302,7 +320,7 @@ export function OfflineRouteFallback() {
           <div className="grid gap-4">
             <Alert tone="warning" role="status">
               You are viewing the offline copy for {title}. Enter your offline
-              password to open saved records on this device.
+              password once to open saved records across all offline pages.
             </Alert>
             <OfflineVaultUnlockCard
               title={`Open saved ${title.toLowerCase()} records`}

@@ -79,6 +79,28 @@ export function NoticeFormDialog({
   const [pending, startTransition] = useTransition();
 
   const isScheduledForFuture = startDateManila > todayManila;
+  const isDirty =
+    isEditing &&
+    notice !== null &&
+    (audience !== notice.audience ||
+      (audience === "ROOM" && roomId !== (notice.roomId ?? "")) ||
+      (audience === "TENANT" && tenantId !== (notice.tenantId ?? "")) ||
+      title !== notice.title ||
+      body !== notice.body ||
+      startDateManila !== notice.startDateManila ||
+      endDateManila !== notice.endDateManila);
+
+  function handleDiscardChanges() {
+    if (!notice) return;
+    setAudience(notice.audience);
+    setRoomId(notice.roomId ?? rooms[0]?.id ?? "");
+    setTenantId(notice.tenantId ?? tenants[0]?.id ?? "");
+    setTitle(notice.title);
+    setBody(notice.body);
+    setStartDateManila(notice.startDateManila);
+    setEndDateManila(notice.endDateManila);
+    setErrorMessage(null);
+  }
   const smsPreviewText = formatNoticeSmsText({
     title: title || "Notice title",
     body: body || "Your message will appear here.",
@@ -307,7 +329,17 @@ export function NoticeFormDialog({
             </div>
           ))}
 
-        <div className="flex flex-wrap justify-end gap-2.5 border-t border-border pt-4">
+        <div className="flex flex-wrap items-center justify-end gap-2.5 border-t border-border pt-4">
+          {isDirty && (
+            <Button
+              type="button"
+              variant="ghost"
+              onClick={handleDiscardChanges}
+              disabled={pending}
+            >
+              Discard changes
+            </Button>
+          )}
           <Button
             type="button"
             variant="secondary"

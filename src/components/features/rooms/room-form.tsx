@@ -89,10 +89,14 @@ export function RoomForm({
   const [capacityInput, setCapacityInput] = useState(
     String(Math.max(1, room?.capacity ?? 1)),
   );
+  const [dirty, setDirty] = useState(false);
+  const [resetCount, setResetCount] = useState(0);
   if (room && room.version !== syncedRoomVersion) {
     setSyncedRoomVersion(room.version);
+    setSelectedTypeId(room.roomTypeId);
     setPublished(room.isTransientPublished);
     setCapacityInput(String(Math.max(1, room.capacity)));
+    setDirty(false);
   }
   const parsedCapacity = Number.parseInt(capacityInput, 10);
   const validCapacity =
@@ -101,6 +105,15 @@ export function RoomForm({
       : null;
   const [photosUploading, setPhotosUploading] = useState(false);
   const [archivePending, startArchiveTransition] = useTransition();
+
+  function handleDiscardChanges() {
+    if (!room) return;
+    setSelectedTypeId(room.roomTypeId);
+    setPublished(room.isTransientPublished);
+    setCapacityInput(String(Math.max(1, room.capacity)));
+    setDirty(false);
+    setResetCount((count) => count + 1);
+  }
 
   const selectedType =
     selectableTypes.find((rt) => rt.id === selectedTypeId) ?? null;
@@ -251,8 +264,18 @@ export function RoomForm({
 
           <CompactFormScope>
             <form
-              key={room ? `${room.id}:${room.version}` : "create-room"}
+              key={
+                room
+                  ? `${room.id}:${room.version}:${resetCount}`
+                  : "create-room"
+              }
               action={submitAction}
+              onInput={() => {
+                if (mode === "edit") setDirty(true);
+              }}
+              onChange={() => {
+                if (mode === "edit") setDirty(true);
+              }}
               className="grid items-start gap-5 lg:grid-cols-12"
               noValidate
             >
@@ -601,6 +624,17 @@ export function RoomForm({
                           ? "Save changes"
                           : "Save room"}
                   </Button>
+                  {mode === "edit" && dirty && (
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="md"
+                      disabled={pending || photosUploading}
+                      onClick={handleDiscardChanges}
+                    >
+                      Discard changes
+                    </Button>
+                  )}
                   <Link
                     href={basePath}
                     className={buttonClasses({
@@ -629,6 +663,18 @@ export function RoomForm({
                         ? "Save changes"
                         : "Save room"}
                 </Button>
+                {mode === "edit" && dirty && (
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="md"
+                    disabled={pending || photosUploading}
+                    onClick={handleDiscardChanges}
+                    className="w-full"
+                  >
+                    Discard changes
+                  </Button>
+                )}
                 <Link
                   href={basePath}
                   className={buttonClasses({

@@ -1,5 +1,6 @@
 "use client";
 
+import { useRef, useState } from "react";
 import { Alert } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { Dialog } from "@/components/ui/dialog";
@@ -22,6 +23,40 @@ export function EditRoomTypeDialog({
   onClose: () => void;
   onSubmit: (formData: FormData) => void;
 }) {
+  const formRef = useRef<HTMLFormElement | null>(null);
+  const roomTypeKey = roomType ? `${roomType.id}:${roomType.version}` : null;
+  const [trackedKey, setTrackedKey] = useState<string | null>(roomTypeKey);
+  const [dirty, setDirty] = useState(false);
+
+  if (roomTypeKey !== trackedKey) {
+    setTrackedKey(roomTypeKey);
+    setDirty(false);
+  }
+
+  function syncDirtyState() {
+    if (!roomType || !formRef.current) {
+      setDirty(false);
+      return;
+    }
+    const data = new FormData(formRef.current);
+    const name = String(data.get("name") ?? "");
+    const description = String(data.get("description") ?? "");
+    const rateChanged =
+      roomType.building === "BOARDING"
+        ? String(data.get("monthlyRate") ?? "") !== (roomType.monthlyRate ?? "")
+        : String(data.get("dailyRate") ?? "") !== (roomType.dailyRate ?? "");
+    setDirty(
+      name !== roomType.name ||
+        description !== (roomType.description ?? "") ||
+        rateChanged,
+    );
+  }
+
+  function handleDiscardChanges() {
+    formRef.current?.reset();
+    setDirty(false);
+  }
+
   return (
     <Dialog
       open={roomType !== null}
@@ -32,8 +67,11 @@ export function EditRoomTypeDialog({
     >
       {roomType && (
         <form
-          key={roomType.id}
+          ref={formRef}
+          key={roomTypeKey}
           action={onSubmit}
+          onInput={syncDirtyState}
+          onChange={syncDirtyState}
           className="grid gap-4"
           noValidate
         >
@@ -133,7 +171,17 @@ export function EditRoomTypeDialog({
               />
             )}
           </Field>
-          <div className="flex flex-wrap justify-end gap-2.5 pt-2">
+          <div className="flex flex-wrap items-center justify-end gap-2.5 pt-2">
+            {dirty && (
+              <Button
+                type="button"
+                variant="ghost"
+                disabled={pending}
+                onClick={handleDiscardChanges}
+              >
+                Discard changes
+              </Button>
+            )}
             <Button variant="secondary" disabled={pending} onClick={onClose}>
               Cancel
             </Button>

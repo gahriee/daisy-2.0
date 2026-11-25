@@ -26,6 +26,7 @@ import {
   type MaintenanceRoomOptionDto,
 } from "@/features/maintenance/schemas";
 import { ROOM_BUILDING_LABELS } from "@/features/rooms/schemas";
+import { navigateOfflineInMemory } from "@/offline/navigation";
 import {
   cacheOfflinePoliciesMeta,
   getOfflineVaultClientState,
@@ -182,14 +183,22 @@ export function MaintenanceCreateForm({
 
           if (res.delivery === "synced") {
             toast.success(res.message);
-            router.push(`/maintenance/${entityId}`);
+            if (offlineMode || !navigator.onLine) {
+              navigateOfflineInMemory(`/maintenance/${entityId}`);
+            } else {
+              router.push(`/maintenance/${entityId}`);
+            }
           } else {
             if (res.delivery === "needs_attention") {
               toast.warning(res.reason);
             } else {
               toast.info(res.message);
             }
-            router.push("/maintenance");
+            if (offlineMode || !navigator.onLine) {
+              navigateOfflineInMemory("/maintenance");
+            } else {
+              router.push("/maintenance");
+            }
           }
           if (navigator.onLine && !offlineMode) {
             router.refresh();

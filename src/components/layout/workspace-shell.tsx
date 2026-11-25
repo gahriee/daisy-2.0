@@ -47,7 +47,21 @@ import {
 } from "@/features/notifications/schemas";
 import { cn } from "@/lib/cn";
 import { formatManilaDateTime } from "@/lib/dates";
+import {
+  getOfflinePathname,
+  subscribeOfflineLocation,
+} from "@/offline/navigation";
 import type { OwnerWorkspaceProfile } from "@/server/auth/workspace-profile";
+
+function useWorkspacePathname(): string {
+  const routerPathname = usePathname() || "/";
+  const browserPathname = useSyncExternalStore(
+    subscribeOfflineLocation,
+    () => getOfflinePathname(routerPathname),
+    () => routerPathname,
+  );
+  return routerPathname === "/offline" ? browserPathname : routerPathname;
+}
 
 const SIDEBAR_STORAGE_KEY = "daisy:sidebar-collapsed";
 const SIDEBAR_ROOMS_STORAGE_KEY = "daisy:sidebar-nav:rooms";
@@ -349,7 +363,7 @@ function NoticesIcon() {
 }
 
 function SettingsSubLinks({ onNavigate }: { onNavigate: () => void }) {
-  const pathname = usePathname();
+  const pathname = useWorkspacePathname();
 
   return (
     <>
@@ -401,7 +415,7 @@ const SUBROUTE_PARENT_CRUMBS: ReadonlyArray<{
 ];
 
 function TopbarBreadcrumb({ title }: { title: string }) {
-  const pathname = usePathname();
+  const pathname = useWorkspacePathname();
 
   let parentCrumb: { label: string; href: string } | null = null;
   let sectionTitle: string | null = null;
@@ -949,7 +963,7 @@ function resolveWorkspaceTitle(pathname: string): string {
  * inside the persistent WorkspaceShell without remounting the sidebar/topbar.
  */
 export function WorkspacePageTitle({ title }: { title: string }) {
-  const pathname = usePathname();
+  const pathname = useWorkspacePathname();
   const setOverride = useContext(WorkspaceTitleContext);
 
   useEffect(() => {
@@ -986,7 +1000,7 @@ export function WorkspaceShell({
   primaryAction,
   children,
 }: WorkspaceShellProps) {
-  const pathname = usePathname();
+  const pathname = useWorkspacePathname();
   const router = useRouter();
   const lastPathnameRef = useRef(pathname);
 

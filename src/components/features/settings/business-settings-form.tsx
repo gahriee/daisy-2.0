@@ -294,6 +294,7 @@ function SettingsModulePanel({
   savedSnapshot,
   banner,
   onModuleSaved,
+  onDiscard,
   children,
 }: {
   settingsModule: BusinessSettingsFormSection;
@@ -301,6 +302,7 @@ function SettingsModulePanel({
   savedSnapshot: DraftState;
   banner?: ReactNode;
   onModuleSaved: (saved: BusinessSettingsDto) => void;
+  onDiscard: () => void;
   children: (fieldErrors: Record<string, string>) => ReactNode;
 }) {
   const dirty = isModuleDirty(draft, savedSnapshot, settingsModule);
@@ -362,14 +364,27 @@ function SettingsModulePanel({
             </Badge>
             <span>{meta.footerHint}</span>
           </div>
-          <Button
-            type="submit"
-            loading={pending}
-            disabled={pending}
-            className="w-full sm:w-auto"
-          >
-            {pending ? meta.pendingLabel : meta.submitLabel}
-          </Button>
+          <div className="flex w-full flex-col-reverse gap-2 sm:w-auto sm:flex-row sm:items-center">
+            {dirty && (
+              <Button
+                type="button"
+                variant="ghost"
+                disabled={pending}
+                onClick={onDiscard}
+                className="w-full sm:w-auto"
+              >
+                Discard changes
+              </Button>
+            )}
+            <Button
+              type="submit"
+              loading={pending}
+              disabled={pending}
+              className="w-full sm:w-auto"
+            >
+              {pending ? meta.pendingLabel : meta.submitLabel}
+            </Button>
+          </div>
         </div>
       </div>
     </form>
@@ -413,6 +428,13 @@ export function BusinessSettingsForm({
     onSaved?.(saved);
   }
 
+  function handleDiscardModule() {
+    setDraft((prev) => mergeSavedModule(prev, savedSnapshot, activeSection));
+    if (activeSection === "sms") {
+      setShowSmsApiKey(false);
+    }
+  }
+
   const missingPoliciesBanner = !savedSnapshot.policiesComplete ? (
     <Alert tone="warning" title="Required before billing or payments">
       Configure billing day, grace period, proration policy, deposit policy,
@@ -435,6 +457,7 @@ export function BusinessSettingsForm({
         draft={draft}
         savedSnapshot={savedSnapshot}
         onModuleSaved={handleModuleSaved}
+        onDiscard={handleDiscardModule}
       >
         {(fieldErrors) => (
           <>
@@ -599,6 +622,7 @@ export function BusinessSettingsForm({
         savedSnapshot={savedSnapshot}
         banner={missingPoliciesBanner}
         onModuleSaved={handleModuleSaved}
+        onDiscard={handleDiscardModule}
       >
         {(fieldErrors) => (
           <>
@@ -927,6 +951,7 @@ export function BusinessSettingsForm({
             setShowSmsApiKey(false);
             handleModuleSaved(saved);
           }}
+          onDiscard={handleDiscardModule}
         >
           {(fieldErrors) => (
             <>
@@ -1282,6 +1307,7 @@ export function BusinessSettingsForm({
       savedSnapshot={savedSnapshot}
       banner={missingStayScheduleBanner}
       onModuleSaved={handleModuleSaved}
+      onDiscard={handleDiscardModule}
     >
       {(fieldErrors) => (
         <>
