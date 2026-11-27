@@ -1,7 +1,6 @@
 import { redirect } from "next/navigation";
 import { connection } from "next/server";
 import { RoomForm } from "@/components/features/rooms/room-form";
-import { getRoomCreateContext } from "@/features/rooms/service";
 import { isOwner } from "@/server/auth/owner";
 
 export const instant = false;
@@ -20,13 +19,5 @@ export default async function NewTransientRoomPage() {
     redirect("/auth/sign-in");
   }
 
-  const context = await getRoomCreateContext(ownerUserId, "TRANSIENT");
-
-  return (
-    <RoomForm
-      mode="create"
-      building="TRANSIENT"
-      roomTypes={context.activeRoomTypes}
-    />
-  );
+  return <RoomForm mode="create" building="TRANSIENT" />;
 }

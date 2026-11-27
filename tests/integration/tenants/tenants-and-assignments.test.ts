@@ -50,11 +50,7 @@ import {
   PreconditionError,
 } from "../../../src/lib/errors";
 import { listAuditLogs } from "../../../src/features/audit/service";
-import {
-  createBed,
-  createRoom,
-  createRoomType,
-} from "../../../src/features/rooms/service";
+import { createBed, createRoom } from "../../../src/features/rooms/service";
 import {
   archiveTenant,
   assignTenantToBed,
@@ -128,9 +124,6 @@ afterAll(async () => {
     await db.room.deleteMany({
       where: { ownerUserId: { startsWith: prefix } },
     });
-    await db.roomType.deleteMany({
-      where: { ownerUserId: { startsWith: prefix } },
-    });
     await db.device.deleteMany({
       where: { ownerUserId: { startsWith: prefix } },
     });
@@ -166,15 +159,10 @@ describe("tenants CRUD/sync and online-only TenantAssignment integration", () =>
     expect(unauth.status).toBe(401);
     state.authenticated = true;
 
-    const doubleType = await createRoomType(state.ownerId, {
-      building: "BOARDING",
-      name: "Double",
-      monthlyRate: "4800",
-    });
     const room = await createRoom(state.ownerId, {
       building: "BOARDING",
       number: "301",
-      roomTypeId: doubleType.id,
+      baseMonthlyRate: "4800",
       capacity: 2,
     });
     const bedA = await createBed(state.ownerId, {
@@ -188,15 +176,10 @@ describe("tenants CRUD/sync and online-only TenantAssignment integration", () =>
       monthlyRate: "4800",
     });
 
-    const transientType = await createRoomType(state.ownerId, {
-      building: "TRANSIENT",
-      name: "Transient Room",
-      dailyRate: "750",
-    });
     const transientRoom = await createRoom(state.ownerId, {
       building: "TRANSIENT",
       number: "301",
-      roomTypeId: transientType.id,
+      transientDailyRate: "750",
       capacity: 1,
     });
     const transientBed = await createBed(state.ownerId, {

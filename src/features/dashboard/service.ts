@@ -1,9 +1,5 @@
 import "server-only";
 import {
-  hasCompleteFinancialPolicies,
-  hasCompleteStaySchedule,
-} from "@/features/settings/schemas";
-import {
   addManilaDays,
   diffManilaDays,
   manilaDateTimeToUtc,
@@ -131,7 +127,6 @@ export async function getDashboardSnapshot(
   return db.$transaction(
     async (tx) => {
       const [
-        settings,
         activeRooms,
         coveringAllocations,
         openInvoices,
@@ -156,20 +151,6 @@ export async function getDashboardSnapshot(
         activeNoticeRows,
         recentAuditRows,
       ] = await Promise.all([
-        tx.businessSettings.findUnique({
-          where: { ownerUserId },
-          select: {
-            billingDayOfMonth: true,
-            gracePeriodDays: true,
-            prorationPolicy: true,
-            depositPolicy: true,
-            overpaymentPolicy: true,
-            invoicePrefix: true,
-            receiptPrefix: true,
-            checkInTimeManila: true,
-            checkOutTimeManila: true,
-          },
-        }),
         tx.room.findMany({
           where: { ownerUserId, archivedAt: null },
           select: {
@@ -543,12 +524,8 @@ export async function getDashboardSnapshot(
         businessDateManila: todayManila,
         currentMonthKey: monthWindow.monthKey,
         configuration: {
-          policiesConfigured: Boolean(
-            settings && hasCompleteFinancialPolicies(settings),
-          ),
-          stayScheduleConfigured: Boolean(
-            settings && hasCompleteStaySchedule(settings),
-          ),
+          policiesConfigured: true,
+          stayScheduleConfigured: true,
         },
         occupancy: {
           boarding: summarizeBuildingOccupancy(

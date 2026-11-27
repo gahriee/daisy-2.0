@@ -18,9 +18,9 @@ import {
   formatPhpCurrency,
   parseMoneyDecimal,
 } from "@/lib/money";
+import { getServerSmsConfig } from "@/config/business-config";
 import { getDatabase } from "@/server/db/client";
 import { ensureOwnerRecord } from "@/server/db/owner-record";
-import { decryptAppSecret } from "@/server/security/secret-box";
 import {
   sendSemaphoreSms,
   type SemaphoreSendParams,
@@ -31,10 +31,8 @@ import {
   normalizePhilippineMobileNumber,
   renderOverdueSmsTemplate,
   SendSingleOverdueSmsSchema,
-  SendTestOverdueSmsSchema,
   type OverdueSmsBatchSummary,
   type SendSingleOverdueSmsInput,
-  type SendTestOverdueSmsInput,
 } from "./schemas";
 
 const MANUAL_SMS_LIMIT_MAX = 20;
@@ -255,15 +253,13 @@ export async function sendOverdueSmsForInvoice(
     await consumeSmsRateLimit(ownerUserId, "manual");
   }
 
+  const smsConfig = getServerSmsConfig();
   const db = getDatabase();
   const [settings, invoice, existingLog] = await Promise.all([
     db.businessSettings.findUnique({
       where: { ownerUserId },
       select: {
         businessName: true,
-        smsApiKeyEncrypted: true,
-        smsSenderName: true,
-        smsOverdueTemplate: true,
       },
     }),
     db.invoice.findFirst({
@@ -300,9 +296,9 @@ export async function sendOverdueSmsForInvoice(
     }),
   ]);
 
-  if (!settings?.smsApiKeyEncrypted) {
+  if (!smsConfig.apiKey) {
     throw new PreconditionError(
-      "Configure your Semaphore API key in Settings -> Overdue SMS before sending reminders.",
+      "Text reminders are not connected yet. Ask your setup contact to enable SMS delivery.",
     );
   }
   if (!invoice) {
@@ -349,10 +345,10 @@ export async function sendOverdueSmsForInvoice(
     );
   }
 
-  const apiKey = decryptAppSecret(settings.smsApiKeyEncrypted);
+  const apiKey = smsConfig.apiKey;
   const message = buildRenderedOverdueMessage({
-    template: settings.smsOverdueTemplate,
-    businessName: settings.businessName,
+    template: smsConfig.overdueTemplate,
+    businessName: settings?.businessName ?? "",
     tenantName:
       invoice.tenant.fullName || invoice.snapshotTenantName || "Tenant",
     roomNumber: invoice.snapshotRoomNumber,
@@ -368,7 +364,7 @@ export async function sendOverdueSmsForInvoice(
       apiKey,
       recipient: normalizedPhone,
       message,
-      senderName: settings.smsSenderName,
+      senderName: smsConfig.senderName,
     });
 
     await recordOverdueSmsOutcome({
@@ -440,22 +436,19 @@ export async function sendOverdueSmsBatch(
     await consumeSmsRateLimit(ownerUserId, "manual");
   }
 
+  const smsConfig = getServerSmsConfig();
   const db = getDatabase();
   const settings = await db.businessSettings.findUnique({
     where: { ownerUserId },
     select: {
       businessName: true,
       smsOverdueEnabled: true,
-      smsOverdueFrequencyDays: true,
       smsOverdueSendTimeManila: true,
-      smsApiKeyEncrypted: true,
-      smsSenderName: true,
-      smsOverdueTemplate: true,
     },
   });
 
   if (options?.requireEnabled) {
-    if (!settings?.smsOverdueEnabled || !settings.smsApiKeyEncrypted) {
+    if (!settings?.smsOverdueEnabled || !smsConfig.apiKey) {
       return summary;
     }
     const currentManilaHHmm = toManilaTimeHHmm(nowUtc);
@@ -463,14 +456,14 @@ export async function sendOverdueSmsBatch(
     if (currentManilaHHmm < configuredSendTime) {
       return summary;
     }
-  } else if (!settings?.smsApiKeyEncrypted) {
+  } else if (!smsConfig.apiKey) {
     throw new PreconditionError(
-      "Save your Semaphore API key in Settings -> Overdue SMS before sending reminders.",
+      "Text reminders are not connected yet. Ask your setup contact to enable SMS delivery.",
     );
   }
 
-  const frequencyDays = Math.max(1, settings.smsOverdueFrequencyDays || 1);
-  const apiKey = decryptAppSecret(settings.smsApiKeyEncrypted);
+  const frequencyDays = Math.max(1, smsConfig.overdueFrequencyDays || 1);
+  const apiKey = smsConfig.apiKey;
 
   const overdueInvoices = await db.invoice.findMany({
     where: {
@@ -547,8 +540,8 @@ export async function sendOverdueSmsBatch(
     }
 
     const message = buildRenderedOverdueMessage({
-      template: settings.smsOverdueTemplate,
-      businessName: settings.businessName,
+      template: smsConfig.overdueTemplate,
+      businessName: settings?.businessName ?? "",
       tenantName:
         invoice.tenant.fullName || invoice.snapshotTenantName || "Tenant",
       roomNumber: invoice.snapshotRoomNumber,
@@ -564,7 +557,7 @@ export async function sendOverdueSmsBatch(
         apiKey,
         recipient: normalizedPhone,
         message,
-        senderName: settings.smsSenderName,
+        senderName: smsConfig.senderName,
       });
 
       await recordOverdueSmsOutcome({
@@ -594,120 +587,4 @@ export async function sendOverdueSmsBatch(
   }
 
   return summary;
-}
-
-/**
- * Sends a sample overdue reminder text to a chosen Philippine mobile number
- * using the Owner's saved Semaphore API key so they can verify delivery and
- * message wording. External HTTP I/O runs outside database transactions.
- */
-export async function sendTestOverdueSms(
-  ownerUserId: string,
-  rawInput: SendTestOverdueSmsInput,
-  options?: {
-    sender?: SmsSenderFn;
-    skipRateLimit?: boolean;
-  },
-): Promise<{ providerMessageId: string | null }> {
-  const parsed = SendTestOverdueSmsSchema.safeParse(rawInput);
-  if (!parsed.success) {
-    throw new ValidationError(
-      parsed.error.issues[0]?.message ??
-        "Check the mobile number and message before sending a sample text.",
-    );
-  }
-  const input = parsed.data;
-  const normalizedPhone = normalizePhilippineMobileNumber(input.phone);
-  if (!normalizedPhone) {
-    throw new ValidationError(
-      "Enter a valid Philippine mobile number (for example, 0917 123 4567).",
-    );
-  }
-
-  if (!options?.skipRateLimit) {
-    await consumeSmsRateLimit(ownerUserId, "test");
-  }
-
-  const db = getDatabase();
-  const settings = await db.businessSettings.findUnique({
-    where: { ownerUserId },
-    select: {
-      id: true,
-      businessName: true,
-      invoicePrefix: true,
-      smsApiKeyEncrypted: true,
-      smsSenderName: true,
-      smsOverdueTemplate: true,
-    },
-  });
-
-  if (!settings?.smsApiKeyEncrypted) {
-    throw new PreconditionError(
-      "Save your Semaphore API key first before sending a sample text.",
-    );
-  }
-
-  const apiKey = decryptAppSecret(settings.smsApiKeyEncrypted);
-  const templateToUse =
-    input.messageTemplate !== undefined
-      ? input.messageTemplate
-      : settings.smsOverdueTemplate;
-  const senderNameToUse =
-    input.senderName !== undefined ? input.senderName : settings.smsSenderName;
-
-  const message = renderOverdueSmsTemplate(templateToUse, {
-    tenantName: "Maria Santos",
-    roomNumber: "201",
-    invoiceNumber: `${settings.invoicePrefix || "INV-"}2026-000012`,
-    billingPeriod: "Nov 2026",
-    dueDate: "Nov 6, 2026",
-    balance: "PHP 4,500.00",
-    daysOverdue: 3,
-    businessName: settings.businessName.trim() || "Daisy Residences",
-  });
-
-  const sender = options?.sender ?? sendSemaphoreSms;
-  try {
-    const result = await sender({
-      apiKey,
-      recipient: normalizedPhone,
-      message,
-      senderName: senderNameToUse,
-    });
-
-    await db.$transaction(async (tx) => {
-      await ensureOwnerRecord(tx, ownerUserId);
-      await writeAuditEntry(tx, {
-        ownerUserId,
-        area: "settings",
-        action: "settings.sms_test_sent",
-        actorType: "owner",
-        actorId: ownerUserId,
-        entityType: "business_settings",
-        entityId: settings.id,
-        metadata: {
-          ...(result.messageId ? { providerMessageId: result.messageId } : {}),
-        },
-      });
-    });
-
-    return { providerMessageId: result.messageId };
-  } catch (error) {
-    await db.$transaction(async (tx) => {
-      await ensureOwnerRecord(tx, ownerUserId);
-      await writeAuditEntry(tx, {
-        ownerUserId,
-        area: "settings",
-        action: "settings.sms_test_failed",
-        actorType: "owner",
-        actorId: ownerUserId,
-        entityType: "business_settings",
-        entityId: settings.id,
-        metadata: {
-          errorCode: classifySafeSmsErrorCode(error),
-        },
-      });
-    });
-    throw error;
-  }
 }

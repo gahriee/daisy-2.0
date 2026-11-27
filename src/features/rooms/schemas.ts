@@ -78,117 +78,6 @@ const optionalUnsetShortText = (max: number, message: string) =>
     .refine((val) => val === undefined || val.length <= max, message)
     .transform((val) => (val === undefined ? undefined : val ? val : null));
 
-export const CreateRoomTypeSchema = z
-  .object({
-    building: z.enum(ROOM_BUILDINGS).default("BOARDING"),
-    name: z
-      .string()
-      .trim()
-      .min(1, "Enter a room type name.")
-      .max(60, "Keep room type name under 60 characters."),
-    monthlyRate: optionalMoneySchema,
-    dailyRate: optionalMoneySchema,
-    description: optionalShortText(
-      240,
-      "Keep room type description under 240 characters.",
-    ),
-  })
-  .superRefine((val, ctx) => {
-    if (val.building === "BOARDING") {
-      if (!val.monthlyRate) {
-        ctx.addIssue({
-          code: z.ZodIssueCode.custom,
-          message: "Enter a monthly price for Boarding House room types.",
-          path: ["monthlyRate"],
-        });
-      }
-      if (val.dailyRate !== null) {
-        ctx.addIssue({
-          code: z.ZodIssueCode.custom,
-          message: "Boarding House room types use monthly pricing only.",
-          path: ["dailyRate"],
-        });
-      }
-    } else {
-      if (!val.dailyRate) {
-        ctx.addIssue({
-          code: z.ZodIssueCode.custom,
-          message: "Enter a daily rate for Transient room types.",
-          path: ["dailyRate"],
-        });
-      }
-      if (val.monthlyRate !== null) {
-        ctx.addIssue({
-          code: z.ZodIssueCode.custom,
-          message: "Transient room types use daily pricing only.",
-          path: ["monthlyRate"],
-        });
-      }
-    }
-  });
-
-export const UpdateRoomTypeSchema = z
-  .object({
-    roomTypeId: z.string().uuid("Select a valid room type."),
-    expectedVersion: z.coerce.number().int().min(1),
-    building: z.enum(ROOM_BUILDINGS).optional(),
-    name: z
-      .string()
-      .trim()
-      .min(1, "Enter a room type name.")
-      .max(60, "Keep room type name under 60 characters."),
-    monthlyRate: optionalMoneySchema,
-    dailyRate: optionalMoneySchema,
-    description: optionalShortText(
-      240,
-      "Keep room type description under 240 characters.",
-    ),
-  })
-  .superRefine((val, ctx) => {
-    if (val.building === "BOARDING") {
-      if (!val.monthlyRate) {
-        ctx.addIssue({
-          code: z.ZodIssueCode.custom,
-          message: "Enter a monthly price for Boarding House room types.",
-          path: ["monthlyRate"],
-        });
-      }
-      if (val.dailyRate !== null) {
-        ctx.addIssue({
-          code: z.ZodIssueCode.custom,
-          message: "Boarding House room types use monthly pricing only.",
-          path: ["dailyRate"],
-        });
-      }
-    } else if (val.building === "TRANSIENT") {
-      if (!val.dailyRate) {
-        ctx.addIssue({
-          code: z.ZodIssueCode.custom,
-          message: "Enter a daily rate for Transient room types.",
-          path: ["dailyRate"],
-        });
-      }
-      if (val.monthlyRate !== null) {
-        ctx.addIssue({
-          code: z.ZodIssueCode.custom,
-          message: "Transient room types use daily pricing only.",
-          path: ["monthlyRate"],
-        });
-      }
-    } else if (!val.monthlyRate && !val.dailyRate) {
-      ctx.addIssue({
-        code: z.ZodIssueCode.custom,
-        message: "Enter a rate for this room type.",
-        path: ["monthlyRate"],
-      });
-    }
-  });
-
-export const ArchiveRestoreRoomTypeSchema = z.object({
-  roomTypeId: z.string().uuid("Select a valid room type."),
-  expectedVersion: z.coerce.number().int().min(1),
-});
-
 const sharedRoomFieldsSchema = {
   number: z
     .string()
@@ -196,7 +85,6 @@ const sharedRoomFieldsSchema = {
     .min(1, "Enter a room number or code.")
     .max(40, "Keep room number under 40 characters."),
   floor: optionalShortText(40, "Keep floor label under 40 characters."),
-  roomTypeId: z.string().uuid("Select a valid room type."),
   capacity: z.coerce
     .number()
     .int("Capacity must be a whole number.")
@@ -271,53 +159,72 @@ function enforceRoomBuildingRates(
   },
   ctx: z.RefinementCtx,
 ) {
-  if (val.building === "BOARDING" && val.transientDailyRate !== null) {
+  if (val.building === "BOARDING") {
+    if (!val.baseMonthlyRate) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "Enter a monthly rate for this room.",
+        path: ["baseMonthlyRate"],
+      });
+    }
+    if (val.transientDailyRate !== null) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "Boarding House rooms cannot set a transient daily rate.",
+        path: ["transientDailyRate"],
+      });
+    }
+    if (val.isTransientPublished === true) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "Boarding House rooms cannot be published on /book.",
+        path: ["isTransientPublished"],
+      });
+    }
+    if (val.transientTitle !== undefined && val.transientTitle !== null) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "Boarding House rooms do not support public listing titles.",
+        path: ["transientTitle"],
+      });
+    }
+    if (
+      val.transientDescription !== undefined &&
+      val.transientDescription !== null
+    ) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message:
+          "Boarding House rooms do not support public listing summaries.",
+        path: ["transientDescription"],
+      });
+    }
+    if (hasNonEmptyRoomPhotos(val.photos)) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "Boarding House rooms do not support public room photos.",
+        path: ["photos"],
+      });
+    }
+  } else if (val.building === "TRANSIENT") {
+    if (!val.transientDailyRate) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "Enter a daily rate for this transient room.",
+        path: ["transientDailyRate"],
+      });
+    }
+    if (val.baseMonthlyRate !== null) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "Transient Building rooms cannot set a monthly boarding rate.",
+        path: ["baseMonthlyRate"],
+      });
+    }
+  } else if (!val.baseMonthlyRate && !val.transientDailyRate) {
     ctx.addIssue({
       code: z.ZodIssueCode.custom,
-      message: "Boarding House rooms cannot set a transient daily rate.",
-      path: ["transientDailyRate"],
-    });
-  }
-  if (val.building === "BOARDING" && val.isTransientPublished === true) {
-    ctx.addIssue({
-      code: z.ZodIssueCode.custom,
-      message: "Boarding House rooms cannot be published on /book.",
-      path: ["isTransientPublished"],
-    });
-  }
-  if (
-    val.building === "BOARDING" &&
-    val.transientTitle !== undefined &&
-    val.transientTitle !== null
-  ) {
-    ctx.addIssue({
-      code: z.ZodIssueCode.custom,
-      message: "Boarding House rooms do not support public listing titles.",
-      path: ["transientTitle"],
-    });
-  }
-  if (
-    val.building === "BOARDING" &&
-    val.transientDescription !== undefined &&
-    val.transientDescription !== null
-  ) {
-    ctx.addIssue({
-      code: z.ZodIssueCode.custom,
-      message: "Boarding House rooms do not support public listing summaries.",
-      path: ["transientDescription"],
-    });
-  }
-  if (val.building === "BOARDING" && hasNonEmptyRoomPhotos(val.photos)) {
-    ctx.addIssue({
-      code: z.ZodIssueCode.custom,
-      message: "Boarding House rooms do not support public room photos.",
-      path: ["photos"],
-    });
-  }
-  if (val.building === "TRANSIENT" && val.baseMonthlyRate !== null) {
-    ctx.addIssue({
-      code: z.ZodIssueCode.custom,
-      message: "Transient Building rooms cannot set a monthly boarding rate.",
+      message: "Enter a rate for this room.",
       path: ["baseMonthlyRate"],
     });
   }
@@ -413,8 +320,6 @@ export const ArchiveRestoreBedSchema = z.object({
   expectedVersion: z.coerce.number().int().min(1),
 });
 
-export type CreateRoomTypeInput = z.input<typeof CreateRoomTypeSchema>;
-export type UpdateRoomTypeInput = z.input<typeof UpdateRoomTypeSchema>;
 export type CreateRoomInput = z.input<typeof CreateRoomSchema>;
 export type UpdateRoomInput = z.input<typeof UpdateRoomSchema>;
 export type CreateRoomPhotoIntentInput = z.input<
@@ -471,20 +376,6 @@ export type RoomPhotoDto = {
   url: string;
 };
 
-export type RoomTypeDto = {
-  id: string;
-  version: number;
-  building: RoomBuildingValue;
-  name: string;
-  monthlyRate: string | null;
-  dailyRate: string | null;
-  description: string | null;
-  activeRoomCount: number;
-  archivedAt: string | null;
-  createdAt: string;
-  updatedAt: string;
-};
-
 export type BedDto = {
   id: string;
   roomId: string;
@@ -507,9 +398,6 @@ export type RoomDto = {
   building: RoomBuildingValue;
   number: string;
   floor: string | null;
-  roomTypeId: string;
-  roomTypeName: string;
-  roomTypeArchived: boolean;
   capacity: number;
   baseMonthlyRate: string | null;
   transientDailyRate: string | null;
@@ -541,6 +429,5 @@ export type InventorySummaryDto = {
 export type InventoryOverviewDto = {
   building?: RoomBuildingValue;
   summary: InventorySummaryDto;
-  roomTypes: RoomTypeDto[];
   rooms: RoomWithBedsDto[];
 };

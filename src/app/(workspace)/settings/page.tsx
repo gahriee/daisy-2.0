@@ -1,7 +1,10 @@
-import { redirect } from "next/navigation";
+import type { Metadata } from "next";
+import { renderSettingsSectionPage } from "./_lib/settings-page";
 
-export const instant = false;
+export const metadata: Metadata = {
+  title: "Settings | Daisy",
+};
 
-export default function SettingsIndexPage() {
-  redirect("/settings/policies");
+export default async function SettingsIndexPage() {
+  return renderSettingsSectionPage("property");
 }

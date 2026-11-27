@@ -1,5 +1,6 @@
 import "server-only";
 import { randomUUID } from "node:crypto";
+import { getServerSmsConfig } from "@/config/business-config";
 import { normalizePhilippineMobileNumber } from "@/features/sms/schemas";
 import { addManilaDays, manilaDateTimeToUtc, toManilaDate } from "@/lib/dates";
 import {
@@ -14,7 +15,6 @@ import {
   ensureOwnerRecord,
   type DatabaseExecutor,
 } from "@/server/db/owner-record";
-import { decryptAppSecret } from "@/server/security/secret-box";
 import {
   sendSemaphoreSms,
   type SemaphoreSendParams,
@@ -248,7 +248,7 @@ export async function getNoticesOverview(
           }),
           tx.businessSettings.findUnique({
             where: { ownerUserId },
-            select: { businessName: true, smsApiKeyEncrypted: true },
+            select: { businessName: true },
           }),
         ],
       );
@@ -268,7 +268,7 @@ export async function getNoticesOverview(
 
       return {
         todayManila,
-        smsConfigured: Boolean(settingsRow?.smsApiKeyEncrypted),
+        smsConfigured: getServerSmsConfig().configured,
         businessName:
           settingsRow?.businessName?.trim() || "Boarding House Management",
         totals: {
@@ -699,14 +699,13 @@ export async function sendNoticeSms(
     await consumeNoticeSmsRateLimit(ownerUserId);
   }
 
+  const smsConfig = getServerSmsConfig();
   const db = getDatabase();
   const [settings, notice] = await Promise.all([
     db.businessSettings.findUnique({
       where: { ownerUserId },
       select: {
         businessName: true,
-        smsApiKeyEncrypted: true,
-        smsSenderName: true,
       },
     }),
     db.notice.findFirst({
@@ -731,9 +730,9 @@ export async function sendNoticeSms(
       "Restore this notice before sending it by text.",
     );
   }
-  if (!settings?.smsApiKeyEncrypted) {
+  if (!smsConfig.apiKey) {
     throw new PreconditionError(
-      "Connect your Semaphore account in Settings before sending text notices.",
+      "Text notices are not connected yet. Ask your setup contact to enable SMS delivery.",
     );
   }
 
@@ -821,11 +820,11 @@ export async function sendNoticeSms(
     uniquePhones.add(normalized);
   }
 
-  const apiKey = decryptAppSecret(settings.smsApiKeyEncrypted);
+  const apiKey = smsConfig.apiKey;
   const message = formatNoticeSmsText({
     title: notice.title,
     body: notice.body,
-    businessName: settings.businessName,
+    businessName: settings?.businessName ?? "",
   });
   const sender = options?.sender ?? sendSemaphoreSms;
 
@@ -838,7 +837,7 @@ export async function sendNoticeSms(
         apiKey,
         recipient,
         message,
-        senderName: settings.smsSenderName,
+        senderName: smsConfig.senderName,
       });
       sentCount += 1;
     } catch {
@@ -903,14 +902,10 @@ export async function dispatchScheduledNoticeSms(
   sentNoticesCount: number;
   totalRecipientsSent: number;
 }> {
-  const db = getDatabase();
-  const settings = await db.businessSettings.findUnique({
-    where: { ownerUserId },
-    select: { smsApiKeyEncrypted: true },
-  });
-  if (!settings?.smsApiKeyEncrypted) {
+  if (!getServerSmsConfig().apiKey) {
     return { processedCount: 0, sentNoticesCount: 0, totalRecipientsSent: 0 };
   }
+  const db = getDatabase();
 
   const todayManila = toManilaDate(new Date());
   const dueNotices = await db.notice.findMany({

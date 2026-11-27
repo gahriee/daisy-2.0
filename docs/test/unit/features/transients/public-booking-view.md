@@ -1,10 +1,10 @@
 # Public booking storefront view helpers
 
 - Status: PASS
-- Last run: 2026-11-23 15:15:16 (UTC+8)
-- Runtime: Windows, Vitest 5.1.0
-- Command: `pnpm test:unit tests/unit/features/transients/public-booking-view.test.ts tests/unit/server/mail/booking-mailer.test.ts`
-- Result: 9 passed here; suite 194 passed, 0 failed, 0 skipped across 48 files, 3.64 s.
+- Last run: 2026-11-27 20:29:14 (UTC+8)
+- Runtime: Windows, Node 26.13.1, pnpm 12.18.0, Vitest 5.1.0
+- Command: `pnpm test:unit`
+- Result: 9 passed here (14 ms); suite 219 passed, 0 failed, 0 skipped across 51 files, 3.83 s.
 - Target file: [tests/unit/features/transients/public-booking-view.test.ts](../../../../tests/unit/features/transients/public-booking-view.test.ts) -> [src/features/transients/public-booking-view.ts](../../../../src/features/transients/public-booking-view.ts)
 
 ## Verified criteria
@@ -21,6 +21,7 @@
 
 | Run (UTC+8) | Command | Result | Duration |
 | --- | --- | --- | --- |
+| 2026-11-27 20:29:14 | `pnpm test:unit` | 9 passed (suite: 219/219 across 51 files) | 14 ms (3.83 s suite) |
 | 2026-11-23 15:08:01 | `pnpm test:unit tests/unit/features/transients/public-booking-view.test.ts tests/unit/server/mail/booking-mailer.test.ts` | 9 passed (suite: 194/194 across 48 files) | 3.76 s suite |
 | 2026-11-23 14:56:18 | `pnpm test:unit tests/unit/server/mail/booking-mailer.test.ts tests/unit/features/transients/public-booking-view.test.ts` | 9 passed (suite: 194/194 across 48 files) | 3.39 s suite |
 | 2026-11-22 21:46:58 | `pnpm test:unit tests/unit/features/transients/public-booking-view.test.ts` | 9 passed (suite: 188/188 across 47 files) | 18 ms (5.36 s suite) |

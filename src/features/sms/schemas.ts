@@ -139,32 +139,6 @@ export type SendSingleOverdueSmsInput = z.infer<
   typeof SendSingleOverdueSmsSchema
 >;
 
-export const SendTestOverdueSmsSchema = z.object({
-  phone: z.string().trim().min(1, "Enter a mobile number to text."),
-  messageTemplate: z
-    .string()
-    .trim()
-    .max(480, "Keep the reminder message under 480 characters.")
-    .refine(
-      (val) => val === "" || !/^test\b/i.test(val),
-      'Do not start the message with "TEST" because Semaphore does not deliver test messages.',
-    )
-    .nullable()
-    .optional(),
-  senderName: z
-    .string()
-    .trim()
-    .max(11, "Sender name must be 11 characters or fewer.")
-    .refine(
-      (val) => val === "" || /^[A-Za-z0-9]+$/.test(val),
-      "Use letters and numbers only for sender name (no spaces).",
-    )
-    .nullable()
-    .optional(),
-});
-
-export type SendTestOverdueSmsInput = z.infer<typeof SendTestOverdueSmsSchema>;
-
 export type OverdueSmsBatchSummary = {
   notifiedDateManila: string;
   evaluatedCount: number;

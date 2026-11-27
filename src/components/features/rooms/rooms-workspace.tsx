@@ -114,17 +114,10 @@ function deriveRoomStaySummary(room: RoomWithBedsDto): string | null {
 }
 
 type RoomSortKey =
-  | "room"
-  | "roomType"
-  | "monthlyRate"
-  | "dailyRate"
-  | "listing"
-  | "status"
-  | "stay";
+  "room" | "monthlyRate" | "dailyRate" | "listing" | "status" | "stay";
 
 const ROOM_SORT_COLUMNS: Record<RoomSortKey, SortColumnDef<RoomWithBedsDto>> = {
   room: { getValue: (room) => room.number },
-  roomType: { getValue: (room) => room.roomTypeName },
   monthlyRate: {
     getValue: (room) => room.baseMonthlyRate ?? "0",
     kind: "money",
@@ -155,7 +148,6 @@ export function RoomsWorkspace({
 }) {
   const isTransient = building === "TRANSIENT";
   const basePath = isTransient ? "/transients/rooms" : "/rooms";
-  const typesPath = `${basePath}/types`;
   const {
     data: overview,
     online,
@@ -241,10 +233,6 @@ export function RoomsWorkspace({
     });
   }
 
-  const activeRoomTypes = overview.roomTypes.filter(
-    (rt) => rt.archivedAt === null,
-  );
-
   const activeRoomsList = overview.rooms.filter((r) => r.archivedAt === null);
   const availableRoomsCount = activeRoomsList.filter(
     (r) => deriveRoomStatus(r) === "AVAILABLE",
@@ -286,7 +274,6 @@ export function RoomsWorkspace({
     const haystack = [
       room.number,
       room.floor ?? "",
-      room.roomTypeName,
       room.transientTitle ?? "",
       isTransient ? (room.isTransientPublished ? "published" : "hidden") : "",
       room.notes ?? "",
@@ -373,15 +360,7 @@ export function RoomsWorkspace({
           <p className="max-w-2xl text-sm leading-6 text-muted-foreground">
             {isTransient
               ? "Manage transient building rooms, daily rates, public listings, and occupancy."
-              : "Manage boarding house rooms, monthly room rates, and live occupancy."}{" "}
-            Preset categories are configured in{" "}
-            <Link
-              href={typesPath}
-              className="font-medium text-foreground underline underline-offset-4 hover:text-primary"
-            >
-              Room types
-            </Link>
-            .
+              : "Manage boarding house rooms, monthly room rates, and live occupancy."}
           </p>
         </div>
 
@@ -409,12 +388,6 @@ export function RoomsWorkspace({
                 </Link>
               )}
               <Link
-                href={typesPath}
-                className={buttonClasses({ variant: "secondary", size: "md" })}
-              >
-                Manage room types
-              </Link>
-              <Link
                 href={`${basePath}/new`}
                 className={buttonClasses({ variant: "primary", size: "md" })}
               >
@@ -438,23 +411,6 @@ export function RoomsWorkspace({
       {errorMessage && (
         <Alert tone="danger" role="alert">
           {errorMessage}
-        </Alert>
-      )}
-
-      {activeRoomTypes.length === 0 && (
-        <Alert tone="info" role="status">
-          <div className="flex flex-wrap items-center justify-between gap-3">
-            <span>
-              No active room types configured yet. Create at least one room type
-              with a preset monthly price before adding rooms.
-            </span>
-            <Link
-              href={typesPath}
-              className={buttonClasses({ variant: "secondary", size: "sm" })}
-            >
-              Create room type
-            </Link>
-          </div>
         </Alert>
       )}
 
@@ -559,7 +515,7 @@ export function RoomsWorkspace({
                 id={id}
                 value={searchQuery}
                 onValueChange={setSearchQuery}
-                placeholder="Room number, floor, room type, or occupant"
+                placeholder="Room number, floor, or occupant"
               />
             )}
           </Field>
@@ -643,26 +599,22 @@ export function RoomsWorkspace({
             </EmptyStateTitle>
             <EmptyStateDescription>
               {overview.rooms.length === 0
-                ? "Add your first room and set its monthly and daily rates to start assigning boarders and transient stays."
+                ? isTransient
+                  ? "Add your first room and set its daily rate to start recording transient stays."
+                  : "Add your first room and set its monthly rate to start assigning boarders."
                 : "Try clearing what you entered or changing the room status."}
             </EmptyStateDescription>
           </div>
           <EmptyStateActions>
             {overview.rooms.length === 0 ? (
-              <>
-                <Link
-                  href={typesPath}
-                  className={buttonClasses({ variant: "secondary" })}
-                >
-                  Manage room types
-                </Link>
+              !isOfflineView && (
                 <Link
                   href={`${basePath}/new`}
                   className={buttonClasses({ size: "md" })}
                 >
                   Add room
                 </Link>
-              </>
+              )
             ) : (
               <Button variant="secondary" onClick={clearFilters}>
                 Clear
@@ -700,9 +652,6 @@ export function RoomsWorkspace({
                       >
                         Room {room.number}
                       </Link>
-                      <span className="text-xs text-muted-foreground">
-                        {room.roomTypeName}
-                      </span>
                       {isTransient && (
                         <span className="text-xs text-muted-foreground tabular-nums">
                           Up to {room.capacity}{" "}
@@ -796,9 +745,6 @@ export function RoomsWorkspace({
               <TableHeader>
                 <TableRow>
                   <TableHead {...sortHeaderProps("room")}>Room</TableHead>
-                  <TableHead {...sortHeaderProps("roomType")}>
-                    Room type
-                  </TableHead>
                   {isTransient ? (
                     <>
                       <TableHead numeric {...sortHeaderProps("dailyRate")}>
@@ -839,6 +785,12 @@ export function RoomsWorkspace({
                           >
                             Room {room.number}
                           </Link>
+                          {isTransient && (
+                            <span className="text-xs text-muted-foreground tabular-nums">
+                              Up to {room.capacity}{" "}
+                              {room.capacity === 1 ? "guest" : "guests"}
+                            </span>
+                          )}
                           {room.floor && (
                             <span className="text-xs text-muted-foreground">
                               {room.floor}
@@ -847,24 +799,6 @@ export function RoomsWorkspace({
                           {room.notes && (
                             <span className="text-xs text-muted-foreground">
                               {room.notes}
-                            </span>
-                          )}
-                        </div>
-                      </TableCell>
-                      <TableCell>
-                        <div className="grid gap-0.5">
-                          <div className="flex flex-wrap items-center gap-1.5">
-                            <span className="text-foreground">
-                              {room.roomTypeName}
-                            </span>
-                            {room.roomTypeArchived && (
-                              <Badge tone="neutral">Archived type</Badge>
-                            )}
-                          </div>
-                          {isTransient && (
-                            <span className="text-xs text-muted-foreground tabular-nums">
-                              Up to {room.capacity}{" "}
-                              {room.capacity === 1 ? "guest" : "guests"}
                             </span>
                           )}
                         </div>

@@ -64,10 +64,7 @@ function useWorkspacePathname(): string {
 }
 
 const SIDEBAR_STORAGE_KEY = "daisy:sidebar-collapsed";
-const SIDEBAR_ROOMS_STORAGE_KEY = "daisy:sidebar-nav:rooms";
 const SIDEBAR_TRANSIENTS_STORAGE_KEY = "daisy:sidebar-nav:transients";
-const SIDEBAR_TRANSIENT_ROOMS_STORAGE_KEY = "daisy:sidebar-nav:transient-rooms";
-const SIDEBAR_SETTINGS_STORAGE_KEY = "daisy:sidebar-nav:settings";
 const sidebarListeners = new Set<() => void>();
 
 function subscribeSidebarState(callback: () => void) {
@@ -101,27 +98,10 @@ function writeSidebarFlag(key: string, value: boolean) {
   }
 }
 
-const ROOMS_SECTIONS = [
-  { href: "/rooms", label: "Rooms" },
-  { href: "/rooms/types", label: "Room types" },
-] as const;
-
 const TRANSIENTS_SECTIONS = [
   { href: "/transients/stays", label: "Stays & reservations" },
   { href: "/transients/requests", label: "Booking requests" },
   { href: "/transients/house-rules", label: "House rules" },
-] as const;
-
-const TRANSIENT_ROOMS_SECTIONS = [
-  { href: "/transients/rooms", label: "Rooms" },
-  { href: "/transients/rooms/types", label: "Room types" },
-] as const;
-
-const SETTINGS_SECTIONS = [
-  { href: "/settings/policies", label: "Billing & policies" },
-  { href: "/settings/operations", label: "Stays & limits" },
-  { href: "/settings/sms", label: "Overdue SMS" },
-  { href: "/settings/email", label: "Email" },
 ] as const;
 
 function getInitials(label: string): string {
@@ -362,38 +342,13 @@ function NoticesIcon() {
   );
 }
 
-function SettingsSubLinks({ onNavigate }: { onNavigate: () => void }) {
-  const pathname = useWorkspacePathname();
-
-  return (
-    <>
-      {SETTINGS_SECTIONS.map((item) => (
-        <SidebarSubLink
-          key={item.href}
-          href={item.href}
-          active={pathname === item.href}
-          onClick={onNavigate}
-        >
-          {item.label}
-        </SidebarSubLink>
-      ))}
-    </>
-  );
-}
-
 const SUBROUTE_PARENT_CRUMBS: ReadonlyArray<{
   prefix: string;
   label: string;
   href: string;
 }> = [
-  { prefix: "/rooms/types", label: "Boarding rooms", href: "/rooms" },
   { prefix: "/rooms/", label: "Boarding rooms", href: "/rooms" },
   { prefix: "/tenants/", label: "Tenants", href: "/tenants" },
-  {
-    prefix: "/transients/rooms/types",
-    label: "Transient rooms",
-    href: "/transients/rooms",
-  },
   {
     prefix: "/transients/rooms/",
     label: "Transient rooms",
@@ -419,13 +374,10 @@ function TopbarBreadcrumb({ title }: { title: string }) {
 
   let parentCrumb: { label: string; href: string } | null = null;
   let sectionTitle: string | null = null;
-  if (pathname.startsWith("/settings")) {
-    const found = SETTINGS_SECTIONS.find((s) => s.href === pathname);
-    if (found) {
-      parentCrumb = { label: "Settings", href: "/settings/policies" };
-      sectionTitle = found.label;
-    }
-  } else {
+  if (pathname === "/settings/devices") {
+    parentCrumb = { label: "Settings", href: "/settings" };
+    sectionTitle = "Trusted devices";
+  } else if (!pathname.startsWith("/settings")) {
     const matched = SUBROUTE_PARENT_CRUMBS.find((entry) =>
       pathname.startsWith(entry.prefix),
     );
@@ -806,11 +758,11 @@ function TopbarOwnerControls({ profile }: { profile: OwnerWorkspaceProfile }) {
             <div className="grid gap-0.5 py-1.5">
               <Link
                 role="menuitem"
-                href="/settings/profile"
+                href="/settings"
                 onClick={() => setProfileOpen(false)}
                 className="flex min-h-9 items-center rounded-control px-2.5 py-1.5 text-sm leading-5 text-foreground transition-colors hover:bg-surface-muted"
               >
-                Property profile
+                Property settings
               </Link>
               <Link
                 role="menuitem"
@@ -921,7 +873,6 @@ function resolveWorkspaceTitle(pathname: string): string {
   if (pathname === "/reports") return "Reports";
   if (pathname === "/rooms") return "Rooms";
   if (pathname === "/rooms/new") return "Add room";
-  if (pathname === "/rooms/types") return "Room types";
   if (pathname.startsWith("/rooms/")) return "Room details";
   if (pathname === "/tenants") return "Tenants";
   if (pathname.endsWith("/contracts/new")) return "Add signed contract";
@@ -935,7 +886,6 @@ function resolveWorkspaceTitle(pathname: string): string {
   if (pathname === "/transients/house-rules") return "House rules";
   if (pathname === "/transients/rooms") return "Transient rooms";
   if (pathname === "/transients/rooms/new") return "Add transient room";
-  if (pathname === "/transients/rooms/types") return "Transient room types";
   if (pathname.startsWith("/transients/rooms/")) return "Transient room";
   if (pathname === "/billing") return "Billing";
   if (pathname === "/billing/new") return "Create invoice";
@@ -949,10 +899,6 @@ function resolveWorkspaceTitle(pathname: string): string {
   if (pathname === "/notices") return "Notices";
   if (pathname === "/notifications") return "Notifications";
   if (pathname === "/audit") return "Activity history";
-  if (pathname === "/settings/profile") return "Property profile";
-  if (pathname === "/settings/policies") return "Billing & policies";
-  if (pathname === "/settings/operations") return "Stays & limits";
-  if (pathname === "/settings/sms") return "Overdue SMS";
   if (pathname === "/settings/devices") return "Trusted devices";
   if (pathname.startsWith("/settings")) return "Settings";
   return "Daisy Workspace";
@@ -1029,26 +975,14 @@ export function WorkspaceShell({
     (titleOverride?.pathname === pathname ? titleOverride.title : null) ??
     resolveWorkspaceTitle(pathname);
   const [sidebarOpen, setSidebarOpen] = useState(false);
-  const defaultRoomsExpanded = pathname.startsWith("/rooms");
   const defaultTransientsExpanded =
     pathname.startsWith("/transients") &&
     !pathname.startsWith("/transients/rooms");
-  const defaultTransientRoomsExpanded =
-    pathname.startsWith("/transients/rooms");
-  const isSettingsNavActive = SETTINGS_SECTIONS.some(
-    (item) => pathname === item.href,
-  );
-  const defaultSettingsExpanded = isSettingsNavActive;
 
   const sidebarCollapsed = useSyncExternalStore(
     subscribeSidebarState,
     () => readSidebarFlag(SIDEBAR_STORAGE_KEY, false),
     () => false,
-  );
-  const roomsNavExpanded = useSyncExternalStore(
-    subscribeSidebarState,
-    () => readSidebarFlag(SIDEBAR_ROOMS_STORAGE_KEY, defaultRoomsExpanded),
-    () => defaultRoomsExpanded,
   );
   const transientsNavExpanded = useSyncExternalStore(
     subscribeSidebarState,
@@ -1058,21 +992,6 @@ export function WorkspaceShell({
         defaultTransientsExpanded,
       ),
     () => defaultTransientsExpanded,
-  );
-  const transientRoomsNavExpanded = useSyncExternalStore(
-    subscribeSidebarState,
-    () =>
-      readSidebarFlag(
-        SIDEBAR_TRANSIENT_ROOMS_STORAGE_KEY,
-        defaultTransientRoomsExpanded,
-      ),
-    () => defaultTransientRoomsExpanded,
-  );
-  const settingsNavExpanded = useSyncExternalStore(
-    subscribeSidebarState,
-    () =>
-      readSidebarFlag(SIDEBAR_SETTINGS_STORAGE_KEY, defaultSettingsExpanded),
-    () => defaultSettingsExpanded,
   );
 
   function toggleSidebarCollapse() {
@@ -1140,39 +1059,15 @@ export function WorkspaceShell({
             <Separator />
 
             <SidebarGroup label="Boarding House">
-              <SidebarNavDisclosure
-                label="Rooms"
-                icon={<RoomsIcon />}
+              <SidebarLink
+                href="/rooms"
                 active={pathname.startsWith("/rooms")}
-                expanded={roomsNavExpanded}
-                onToggle={() =>
-                  toggleDisclosureSection(
-                    SIDEBAR_ROOMS_STORAGE_KEY,
-                    defaultRoomsExpanded,
-                  )
-                }
+                icon={<RoomsIcon />}
+                {...(sidebarCollapsed ? { title: "Rooms" } : {})}
+                onClick={() => setSidebarOpen(false)}
               >
-                {ROOMS_SECTIONS.map((item) => {
-                  const isItemActive =
-                    item.href === "/rooms"
-                      ? pathname === "/rooms" ||
-                        (pathname.startsWith("/rooms/") &&
-                          !pathname.startsWith("/rooms/types"))
-                      : pathname === item.href ||
-                        pathname.startsWith(`${item.href}/`);
-
-                  return (
-                    <SidebarSubLink
-                      key={item.href}
-                      href={item.href}
-                      active={isItemActive}
-                      onClick={() => setSidebarOpen(false)}
-                    >
-                      {item.label}
-                    </SidebarSubLink>
-                  );
-                })}
-              </SidebarNavDisclosure>
+                Rooms
+              </SidebarLink>
               <SidebarLink
                 href="/tenants"
                 active={pathname.startsWith("/tenants")}
@@ -1224,39 +1119,15 @@ export function WorkspaceShell({
                   );
                 })}
               </SidebarNavDisclosure>
-              <SidebarNavDisclosure
-                label="Transient rooms"
-                icon={<RoomsIcon />}
+              <SidebarLink
+                href="/transients/rooms"
                 active={pathname.startsWith("/transients/rooms")}
-                expanded={transientRoomsNavExpanded}
-                onToggle={() =>
-                  toggleDisclosureSection(
-                    SIDEBAR_TRANSIENT_ROOMS_STORAGE_KEY,
-                    defaultTransientRoomsExpanded,
-                  )
-                }
+                icon={<RoomsIcon />}
+                {...(sidebarCollapsed ? { title: "Transient rooms" } : {})}
+                onClick={() => setSidebarOpen(false)}
               >
-                {TRANSIENT_ROOMS_SECTIONS.map((item) => {
-                  const isItemActive =
-                    item.href === "/transients/rooms"
-                      ? pathname === "/transients/rooms" ||
-                        (pathname.startsWith("/transients/rooms/") &&
-                          !pathname.startsWith("/transients/rooms/types"))
-                      : pathname === item.href ||
-                        pathname.startsWith(`${item.href}/`);
-
-                  return (
-                    <SidebarSubLink
-                      key={item.href}
-                      href={item.href}
-                      active={isItemActive}
-                      onClick={() => setSidebarOpen(false)}
-                    >
-                      {item.label}
-                    </SidebarSubLink>
-                  );
-                })}
-              </SidebarNavDisclosure>
+                Transient rooms
+              </SidebarLink>
             </SidebarGroup>
 
             <Separator />
@@ -1312,20 +1183,15 @@ export function WorkspaceShell({
               >
                 Activity history
               </SidebarLink>
-              <SidebarNavDisclosure
-                label="Settings"
+              <SidebarLink
+                href="/settings"
+                active={pathname === "/settings"}
                 icon={<SettingsIcon />}
-                active={isSettingsNavActive}
-                expanded={settingsNavExpanded}
-                onToggle={() =>
-                  toggleDisclosureSection(
-                    SIDEBAR_SETTINGS_STORAGE_KEY,
-                    defaultSettingsExpanded,
-                  )
-                }
+                {...(sidebarCollapsed ? { title: "Settings" } : {})}
+                onClick={() => setSidebarOpen(false)}
               >
-                <SettingsSubLinks onNavigate={() => setSidebarOpen(false)} />
-              </SidebarNavDisclosure>
+                Settings
+              </SidebarLink>
             </SidebarGroup>
           </SidebarNav>
         </SidebarContent>

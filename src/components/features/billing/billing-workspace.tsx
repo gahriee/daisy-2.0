@@ -512,15 +512,10 @@ export function BillingWorkspace({
         <Alert tone="warning" role="status">
           <div className="flex flex-wrap items-center justify-between gap-3">
             <span>
-              Configure {overview.missingPolicyFields.join(", ")} in Settings
-              before running monthly billing or issuing invoices.
+              Billing policies ({overview.missingPolicyFields.join(", ")}) are
+              not ready yet. Ask your setup contact to check the server
+              configuration.
             </span>
-            <Link
-              href="/settings/policies"
-              className={buttonClasses({ variant: "secondary", size: "sm" })}
-            >
-              Configure policies
-            </Link>
           </div>
         </Alert>
       )}

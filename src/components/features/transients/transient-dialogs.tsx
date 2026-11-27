@@ -372,7 +372,6 @@ export function CreateTransientReservationDialog({
               guestEmail: selectedGuest?.email ?? null,
               roomId: parsed.data.roomId,
               roomNumber: selectedRoom?.number ?? "—",
-              roomTypeName: selectedRoom?.roomTypeName ?? "Transient",
               bedId: null,
               bedNumber: null,
               scope: "WHOLE_ROOM",
@@ -501,7 +500,7 @@ export function CreateTransientReservationDialog({
                 )}
                 {eligibleRooms.map((room) => (
                   <option key={room.id} value={room.id}>
-                    Room {room.number} ({room.roomTypeName}) —{" "}
+                    Room {room.number} —{" "}
                     {formatPhpCurrency(room.resolvedDailyRate ?? "0")} / night
                   </option>
                 ))}
@@ -826,7 +825,7 @@ export function TransientReservationDetailDialog({
       }
       {...(reservation
         ? {
-            description: `Room ${reservation.roomNumber} (${reservation.roomTypeName})`,
+            description: `Room ${reservation.roomNumber}`,
           }
         : {})}
     >
@@ -888,7 +887,7 @@ export function TransientReservationDetailDialog({
               <div className="grid gap-0.5">
                 <dt className="text-xs text-muted-foreground">Room</dt>
                 <dd className="font-medium text-foreground">
-                  Room {reservation.roomNumber} ({reservation.roomTypeName})
+                  Room {reservation.roomNumber}
                 </dd>
               </div>
               <div className="grid gap-0.5">

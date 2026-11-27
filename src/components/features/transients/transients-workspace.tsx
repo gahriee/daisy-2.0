@@ -697,12 +697,12 @@ export function TransientsWorkspace({
 
       {scheduleMissing && (
         <Alert tone="warning" title="Stay schedule required">
-          Configure standard check-in and check-out times in{" "}
+          Set check-in and check-out times in{" "}
           <Link
-            href="/settings/operations"
+            href="/settings"
             className="font-semibold underline underline-offset-4"
           >
-            Settings &rarr; Stays &amp; limits
+            Settings
           </Link>{" "}
           before booking transient stays or publishing rooms on /book.
         </Alert>

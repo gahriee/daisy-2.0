@@ -75,23 +75,6 @@ const fixtureOverview: ReportsOverviewDto = {
         occupiedDailyRateTotal: "0.00",
       },
     ],
-    byRoomType: [
-      {
-        roomTypeId: "rt-1",
-        roomTypeName: "Deluxe Studio Room",
-        building: "BOARDING",
-        buildingLabel: "Boarding House",
-        totalRooms: 1,
-        occupiedRooms: 1,
-        availableRooms: 0,
-        maintenanceRooms: 0,
-        occupancyRatePercent: 100,
-        totalBeds: 2,
-        occupiedBeds: 2,
-        avgMonthlyRate: "6500.00",
-        avgDailyRate: null,
-      },
-    ],
     rows: [
       {
         roomId: "room-1",
@@ -136,17 +119,6 @@ const fixtureOverview: ReportsOverviewDto = {
       averageMonthlyRent: "6500.00",
       openBalanceToRentPercent: 23,
     },
-    byRoomType: [
-      {
-        roomTypeId: "rt-1",
-        roomTypeName: "Deluxe Studio Room",
-        activeAssignments: 1,
-        sharePercent: 100,
-        totalMonthlyRent: "6500.00",
-        totalSecurityDeposits: "6500.00",
-        totalOpenBalance: "1500.00",
-      },
-    ],
     leaseExpiries: [
       {
         bucket: "WITHIN_30",
@@ -306,19 +278,6 @@ const fixtureOverview: ReportsOverviewDto = {
         collectedAmount: "5400.00",
       },
     ],
-    byRoomType: [
-      {
-        roomTypeId: "rt-2",
-        roomTypeName: "Garden Suite",
-        staysCount: 1,
-        activeOrCompletedCount: 1,
-        cancelledOrNoShowCount: 0,
-        totalNights: 3,
-        grossStayRevenue: "5400.00",
-        invoicedAmount: "5400.00",
-        collectedAmount: "5400.00",
-      },
-    ],
     rows: [
       {
         reservationId: "tr-1",
@@ -436,7 +395,7 @@ describe("shared report template and multi-format exporters", () => {
       );
       expect(doc.business.businessName).toBe("Villa Daisy Residences");
       expect(doc.metrics.length).toBeGreaterThanOrEqual(4);
-      expect(doc.breakdowns.length).toBeGreaterThanOrEqual(2);
+      expect(doc.breakdowns.length).toBeGreaterThanOrEqual(1);
       expect(doc.detailTable.columns.length).toBeGreaterThanOrEqual(9);
 
       const xlsxBytes = await buildReportExcel(doc);

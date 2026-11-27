@@ -7,8 +7,8 @@ import {
 } from "@/features/transients/public-booking-view";
 import { formatManilaDate } from "@/lib/dates";
 import { formatPhpCurrency } from "@/lib/money";
+import { getServerSmtpConfig } from "@/config/business-config";
 import { getDatabase } from "@/server/db/client";
-import { decryptAppSecret } from "@/server/security/secret-box";
 
 export type SmtpTransportConfig = {
   host: string;
@@ -186,75 +186,36 @@ function defaultSmtpTransportFactory(
 export function resolveEnvSmtpConfig(
   env: Record<string, string | undefined> = process.env,
 ): SmtpTransportConfig | null {
-  const host = env.SMTP_HOST?.trim() ?? "";
-  const user = env.SMTP_USER?.trim() ?? "";
-  const pass = env.SMTP_PASS?.trim() ?? "";
-  const rawPort = env.SMTP_PORT?.trim() ?? "";
-  const port = rawPort ? Number(rawPort) : 587;
-  const secure =
-    env.SMTP_SECURE?.trim().toLowerCase() === "true" || port === 465;
-  const fromEmail = env.MAIL_FROM?.trim() || user;
-
-  if (
-    !host ||
-    !user ||
-    !pass ||
-    !fromEmail ||
-    !Number.isInteger(port) ||
-    port < 1 ||
-    port > 65535
-  ) {
-    return null;
-  }
-
-  return {
-    host,
-    port,
-    secure,
-    user,
-    pass,
-    fromEmail,
-  };
+  return getServerSmtpConfig(env);
 }
 
 /**
- * Resolves the Owner's configured SMTP settings from PostgreSQL (decrypting the
- * stored app password) and falls back to optional environment SMTP variables.
+ * Resolves SMTP configuration strictly from server environment variables,
+ * enriching the sender display name with MAIL_FROM_NAME or the Owner's saved
+ * boarding house name when available.
  */
 export async function resolveOwnerSmtpConfig(
   ownerUserId: string,
   env: Record<string, string | undefined> = process.env,
 ): Promise<SmtpTransportConfig | null> {
-  const row = await getDatabase().businessSettings.findUnique({
-    where: { ownerUserId },
-    select: {
-      businessName: true,
-      smtpEnabled: true,
-      smtpHost: true,
-      smtpPort: true,
-      smtpSecure: true,
-      smtpUser: true,
-      smtpPassEncrypted: true,
-      smtpFromName: true,
-      smtpFromEmail: true,
-    },
-  });
-
-  if (row && row.smtpEnabled && row.smtpUser?.trim() && row.smtpPassEncrypted) {
-    const pass = decryptAppSecret(row.smtpPassEncrypted, env);
-    const user = row.smtpUser.trim();
-    return {
-      host: row.smtpHost?.trim() || "smtp.gmail.com",
-      port: row.smtpPort ?? 587,
-      secure: row.smtpSecure,
-      user,
-      pass,
-      fromName: row.smtpFromName?.trim() || row.businessName.trim() || null,
-      fromEmail: row.smtpFromEmail?.trim() || user,
-    };
+  const envConfig = resolveEnvSmtpConfig(env);
+  if (!envConfig) {
+    return null;
   }
 
-  return resolveEnvSmtpConfig(env);
+  if (envConfig.fromName) {
+    return envConfig;
+  }
+
+  const row = await getDatabase().businessSettings.findUnique({
+    where: { ownerUserId },
+    select: { businessName: true },
+  });
+
+  return {
+    ...envConfig,
+    fromName: row?.businessName.trim() || null,
+  };
 }
 
 export function buildBookingApprovedEmailContent(
@@ -743,7 +704,7 @@ async function sendViaSmtpSafe(params: {
     return {
       status: "failed",
       reason:
-        "Could not send email via your mail server. Check your SMTP host, port, and app password in Settings.",
+        "Could not send email right now. Ask your setup contact to check the mail server settings.",
     };
   } finally {
     transport.close?.();
@@ -769,7 +730,7 @@ async function resolveTransactionalSmtpConfig(options: {
         outcome: {
           status: "failed",
           reason:
-            "Stored email password could not be read. Re-enter it in Settings.",
+            "Email settings could not be loaded. Ask your setup contact to check the mail server configuration.",
         },
       };
     }

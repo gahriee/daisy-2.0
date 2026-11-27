@@ -80,11 +80,7 @@ import {
   NotFoundError,
   ValidationError,
 } from "../../../src/lib/errors";
-import {
-  createBed,
-  createRoom,
-  createRoomType,
-} from "../../../src/features/rooms/service";
+import { createBed, createRoom } from "../../../src/features/rooms/service";
 import {
   archiveTenantContract,
   createTenantContract,
@@ -181,9 +177,6 @@ afterAll(async () => {
     await db.room.deleteMany({
       where: { ownerUserId: { startsWith: prefix } },
     });
-    await db.roomType.deleteMany({
-      where: { ownerUserId: { startsWith: prefix } },
-    });
     await db.owner.deleteMany({
       where: { id: { startsWith: prefix } },
     });
@@ -217,15 +210,10 @@ describe("signed tenant contract storage, scanner pages, and Owner isolation int
   it("validates upload intents and signatures, saves multi-page JPEG + PDF contracts, isolates page access, emits audit/feed, and archives safely", async () => {
     const db = state.db!;
 
-    const boardingType = await createRoomType(state.ownerId, {
-      building: "BOARDING",
-      name: "Standard Single",
-      monthlyRate: "4500",
-    });
     const room = await createRoom(state.ownerId, {
       building: "BOARDING",
       number: "105",
-      roomTypeId: boardingType.id,
+      baseMonthlyRate: "4500",
       capacity: 1,
     });
     const bed = await createBed(state.ownerId, {

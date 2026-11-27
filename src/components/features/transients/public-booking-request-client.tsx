@@ -1090,9 +1090,6 @@ export function PublicBookingRequestClient({
                   )}
                 </div>
                 <div className="grid min-w-0 gap-1">
-                  <span className="text-xs font-medium text-muted-foreground">
-                    {room.roomTypeName}
-                  </span>
                   <h2 className="truncate text-base font-semibold text-foreground">
                     {room.title}
                   </h2>

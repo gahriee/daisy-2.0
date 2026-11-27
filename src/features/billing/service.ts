@@ -1,4 +1,5 @@
 import "server-only";
+import { getServerBillingPolicies } from "@/config/business-config";
 import { randomUUID } from "node:crypto";
 import {
   isOverdueManila,
@@ -258,87 +259,19 @@ type ResolvedBillingPolicies = {
   invoicePrefix: string;
 };
 
-function getMissingBillingPolicyLabels(
-  settings: {
-    billingDayOfMonth: number | null;
-    gracePeriodDays: number | null;
-    prorationPolicy: ProrationPolicyValue | null;
-    depositPolicy: DepositPolicyValue | null;
-    invoicePrefix: string | null;
-  } | null,
-): string[] {
-  const missing: string[] = [];
-  if (!settings || settings.billingDayOfMonth === null) {
-    missing.push("billing day of month");
-  }
-  if (!settings || settings.gracePeriodDays === null) {
-    missing.push("grace period days");
-  }
-  if (!settings || settings.prorationPolicy === null) {
-    missing.push("proration policy");
-  }
-  if (!settings || settings.depositPolicy === null) {
-    missing.push("deposit policy");
-  }
-  if (!settings || !settings.invoicePrefix) {
-    missing.push("invoice prefix");
-  }
-  return missing;
-}
-
-async function requireBillingPoliciesInTx(
-  tx: DatabaseExecutor,
-  ownerUserId: string,
-): Promise<ResolvedBillingPolicies> {
-  const settings = await tx.businessSettings.findUnique({
-    where: { ownerUserId },
-    select: {
-      billingDayOfMonth: true,
-      gracePeriodDays: true,
-      prorationPolicy: true,
-      depositPolicy: true,
-      invoicePrefix: true,
-    },
-  });
-
-  const missing = getMissingBillingPolicyLabels(settings);
-  if (
-    !settings ||
-    missing.length > 0 ||
-    settings.billingDayOfMonth === null ||
-    settings.gracePeriodDays === null ||
-    settings.prorationPolicy === null ||
-    settings.depositPolicy === null ||
-    !settings.invoicePrefix
-  ) {
-    throw new PreconditionError(
-      `Configure ${missing.join(", ")} in Settings before generating or issuing invoices.`,
-    );
-  }
-
+function requireBillingPoliciesInTx(): ResolvedBillingPolicies {
+  const policies = getServerBillingPolicies();
   return {
-    billingDayOfMonth: settings.billingDayOfMonth,
-    gracePeriodDays: settings.gracePeriodDays,
-    prorationPolicy: settings.prorationPolicy,
-    depositPolicy: settings.depositPolicy,
-    invoicePrefix: settings.invoicePrefix,
+    billingDayOfMonth: policies.billingDayOfMonth,
+    gracePeriodDays: policies.gracePeriodDays,
+    prorationPolicy: policies.prorationPolicy,
+    depositPolicy: policies.depositPolicy,
+    invoicePrefix: policies.invoicePrefix,
   };
 }
 
-async function requireInvoicePrefixInTx(
-  tx: DatabaseExecutor,
-  ownerUserId: string,
-): Promise<string> {
-  const settings = await tx.businessSettings.findUnique({
-    where: { ownerUserId },
-    select: { invoicePrefix: true },
-  });
-  if (!settings?.invoicePrefix) {
-    throw new PreconditionError(
-      "Configure an invoice prefix in Settings before issuing invoices.",
-    );
-  }
-  return settings.invoicePrefix;
+function requireInvoicePrefixInTx(): string {
+  return getServerBillingPolicies().invoicePrefix;
 }
 
 export async function lockSyncHeadForBatch(
@@ -504,19 +437,14 @@ export async function getBillingCreateContext(ownerUserId: string): Promise<{
 }> {
   const db = getDatabase();
   const currentBillingPeriod = getCurrentManilaBillingPeriod(new Date());
+  const policies = getServerBillingPolicies();
 
-  const [settings, tenants] = await db.$transaction(async (tx) => {
-    return Promise.all([
-      tx.businessSettings.findUnique({
-        where: { ownerUserId },
-        select: { invoicePrefix: true },
-      }),
-      listBillingTenantOptionsInTx(tx, ownerUserId),
-    ]);
-  });
+  const tenants = await db.$transaction((tx) =>
+    listBillingTenantOptionsInTx(tx, ownerUserId),
+  );
 
   return {
-    hasInvoicePrefix: Boolean(settings?.invoicePrefix),
+    hasInvoicePrefix: Boolean(policies.invoicePrefix),
     currentBillingPeriod,
     tenants,
   };
@@ -531,18 +459,11 @@ export async function getInvoiceDetail(
 } | null> {
   const db = getDatabase();
   const nowUtc = new Date();
+  const policies = getServerBillingPolicies();
 
-  const [settings, row] = await db.$transaction(async (tx) => {
-    return Promise.all([
-      tx.businessSettings.findUnique({
-        where: { ownerUserId },
-        select: { invoicePrefix: true },
-      }),
-      tx.invoice.findFirst({
-        where: { id: invoiceId, ownerUserId },
-        select: invoiceSelect,
-      }),
-    ]);
+  const row = await db.invoice.findFirst({
+    where: { id: invoiceId, ownerUserId },
+    select: invoiceSelect,
   });
 
   if (!row) {
@@ -551,7 +472,7 @@ export async function getInvoiceDetail(
 
   return {
     invoice: toInvoiceDto(row, nowUtc),
-    hasInvoicePrefix: Boolean(settings?.invoicePrefix),
+    hasInvoicePrefix: Boolean(policies.invoicePrefix),
   };
 }
 
@@ -561,19 +482,10 @@ export async function getBillingOverview(
   const db = getDatabase();
   const nowUtc = new Date();
   const currentBillingPeriod = getCurrentManilaBillingPeriod(nowUtc);
+  const policies = getServerBillingPolicies();
 
-  const [settings, invoiceRows, tenants] = await db.$transaction(async (tx) => {
+  const [invoiceRows, tenants] = await db.$transaction(async (tx) => {
     return Promise.all([
-      tx.businessSettings.findUnique({
-        where: { ownerUserId },
-        select: {
-          billingDayOfMonth: true,
-          gracePeriodDays: true,
-          prorationPolicy: true,
-          depositPolicy: true,
-          invoicePrefix: true,
-        },
-      }),
       tx.invoice.findMany({
         where: { ownerUserId },
         orderBy: [{ createdAt: "desc" }],
@@ -584,7 +496,6 @@ export async function getBillingOverview(
     ]);
   });
 
-  const missingPolicyFields = getMissingBillingPolicyLabels(settings);
   const invoices = invoiceRows.map((row) => toInvoiceDto(row, nowUtc));
 
   let draftCount = 0;
@@ -620,14 +531,14 @@ export async function getBillingOverview(
   }
 
   return {
-    policiesComplete: missingPolicyFields.length === 0,
-    missingPolicyFields,
+    policiesComplete: true,
+    missingPolicyFields: [],
     currentBillingPeriod,
-    billingDayOfMonth: settings?.billingDayOfMonth ?? null,
-    gracePeriodDays: settings?.gracePeriodDays ?? null,
-    prorationPolicy: settings?.prorationPolicy ?? null,
-    depositPolicy: settings?.depositPolicy ?? null,
-    invoicePrefix: settings?.invoicePrefix ?? null,
+    billingDayOfMonth: policies.billingDayOfMonth,
+    gracePeriodDays: policies.gracePeriodDays,
+    prorationPolicy: policies.prorationPolicy,
+    depositPolicy: policies.depositPolicy,
+    invoicePrefix: policies.invoicePrefix,
     invoices,
     tenants,
     summary: {
@@ -677,7 +588,7 @@ export async function generatePeriodInvoices(
     return await db.$transaction(
       async (tx) => {
         await lockSyncHeadForBatch(tx, ownerUserId);
-        const policies = await requireBillingPoliciesInTx(tx, ownerUserId);
+        const policies = requireBillingPoliciesInTx();
 
         const [existingForPeriod, assignments] = await Promise.all([
           tx.invoice.findMany({
@@ -998,21 +909,12 @@ export async function createManualInvoice(
           );
         }
 
-        const settings = await tx.businessSettings.findUnique({
-          where: { ownerUserId },
-          select: {
-            prorationPolicy: true,
-            depositPolicy: true,
-            invoicePrefix: true,
-          },
-        });
+        const policies = getServerBillingPolicies();
 
         let invoiceNumber: string | null = null;
         const nowUtc = new Date();
         if (input.issueImmediately) {
-          const prefix =
-            settings?.invoicePrefix ??
-            (await requireInvoicePrefixInTx(tx, ownerUserId));
+          const prefix = policies.invoicePrefix;
           const issueYear = Number(toManilaDate(nowUtc).slice(0, 4));
           invoiceNumber = await allocateInvoiceNumberInTx(
             tx,
@@ -1072,8 +974,8 @@ export async function createManualInvoice(
             snapshotMonthlyRate: activeAssignment
               ? decimalToString(activeAssignment.monthlyRate)
               : null,
-            snapshotProrationPolicy: settings?.prorationPolicy ?? null,
-            snapshotDepositPolicy: settings?.depositPolicy ?? null,
+            snapshotProrationPolicy: policies.prorationPolicy,
+            snapshotDepositPolicy: policies.depositPolicy,
             notes: input.notes,
             issuedAt: input.issueImmediately ? nowUtc : null,
             items: { create: computedItems },
@@ -1206,11 +1108,8 @@ export async function issueDraftInvoice(
         throw new PreconditionError("Only draft invoices can be issued.");
       }
 
-      const prefix = await requireInvoicePrefixInTx(tx, ownerUserId);
-      const settings = await tx.businessSettings.findUnique({
-        where: { ownerUserId },
-        select: { prorationPolicy: true, depositPolicy: true },
-      });
+      const policies = getServerBillingPolicies();
+      const prefix = policies.invoicePrefix;
 
       const nowUtc = new Date();
       const issueYear = Number(toManilaDate(nowUtc).slice(0, 4));
@@ -1256,11 +1155,9 @@ export async function issueDraftInvoice(
                 ? decimalToString(existing.transientReservation.dailyRate)
                 : null),
           snapshotProrationPolicy:
-            existing.snapshotProrationPolicy ??
-            settings?.prorationPolicy ??
-            null,
+            existing.snapshotProrationPolicy ?? policies.prorationPolicy,
           snapshotDepositPolicy:
-            existing.snapshotDepositPolicy ?? settings?.depositPolicy ?? null,
+            existing.snapshotDepositPolicy ?? policies.depositPolicy,
         },
       });
 
@@ -1642,7 +1539,7 @@ export async function createTransientStayInvoiceInTx(
 
   let invoiceNumber: string | null = null;
   if (issueImmediately) {
-    const prefix = await requireInvoicePrefixInTx(tx, ownerUserId);
+    const prefix = requireInvoicePrefixInTx();
     const issueYear = Number(toManilaDate(nowUtc).slice(0, 4));
     invoiceNumber = await allocateInvoiceNumberInTx(
       tx,

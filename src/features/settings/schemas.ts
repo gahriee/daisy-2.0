@@ -42,18 +42,10 @@ export const OVERPAYMENT_POLICY_LABELS: Record<OverpaymentPolicyValue, string> =
     CREDIT_NEXT_INVOICE: "Keep extra payment as tenant credit",
   };
 
-const prefixSchema = z
+const requiredTimeSchema = z
   .string()
   .trim()
-  .toUpperCase()
-  .regex(/^[A-Z0-9-]{2,12}$/, "Use 2–12 letters, numbers, or hyphens.")
-  .nullable();
-
-const timeSchema = z
-  .string()
-  .trim()
-  .refine((val) => isValidTimeHHmm(val), "Use 24-hour HH:MM format.")
-  .nullable();
+  .refine((val) => isValidTimeHHmm(val), "Use 24-hour HH:MM format.");
 
 const optionalShortText = (max: number) =>
   z
@@ -63,18 +55,16 @@ const optionalShortText = (max: number) =>
     .transform((val) => (val === "" ? null : val))
     .nullable();
 
-export const SETTINGS_MODULES = [
-  "profile",
-  "policies",
-  "operations",
-  "house_rules",
-  "sms",
-  "email",
-] as const;
-export type SettingsModule = (typeof SETTINGS_MODULES)[number];
+const optionalLongText = (max: number) =>
+  z
+    .string()
+    .trim()
+    .max(max, `Keep under ${max} characters.`)
+    .transform((val) => (val === "" ? null : val))
+    .nullable();
 
-export const TEST_EMAIL_TEMPLATES = ["pending", "approved"] as const;
-export type TestEmailTemplate = (typeof TEST_EMAIL_TEMPLATES)[number];
+export const SETTINGS_MODULES = ["property", "house_rules"] as const;
+export type SettingsModule = (typeof SETTINGS_MODULES)[number];
 
 const latitudeSchema = z
   .number()
@@ -87,39 +77,6 @@ const longitudeSchema = z
   .min(-180, "Longitude must be between -180 and 180.")
   .max(180, "Longitude must be between -180 and 180.")
   .nullable();
-
-const profileFields = {
-  businessName: z
-    .string()
-    .trim()
-    .min(1, "Enter your boarding house name.")
-    .max(120, "Keep business name under 120 characters."),
-  businessPhone: optionalShortText(40),
-  businessAddress: optionalShortText(240),
-  businessLatitude: latitudeSchema.optional().default(null),
-  businessLongitude: longitudeSchema.optional().default(null),
-  tin: optionalShortText(40),
-};
-
-const policiesFields = {
-  billingDayOfMonth: z
-    .number()
-    .int("Choose a whole day from 1 to 28.")
-    .min(1, "Billing day must be between 1 and 28.")
-    .max(28, "Billing day must be between 1 and 28.")
-    .nullable(),
-  gracePeriodDays: z
-    .number()
-    .int("Enter a whole number of days.")
-    .min(0, "Grace days cannot be negative.")
-    .max(60, "Grace days cannot exceed 60.")
-    .nullable(),
-  prorationPolicy: z.enum(PRORATION_POLICIES).nullable(),
-  depositPolicy: z.enum(DEPOSIT_POLICIES).nullable(),
-  overpaymentPolicy: z.enum(OVERPAYMENT_POLICIES).nullable(),
-  invoicePrefix: prefixSchema,
-  receiptPrefix: prefixSchema,
-};
 
 export const DEFAULT_HOUSE_RULES = [
   "1. No curfew. Just bring key in going out in order not to disturb others.",
@@ -167,51 +124,23 @@ export function serializeHouseRulesList(
   return cleaned.map((rule, index) => `${index + 1}. ${rule}`).join("\n");
 }
 
-const optionalLongText = (max: number) =>
-  z
+export const PropertySettingsUpdateSchema = z.object({
+  module: z.literal("property"),
+  expectedVersion: z.number().int().min(0),
+  businessName: z
     .string()
     .trim()
-    .max(max, `Keep under ${max} characters.`)
-    .transform((val) => (val === "" ? null : val))
-    .nullable();
-
-const operationsFields = {
-  checkInTimeManila: timeSchema,
-  checkOutTimeManila: timeSchema,
-  transientPolicyNote: optionalLongText(2000).optional(),
-  offlineUnlockMaxDays: z
-    .number()
-    .int()
-    .min(1, "Unlock window must be at least 1 day.")
-    .max(30, "Unlock window cannot exceed 30 days."),
-  proofMaxMb: z
-    .number()
-    .int()
-    .min(1, "Proof size limit must be at least 1 MB.")
-    .max(20, "Proof size limit cannot exceed 20 MB."),
-  proofMaxFilesPerRecord: z
-    .number()
-    .int()
-    .min(1, "Allow at least 1 proof file per record.")
-    .max(20, "Limit proof files per record to 20 or fewer."),
-};
-
-export const ProfileSettingsUpdateSchema = z.object({
-  module: z.literal("profile"),
-  expectedVersion: z.number().int().min(0),
-  ...profileFields,
-});
-
-export const PoliciesSettingsUpdateSchema = z.object({
-  module: z.literal("policies"),
-  expectedVersion: z.number().int().min(0),
-  ...policiesFields,
-});
-
-export const OperationsSettingsUpdateSchema = z.object({
-  module: z.literal("operations"),
-  expectedVersion: z.number().int().min(0),
-  ...operationsFields,
+    .min(1, "Enter your boarding house name.")
+    .max(120, "Keep business name under 120 characters."),
+  businessPhone: optionalShortText(40),
+  businessAddress: optionalShortText(240),
+  businessLatitude: latitudeSchema.optional().default(null),
+  businessLongitude: longitudeSchema.optional().default(null),
+  tin: optionalShortText(40),
+  checkInTimeManila: requiredTimeSchema,
+  checkOutTimeManila: requiredTimeSchema,
+  smsOverdueEnabled: z.boolean(),
+  smsOverdueSendTimeManila: requiredTimeSchema,
 });
 
 export const HouseRulesSettingsUpdateSchema = z.object({
@@ -220,131 +149,13 @@ export const HouseRulesSettingsUpdateSchema = z.object({
   transientPolicyNote: optionalLongText(2000),
 });
 
-const smsSenderNameSchema = z
-  .string()
-  .trim()
-  .max(11, "Semaphore sender name must be 11 characters or fewer.")
-  .refine(
-    (val) => val === "" || /^[A-Za-z0-9]+$/.test(val),
-    "Use letters and numbers only for Semaphore sender name (no spaces).",
-  )
-  .transform((val) => (val === "" ? null : val))
-  .nullable();
-
-const smsOverdueTemplateSchema = z
-  .string()
-  .trim()
-  .max(480, "Keep the SMS message template under 480 characters.")
-  .refine(
-    (val) => val === "" || !/^test\b/i.test(val),
-    'Do not start the message with "TEST" (Semaphore ignores messages beginning with TEST).',
-  )
-  .transform((val) => (val === "" ? null : val))
-  .nullable();
-
-const smsApiKeyInputSchema = z
-  .string()
-  .trim()
-  .max(256, "API key looks too long.")
-  .transform((val) => (val === "" ? null : val))
-  .nullable()
-  .optional();
-
-const requiredTimeSchema = z
-  .string()
-  .trim()
-  .refine((val) => isValidTimeHHmm(val), "Use 24-hour HH:MM format.");
-
-export const SmsSettingsUpdateSchema = z.object({
-  module: z.literal("sms"),
-  expectedVersion: z.number().int().min(0),
-  smsOverdueEnabled: z.boolean(),
-  smsOverdueFrequencyDays: z
-    .number()
-    .int("Enter a whole number of days.")
-    .min(1, "Repeat frequency must be at least 1 day.")
-    .max(30, "Repeat frequency cannot exceed 30 days."),
-  smsOverdueSendTimeManila: requiredTimeSchema,
-  smsApiKey: smsApiKeyInputSchema,
-  clearSmsApiKey: z.boolean().default(false),
-  smsSenderName: smsSenderNameSchema,
-  smsOverdueTemplate: smsOverdueTemplateSchema,
-});
-
-const optionalEmailSchema = z
-  .string()
-  .trim()
-  .max(254, "Keep email under 254 characters.")
-  .refine(
-    (val) => val === "" || /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(val),
-    "Enter a valid email address.",
-  )
-  .transform((val) => (val === "" ? null : val))
-  .nullable();
-
-const smtpHostSchema = z
-  .string()
-  .trim()
-  .max(255, "Keep mail server host under 255 characters.")
-  .refine(
-    (val) => val === "" || /^[A-Za-z0-9.-]+$/.test(val),
-    "Enter a valid mail server address (e.g. smtp.gmail.com).",
-  )
-  .transform((val) => (val === "" ? null : val))
-  .nullable();
-
-const smtpPassInputSchema = z
-  .string()
-  .trim()
-  .max(256, "App password looks too long.")
-  .transform((val) => (val === "" ? null : val))
-  .nullable()
-  .optional();
-
-export const EmailSettingsUpdateSchema = z.object({
-  module: z.literal("email"),
-  expectedVersion: z.number().int().min(0),
-  smtpEnabled: z.boolean(),
-  smtpHost: smtpHostSchema,
-  smtpPort: z
-    .number()
-    .int("Enter a whole port number.")
-    .min(1, "Port must be between 1 and 65535.")
-    .max(65535, "Port must be between 1 and 65535.")
-    .nullable(),
-  smtpSecure: z.boolean(),
-  smtpUser: optionalEmailSchema,
-  smtpPass: smtpPassInputSchema,
-  clearSmtpPass: z.boolean().default(false),
-  smtpFromName: optionalShortText(120),
-  smtpFromEmail: optionalEmailSchema,
-});
-
 export const BusinessSettingsModuleUpdateSchema = z.discriminatedUnion(
   "module",
-  [
-    ProfileSettingsUpdateSchema,
-    PoliciesSettingsUpdateSchema,
-    OperationsSettingsUpdateSchema,
-    HouseRulesSettingsUpdateSchema,
-    SmsSettingsUpdateSchema,
-    EmailSettingsUpdateSchema,
-  ],
+  [PropertySettingsUpdateSchema, HouseRulesSettingsUpdateSchema],
 );
 
 export type BusinessSettingsModuleUpdateInput = z.input<
   typeof BusinessSettingsModuleUpdateSchema
->;
-
-export const BusinessSettingsUpdateSchema = z.object({
-  expectedVersion: z.number().int().min(0),
-  ...profileFields,
-  ...policiesFields,
-  ...operationsFields,
-});
-
-export type BusinessSettingsUpdateInput = z.input<
-  typeof BusinessSettingsUpdateSchema
 >;
 
 export type BusinessSettingsDto = {
@@ -356,35 +167,23 @@ export type BusinessSettingsDto = {
   businessLatitude: number | null;
   businessLongitude: number | null;
   tin: string | null;
-  billingDayOfMonth: number | null;
-  gracePeriodDays: number | null;
-  prorationPolicy: ProrationPolicyValue | null;
-  depositPolicy: DepositPolicyValue | null;
-  overpaymentPolicy: OverpaymentPolicyValue | null;
-  invoicePrefix: string | null;
-  receiptPrefix: string | null;
-  checkInTimeManila: string | null;
-  checkOutTimeManila: string | null;
+  billingDayOfMonth: number;
+  gracePeriodDays: number;
+  prorationPolicy: ProrationPolicyValue;
+  depositPolicy: DepositPolicyValue;
+  overpaymentPolicy: OverpaymentPolicyValue;
+  invoicePrefix: string;
+  receiptPrefix: string;
+  checkInTimeManila: string;
+  checkOutTimeManila: string;
   transientPolicyNote: string | null;
   offlineUnlockMaxDays: number;
   proofMaxBytes: number;
   proofMaxFilesPerRecord: number;
+  smsConfigured: boolean;
   smsOverdueEnabled: boolean;
   smsOverdueFrequencyDays: number;
   smsOverdueSendTimeManila: string;
-  smsApiKeyConfigured: boolean;
-  smsApiKeyLast4: string | null;
-  smsSenderName: string | null;
-  smsOverdueTemplate: string | null;
-  smtpEnabled: boolean;
-  smtpHost: string | null;
-  smtpPort: number | null;
-  smtpSecure: boolean;
-  smtpUser: string | null;
-  smtpPassConfigured: boolean;
-  smtpPassLast4: string | null;
-  smtpFromName: string | null;
-  smtpFromEmail: string | null;
   updatedAt: string | null;
   policiesComplete: boolean;
   stayScheduleComplete: boolean;

@@ -50,12 +50,8 @@ import {
   PreconditionError,
 } from "../../../src/lib/errors";
 import { listAuditLogs } from "../../../src/features/audit/service";
-import { updateBusinessSettings } from "../../../src/features/settings/service";
-import {
-  createBed,
-  createRoom,
-  createRoomType,
-} from "../../../src/features/rooms/service";
+import { updateBusinessSettingsModule } from "../../../src/features/settings/service";
+import { createBed, createRoom } from "../../../src/features/rooms/service";
 import { registerOwnerDevice } from "../../../src/server/auth/device";
 import { listOwnerNotifications } from "../../../src/server/notifications/service";
 import {
@@ -98,39 +94,32 @@ function trackPublicHeaders(ip: string, extra?: Record<string, string>) {
 }
 
 async function configureOwnerSettings(ownerId: string) {
-  await updateBusinessSettings(ownerId, {
+  vi.stubEnv("BILLING_DAY_OF_MONTH", "5");
+  vi.stubEnv("BILLING_GRACE_PERIOD_DAYS", "5");
+  vi.stubEnv("BILLING_PRORATION_POLICY", "DAILY_EXACT");
+  vi.stubEnv("BILLING_DEPOSIT_POLICY", "HOLD_SEPARATE");
+  vi.stubEnv("BILLING_OVERPAYMENT_POLICY", "REJECT_OVERPAYMENT");
+  vi.stubEnv("INVOICE_PREFIX", "INV");
+  vi.stubEnv("RECEIPT_PREFIX", "OR");
+  await updateBusinessSettingsModule(ownerId, {
+    module: "property",
     expectedVersion: 0,
     businessName: "Daisy Transient Test Property",
     businessPhone: null,
     businessAddress: null,
     tin: null,
-    billingDayOfMonth: 5,
-    gracePeriodDays: 5,
-    prorationPolicy: "DAILY_EXACT",
-    depositPolicy: "HOLD_SEPARATE",
-    overpaymentPolicy: "REJECT_OVERPAYMENT",
-    invoicePrefix: "INV",
-    receiptPrefix: "OR",
     checkInTimeManila: "14:00",
     checkOutTimeManila: "11:00",
-    offlineUnlockMaxDays: 7,
-    proofMaxMb: 5,
-    proofMaxFilesPerRecord: 5,
+    smsOverdueEnabled: false,
+    smsOverdueSendTimeManila: "09:00",
   });
 }
 
 async function seedInventory(ownerId: string) {
-  const roomType = await createRoomType(ownerId, {
-    building: "TRANSIENT",
-    name: "Transient Twin",
-    dailyRate: "500.00",
-    description: "Short-stay capable room",
-  });
   const publishedRoom = await createRoom(ownerId, {
     building: "TRANSIENT",
     number: "T-201",
     floor: "2F",
-    roomTypeId: roomType.id,
     capacity: 2,
     transientDailyRate: "650.00",
     notes: "PRIVATE OWNER NOTE DO NOT LEAK",
@@ -139,21 +128,14 @@ async function seedInventory(ownerId: string) {
     building: "TRANSIENT",
     number: "T-202",
     floor: "2F",
-    roomTypeId: roomType.id,
     capacity: 2,
     transientDailyRate: "550.00",
     notes: "PRIVATE UNPUBLISHED TRANSIENT ROOM",
-  });
-  const boardingType = await createRoomType(ownerId, {
-    building: "BOARDING",
-    name: "Boarding Twin",
-    monthlyRate: "6000.00",
   });
   const boardingRoom = await createRoom(ownerId, {
     building: "BOARDING",
     number: "B-101",
     floor: "1F",
-    roomTypeId: boardingType.id,
     capacity: 2,
     baseMonthlyRate: "6000.00",
     notes: "PRIVATE BOARDER ROOM",
@@ -182,7 +164,6 @@ async function seedInventory(ownerId: string) {
   });
 
   return {
-    roomType,
     publishedRoom,
     unpublishedRoom,
     boardingRoom,
@@ -276,9 +257,6 @@ afterAll(async () => {
       where: { ownerUserId: { startsWith: prefix } },
     });
     await db.room.deleteMany({
-      where: { ownerUserId: { startsWith: prefix } },
-    });
-    await db.roomType.deleteMany({
       where: { ownerUserId: { startsWith: prefix } },
     });
     await db.device.deleteMany({
@@ -820,7 +798,7 @@ describe("transients, public booking, billing bridge & sync integration", () => 
 
   it("persists guest demographics, adults/children breakdown, and scopes single-room availability safely", async () => {
     await configureOwnerSettings(state.ownerId);
-    const { publishedRoom, unpublishedRoom, roomType } = await seedInventory(
+    const { publishedRoom, unpublishedRoom } = await seedInventory(
       state.ownerId,
     );
 
@@ -828,7 +806,6 @@ describe("transients, public booking, billing bridge & sync integration", () => 
       building: "TRANSIENT",
       number: "T-205",
       floor: "2F",
-      roomTypeId: roomType.id,
       capacity: 4,
       transientDailyRate: "1800.00",
     });

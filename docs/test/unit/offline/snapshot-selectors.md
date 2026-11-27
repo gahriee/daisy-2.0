@@ -1,10 +1,10 @@
 # Offline snapshot selectors and vault overlays
 
 - Status: PASS
-- Last run: 2026-11-16 21:20:06 (UTC+8)
-- Runtime: Windows, Vitest 5.1.0, fake-indexeddb 6.2.8, Next.js 16.4.6 (`pnpm build` verified)
-- Command: `pnpm test:unit tests/unit/offline/db-outbox.test.ts tests/unit/offline/snapshot-selectors.test.ts` (Vitest ran full unit suite + targeted files)
-- Result: 6 passed here (225 ms); suite 155 passed, 0 failed, 0 skipped across 40 files, 2.77 s.
+- Last run: 2026-11-27 20:29:14 (UTC+8)
+- Runtime: Windows, Node 26.13.1, pnpm 12.18.0, Vitest 5.1.0, fake-indexeddb 6.2.8, Next.js 16.4.6 (`pnpm build` verified)
+- Command: `pnpm test:unit`
+- Result: 6 passed here (179 ms); suite 219 passed, 0 failed, 0 skipped across 51 files, 3.83 s.
 - Target file: [tests/unit/offline/snapshot-selectors.test.ts](tests/unit/offline/snapshot-selectors.test.ts) -> [src/offline/snapshot-selectors.ts](src/offline/snapshot-selectors.ts), [src/offline/snapshot-selectors-extra.ts](src/offline/snapshot-selectors-extra.ts)
 
 ## Verified criteria
@@ -20,6 +20,7 @@
 
 | Run (UTC+8) | Command | Result | Duration |
 | --- | --- | --- | --- |
+| 2026-11-27 20:29:14 | `pnpm test:unit` | 6 passed (suite: 219/219 across 51 files) | 179 ms (3.83 s suite) |
 | 2026-11-16 21:20:06 | `pnpm test:unit tests/unit/offline/db-outbox.test.ts tests/unit/offline/snapshot-selectors.test.ts` | 6 passed (suite: 155/155 across 40 files) | 225 ms (2.77 s suite) |
 | 2026-11-16 20:59:31 | `pnpm test:unit tests/unit/offline/db-outbox.test.ts tests/unit/offline/snapshot-selectors.test.ts` | 5 passed (suite: 153/153 across 40 files) | 226 ms (2.51 s suite) |
 | 2026-11-16 19:33:41 | `pnpm test:unit tests/unit/offline/db-outbox.test.ts tests/unit/offline/snapshot-selectors.test.ts` | 3 passed (suite: 150/150 across 40 files) | 207 ms (4.51 s suite) |

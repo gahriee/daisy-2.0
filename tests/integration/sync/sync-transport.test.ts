@@ -84,9 +84,6 @@ async function cleanupTestOwners(db: PrismaClient, ownerPrefix: string) {
   await db.room.deleteMany({
     where: { ownerUserId: { startsWith: ownerPrefix } },
   });
-  await db.roomType.deleteMany({
-    where: { ownerUserId: { startsWith: ownerPrefix } },
-  });
   await db.changeFeed.deleteMany({
     where: { ownerUserId: { startsWith: ownerPrefix } },
   });
@@ -195,19 +192,9 @@ describe("/api/sync/* transport endpoints", () => {
     });
     const deviceCookie = `daisy_device=${encodeURIComponent(rawToken!)}`;
 
-    const rt = await db.roomType.create({
-      data: {
-        ownerUserId: ownerId,
-        name: "Standard",
-        building: "BOARDING",
-        monthlyRate: "4500.00",
-      },
-      select: { id: true },
-    });
     const room = await db.room.create({
       data: {
         ownerUserId: ownerId,
-        roomTypeId: rt.id,
         number: "101",
         building: "BOARDING",
         capacity: 1,

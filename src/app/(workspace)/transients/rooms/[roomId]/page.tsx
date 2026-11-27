@@ -1,5 +1,6 @@
 import { notFound, redirect } from "next/navigation";
 import { connection } from "next/server";
+import { z } from "zod";
 import { RoomForm } from "@/components/features/rooms/room-form";
 import { WorkspacePageTitle } from "@/components/layout/workspace-shell";
 import { getRoomDetail } from "@/features/rooms/service";
@@ -26,22 +27,20 @@ export default async function TransientRoomDetailPage({
   }
 
   const { roomId } = await params;
+  if (!z.string().uuid().safeParse(roomId).success) {
+    notFound();
+  }
 
-  const detail = await getRoomDetail(ownerUserId, roomId, "TRANSIENT");
+  const room = await getRoomDetail(ownerUserId, roomId, "TRANSIENT");
 
-  if (!detail) {
+  if (!room) {
     notFound();
   }
 
   return (
     <>
-      <WorkspacePageTitle title={`Transient Room ${detail.room.number}`} />
-      <RoomForm
-        mode="edit"
-        building="TRANSIENT"
-        room={detail.room}
-        roomTypes={detail.roomTypes}
-      />
+      <WorkspacePageTitle title={`Transient Room ${room.number}`} />
+      <RoomForm mode="edit" building="TRANSIENT" room={room} />
     </>
   );
 }

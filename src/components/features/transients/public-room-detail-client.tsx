@@ -287,7 +287,6 @@ export function PublicRoomDetailClient({
         <div className="mb-6 flex flex-col gap-3 border-b border-border pb-5 lg:flex-row lg:items-end lg:justify-between">
           <div className="grid gap-1.5">
             <div className="flex flex-wrap items-center gap-2">
-              <Badge tone="neutral">{room.roomTypeName}</Badge>
               <Badge tone={roomUnavailableOnRefresh ? "warning" : status.tone}>
                 {roomUnavailableOnRefresh ? "Currently unlisted" : status.label}
               </Badge>
@@ -547,8 +546,8 @@ export function PublicRoomDetailClient({
                 </p>
               ) : (
                 <p className="text-sm text-muted-foreground">
-                  Clean short-stay {room.roomTypeName.toLowerCase()} with
-                  host-confirmed check-in and front desk support.
+                  Clean short-stay room with host-confirmed check-in and front
+                  desk support.
                 </p>
               )}
 

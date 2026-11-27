@@ -94,9 +94,6 @@ async function cleanupTestOwners(db: PrismaClient, ownerPrefix: string) {
   await db.room.deleteMany({
     where: { ownerUserId: { startsWith: ownerPrefix } },
   });
-  await db.roomType.deleteMany({
-    where: { ownerUserId: { startsWith: ownerPrefix } },
-  });
   await db.businessSettings.deleteMany({
     where: { ownerUserId: { startsWith: ownerPrefix } },
   });
@@ -193,35 +190,6 @@ describe("Dashboard operational snapshot integration", () => {
       },
     });
 
-    const boardingTypeId = randomUUID();
-    const transientTypeId = randomUUID();
-    const foreignTypeId = randomUUID();
-    await db.roomType.createMany({
-      data: [
-        {
-          id: boardingTypeId,
-          ownerUserId: ownerA,
-          building: "BOARDING",
-          name: "Standard Boarding",
-          monthlyRate: "5000.00",
-        },
-        {
-          id: transientTypeId,
-          ownerUserId: ownerA,
-          building: "TRANSIENT",
-          name: "Transient Deluxe",
-          dailyRate: "1500.00",
-        },
-        {
-          id: foreignTypeId,
-          ownerUserId: ownerB,
-          building: "BOARDING",
-          name: "Foreign Room Type",
-          monthlyRate: "7000.00",
-        },
-      ],
-    });
-
     const bRoom1 = randomUUID();
     const bRoom2 = randomUUID();
     const bRoom3 = randomUUID();
@@ -236,7 +204,6 @@ describe("Dashboard operational snapshot integration", () => {
           ownerUserId: ownerA,
           building: "BOARDING",
           number: "101",
-          roomTypeId: boardingTypeId,
           capacity: 1,
           baseMonthlyRate: "5000.00",
         },
@@ -245,7 +212,6 @@ describe("Dashboard operational snapshot integration", () => {
           ownerUserId: ownerA,
           building: "BOARDING",
           number: "102",
-          roomTypeId: boardingTypeId,
           capacity: 1,
           baseMonthlyRate: "5000.00",
         },
@@ -254,7 +220,6 @@ describe("Dashboard operational snapshot integration", () => {
           ownerUserId: ownerA,
           building: "BOARDING",
           number: "103",
-          roomTypeId: boardingTypeId,
           capacity: 1,
           baseMonthlyRate: "5000.00",
         },
@@ -263,7 +228,6 @@ describe("Dashboard operational snapshot integration", () => {
           ownerUserId: ownerA,
           building: "TRANSIENT",
           number: "T1",
-          roomTypeId: transientTypeId,
           capacity: 2,
           transientDailyRate: "1500.00",
           isTransientPublished: true,
@@ -273,7 +237,6 @@ describe("Dashboard operational snapshot integration", () => {
           ownerUserId: ownerA,
           building: "TRANSIENT",
           number: "T2",
-          roomTypeId: transientTypeId,
           capacity: 2,
           transientDailyRate: "1500.00",
           isTransientPublished: false,
@@ -283,7 +246,6 @@ describe("Dashboard operational snapshot integration", () => {
           ownerUserId: ownerB,
           building: "BOARDING",
           number: "999",
-          roomTypeId: foreignTypeId,
           capacity: 1,
           baseMonthlyRate: "7000.00",
         },

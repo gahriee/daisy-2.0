@@ -52,23 +52,6 @@ const sampleOverview: ReportsOverviewDto = {
         occupiedDailyRateTotal: "0.00",
       },
     ],
-    byRoomType: [
-      {
-        roomTypeId: "rt1",
-        roomTypeName: "Standard",
-        building: "BOARDING",
-        buildingLabel: "Boarding House",
-        totalRooms: 1,
-        occupiedRooms: 1,
-        availableRooms: 0,
-        maintenanceRooms: 0,
-        occupancyRatePercent: 100,
-        totalBeds: 2,
-        occupiedBeds: 1,
-        avgMonthlyRate: "4500.00",
-        avgDailyRate: null,
-      },
-    ],
     rows: [
       {
         roomId: "r1",
@@ -97,7 +80,6 @@ const sampleOverview: ReportsOverviewDto = {
       averageMonthlyRent: "4500.00",
       openBalanceToRentPercent: 33,
     },
-    byRoomType: [],
     leaseExpiries: [],
     rows: [
       {
@@ -209,7 +191,6 @@ const sampleOverview: ReportsOverviewDto = {
       collectionRatePercent: 100,
     },
     byStatus: [],
-    byRoomType: [],
     rows: [
       {
         reservationId: "tr1",

@@ -46,7 +46,6 @@ import type {
   InventoryOverviewDto,
   RoomBuildingValue,
   RoomPhotoDto,
-  RoomTypeDto,
   RoomWithBedsDto,
 } from "@/features/rooms/schemas";
 import type {
@@ -179,8 +178,6 @@ function toTransientReservationDto(
     guestEmail: asString(row.data.guestEmail) ?? guest?.email ?? null,
     roomId,
     roomNumber: asString(row.data.roomNumber) ?? room?.number ?? "—",
-    roomTypeName:
-      asString(row.data.roomTypeName) ?? room?.roomTypeName ?? "Transient",
     bedId: asString(row.data.bedId),
     bedNumber: asString(row.data.bedNumber),
     scope,
@@ -244,7 +241,6 @@ function toBookingRequestDto(
     referenceCode: asNonEmptyString(row.data.referenceCode, "—"),
     roomId,
     roomNumber: asNonEmptyString(row.data.roomNumber, "—"),
-    roomTypeName: asNonEmptyString(row.data.roomTypeName, "Transient"),
     scope: asString(row.data.scope) === "BED" ? "BED" : "WHOLE_ROOM",
     guestName,
     guestAge: typeof row.data.guestAge === "number" ? row.data.guestAge : null,
@@ -285,8 +281,7 @@ function toBookingRequestDto(
   };
 }
 
-function reconstructRoomsAndTypes(projections: DecryptedEntityView[]): {
-  roomTypes: RoomTypeDto[];
+function reconstructRooms(projections: DecryptedEntityView[]): {
   rooms: RoomWithBedsDto[];
   roomById: Map<string, RoomWithBedsDto>;
 } {
@@ -329,36 +324,6 @@ function reconstructRoomsAndTypes(projections: DecryptedEntityView[]): {
     bedsByRoomId.set(roomId, list);
   }
 
-  const roomTypes: RoomTypeDto[] = [];
-  for (const row of projections) {
-    if (row.entityType !== "room_type" || isRecordDeletedOrTombstone(row)) {
-      continue;
-    }
-    const name = asString(row.data.name)?.trim();
-    if (!name) continue;
-    const building: RoomBuildingValue =
-      asString(row.data.building) === "TRANSIENT" ? "TRANSIENT" : "BOARDING";
-    roomTypes.push({
-      id: asNonEmptyString(row.data.id, row.entityId),
-      version: Math.max(1, asNumber(row.data._version ?? row.data.version, 1)),
-      building,
-      name,
-      monthlyRate:
-        row.data.monthlyRate != null
-          ? formatMoneyDecimal(parseSafeMoney(row.data.monthlyRate))
-          : null,
-      dailyRate:
-        row.data.dailyRate != null
-          ? formatMoneyDecimal(parseSafeMoney(row.data.dailyRate))
-          : null,
-      description: asString(row.data.description),
-      activeRoomCount: asNumber(row.data.activeRoomCount, 0),
-      archivedAt: asString(row.data.archivedAt),
-      createdAt: asNonEmptyString(row.data.createdAt, row.updatedAt),
-      updatedAt: asNonEmptyString(row.data.updatedAt, row.updatedAt),
-    });
-  }
-
   const rooms: RoomWithBedsDto[] = [];
   const roomById = new Map<string, RoomWithBedsDto>();
   for (const row of projections) {
@@ -385,9 +350,6 @@ function reconstructRoomsAndTypes(projections: DecryptedEntityView[]): {
       building,
       number,
       floor: asString(row.data.floor),
-      roomTypeId: asNonEmptyString(row.data.roomTypeId),
-      roomTypeName: asNonEmptyString(row.data.roomTypeName, "Room"),
-      roomTypeArchived: toBoolean(row.data.roomTypeArchived),
       capacity: Math.max(1, asNumber(row.data.capacity, 1)),
       baseMonthlyRate:
         row.data.baseMonthlyRate != null
@@ -417,7 +379,7 @@ function reconstructRoomsAndTypes(projections: DecryptedEntityView[]): {
   }
 
   rooms.sort((a, b) => a.number.localeCompare(b.number));
-  return { roomTypes, rooms, roomById };
+  return { rooms, roomById };
 }
 
 /**
@@ -431,9 +393,7 @@ export function buildTransientsOverviewFromRecords(input: {
   overview: TransientsOverviewDto;
   syncBadges: Record<string, OfflineEntitySyncBadge>;
 } {
-  const { rooms: allRooms, roomById } = reconstructRoomsAndTypes(
-    input.projections,
-  );
+  const { rooms: allRooms, roomById } = reconstructRooms(input.projections);
   const guests: TransientGuestDto[] = [];
   const guestById = new Map<string, TransientGuestDto>();
 
@@ -488,7 +448,6 @@ export function buildTransientsOverviewFromRecords(input: {
       version: r.version,
       number: r.number,
       floor: r.floor,
-      roomTypeName: r.roomTypeName,
       capacity: r.capacity,
       resolvedDailyRate: r.transientDailyRate,
       isTransientPublished: r.isTransientPublished,
@@ -615,10 +574,7 @@ export function buildRoomsOverviewFromRecords(input: {
   projections: DecryptedEntityView[];
   building: RoomBuildingValue;
 }): InventoryOverviewDto {
-  const { roomTypes, rooms } = reconstructRoomsAndTypes(input.projections);
-  const filteredTypes = roomTypes.filter(
-    (rt) => rt.building === input.building,
-  );
+  const { rooms } = reconstructRooms(input.projections);
   const filteredRooms = rooms.filter((r) => r.building === input.building);
   const activeRooms = filteredRooms.filter((r) => r.archivedAt === null);
 
@@ -647,7 +603,6 @@ export function buildRoomsOverviewFromRecords(input: {
       occupiedBeds,
       maintenanceBeds,
     },
-    roomTypes: filteredTypes,
     rooms: filteredRooms,
   };
 }
@@ -661,7 +616,7 @@ export async function loadRoomsOverviewFromVault(
   lastSyncedAt: string | null;
 }> {
   const [projections, syncMeta] = await Promise.all([
-    listDecryptedProjections(db, key, ["room_type", "room", "bed"]),
+    listDecryptedProjections(db, key, ["room", "bed"]),
     db.vaultMeta.get("sync"),
   ]);
   return {
@@ -877,7 +832,7 @@ export function buildNoticesOverviewFromRecords(input: {
   todayManila?: string;
 }): NoticeOverviewDto {
   const todayManila = input.todayManila ?? toManilaDate(new Date());
-  const { rooms: allRooms } = reconstructRoomsAndTypes(input.projections);
+  const { rooms: allRooms } = reconstructRooms(input.projections);
   const rooms: NoticeRoomOptionDto[] = allRooms
     .filter((r) => r.archivedAt === null)
     .map((r) => ({
@@ -999,7 +954,7 @@ export function buildDashboardSnapshotFromRecords(input: {
   const monthWindow = getManilaMonthWindow(todayManila);
   const prevMonthWindow = getPreviousManilaMonthWindow(todayManila);
 
-  const { rooms: allRooms } = reconstructRoomsAndTypes(input.projections);
+  const { rooms: allRooms } = reconstructRooms(input.projections);
   const transients = buildTransientsOverviewFromRecords({
     projections: input.projections,
     outbox: [],
@@ -1332,7 +1287,6 @@ export async function loadDashboardSnapshotFromVault(
 }> {
   const [projections, syncMeta, policiesMeta] = await Promise.all([
     listDecryptedProjections(db, key, [
-      "room_type",
       "room",
       "bed",
       "tenant",

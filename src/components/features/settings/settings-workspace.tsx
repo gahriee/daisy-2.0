@@ -7,42 +7,15 @@ import {
   DeviceManagementPanel,
   type ClientDeviceSummary,
 } from "./device-management-panel";
-import { EmailSettingsPanel } from "./email-settings-panel";
-import { HouseRulesEditor } from "./house-rules-editor";
 
 const SECTION_HEADERS: Record<
   SettingsSectionKey,
   { title: string; description: string }
 > = {
-  profile: {
-    title: "Property profile",
+  property: {
+    title: "Property & stay settings",
     description:
-      "Boarding house identity, contact details, and optional TIN printed on invoices and tenant notices.",
-  },
-  policies: {
-    title: "Billing & policies",
-    description:
-      "Your rules for monthly rent bills, grace periods, partial months, deposits, and receipt numbers.",
-  },
-  operations: {
-    title: "Stays & limits",
-    description:
-      "Standard check-in/out times, how long offline access stays active, and photo upload limits.",
-  },
-  house_rules: {
-    title: "House rules",
-    description:
-      "Configure one rule per row. Saved rules appear immediately on the public /book storefront and room detail pages.",
-  },
-  sms: {
-    title: "Overdue SMS",
-    description:
-      "Semaphore account, schedule, and message for overdue rent texts.",
-  },
-  email: {
-    title: "Email",
-    description:
-      "Connect your Gmail account to send booking request and confirmation emails.",
+      "Your boarding house details, check-in and check-out times, and automatic overdue rent text reminders.",
   },
   devices: {
     title: "Trusted devices",
@@ -78,20 +51,9 @@ export function SettingsWorkspace({
 
       {section === "devices" ? (
         <DeviceManagementPanel initialDevices={initialDevices} />
-      ) : section === "house_rules" ? (
-        initialSettings && (
-          <HouseRulesEditor initialSettings={initialSettings} />
-        )
-      ) : section === "email" ? (
-        initialSettings && (
-          <EmailSettingsPanel initialSettings={initialSettings} />
-        )
       ) : (
         initialSettings && (
-          <BusinessSettingsForm
-            initialSettings={initialSettings}
-            activeSection={section}
-          />
+          <BusinessSettingsForm initialSettings={initialSettings} />
         )
       )}
     </div>

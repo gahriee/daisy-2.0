@@ -42,24 +42,17 @@ export function computeTransientStayUtcBounds(input: {
 }
 
 /**
- * Resolves effective nightly rate in integer centavos using room override first,
- * falling back to room type daily rate when unset. Returns ZERO when unconfigured.
+ * Resolves effective nightly rate in integer centavos directly from the room's
+ * configured daily rate. Returns ZERO when unconfigured.
  */
 export function resolveTransientDailyRateCentavos(input: {
   roomDailyRate: { toString(): string } | string | null | undefined;
-  roomTypeDailyRate: { toString(): string } | string | null | undefined;
 }): bigint {
   if (
     input.roomDailyRate != null &&
     String(input.roomDailyRate).trim() !== ""
   ) {
     return parseMoneyDecimal(String(input.roomDailyRate));
-  }
-  if (
-    input.roomTypeDailyRate != null &&
-    String(input.roomTypeDailyRate).trim() !== ""
-  ) {
-    return parseMoneyDecimal(String(input.roomTypeDailyRate));
   }
   return ZERO;
 }

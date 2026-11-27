@@ -35,25 +35,16 @@ describe("transients stay calculations", () => {
     ).toThrow("Check-out timestamp must be strictly after check-in timestamp.");
   });
 
-  it("resolves daily rate override before room-type fallback and totals centavos", () => {
+  it("resolves room daily rate directly and totals centavos", () => {
     expect(
       resolveTransientDailyRateCentavos({
         roomDailyRate: "850.50",
-        roomTypeDailyRate: "600.00",
       }),
     ).toBe(BigInt(85050));
 
     expect(
       resolveTransientDailyRateCentavos({
         roomDailyRate: null,
-        roomTypeDailyRate: "600.00",
-      }),
-    ).toBe(BigInt(60000));
-
-    expect(
-      resolveTransientDailyRateCentavos({
-        roomDailyRate: null,
-        roomTypeDailyRate: null,
       }),
     ).toBe(BigInt(0));
 

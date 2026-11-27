@@ -26,7 +26,6 @@ function makeRoom(
     roomId: "11111111-1111-4111-8111-111111111111",
     title: "Room 201",
     description: "Bright corner room",
-    roomTypeName: "Standard Studio",
     scope: "WHOLE_ROOM",
     capacity: 3,
     availableUnitsForRange: 1,
@@ -195,7 +194,6 @@ describe("public booking presentation helpers", () => {
       makeRoom({
         roomId: "r-booked",
         title: "Booked Suite",
-        roomTypeName: "Suite",
         dailyRate: "2200.00",
         capacity: 4,
         availableUnitsForRange: 0,
@@ -204,7 +202,6 @@ describe("public booking presentation helpers", () => {
       makeRoom({
         roomId: "r-cheap",
         title: "Budget Bed",
-        roomTypeName: "Dorm",
         scope: "BED",
         dailyRate: "650.00",
         capacity: 1,
@@ -213,7 +210,6 @@ describe("public booking presentation helpers", () => {
       makeRoom({
         roomId: "r-mid",
         title: "Standard 102",
-        roomTypeName: "Suite",
         dailyRate: "1500.00",
         capacity: 2,
         availableUnitsForRange: 1,
@@ -222,7 +218,6 @@ describe("public booking presentation helpers", () => {
 
     expect(
       filterAndSortPublicRooms(rooms, {
-        roomTypeFilter: "ALL",
         availabilityFilter: "ALL",
         sortBy: "RECOMMENDED",
         requestedGuests: 2,
@@ -231,7 +226,6 @@ describe("public booking presentation helpers", () => {
 
     expect(
       filterAndSortPublicRooms(rooms, {
-        roomTypeFilter: "Suite",
         availabilityFilter: "AVAILABLE",
         sortBy: "PRICE_ASC",
         requestedGuests: 2,
@@ -240,7 +234,6 @@ describe("public booking presentation helpers", () => {
 
     expect(
       filterAndSortPublicRooms(rooms, {
-        roomTypeFilter: "ALL",
         availabilityFilter: "ALL",
         sortBy: "PRICE_DESC",
       }).map((r) => r.roomId),
@@ -248,7 +241,6 @@ describe("public booking presentation helpers", () => {
 
     expect(
       filterAndSortPublicRooms(rooms, {
-        roomTypeFilter: "ALL",
         availabilityFilter: "ALL",
         sortBy: "CAPACITY_DESC",
       }).map((r) => r.roomId),

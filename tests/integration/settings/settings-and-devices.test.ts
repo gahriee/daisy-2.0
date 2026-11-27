@@ -43,10 +43,13 @@ vi.mock("@/server/auth/owner", async (original) => {
   };
 });
 
-import { ConflictError, ForbiddenError } from "../../../src/lib/errors";
+import {
+  ConflictError,
+  ForbiddenError,
+  ValidationError,
+} from "../../../src/lib/errors";
 import {
   getBusinessSettings,
-  updateBusinessSettings,
   updateBusinessSettingsModule,
 } from "../../../src/features/settings/service";
 import { listAuditLogs } from "../../../src/features/audit/service";
@@ -136,116 +139,100 @@ afterAll(async () => {
 });
 
 describe("settings, devices, notifications and auth limits integration", () => {
-  it("enforces unconfigured policy state, version preconditions, and identifier-only audit", async () => {
+  it("resolves env-backed policies and limits, enforces version preconditions, and records identifier-only audit", async () => {
+    vi.stubEnv("BILLING_DAY_OF_MONTH", "5");
+    vi.stubEnv("BILLING_GRACE_PERIOD_DAYS", "4");
+    vi.stubEnv("BILLING_PRORATION_POLICY", "DAILY_30");
+    vi.stubEnv("BILLING_DEPOSIT_POLICY", "APPLY_ON_MOVE_OUT");
+    vi.stubEnv("BILLING_OVERPAYMENT_POLICY", "REJECT_OVERPAYMENT");
+    vi.stubEnv("INVOICE_PREFIX", "inv-");
+    vi.stubEnv("RECEIPT_PREFIX", "rcp-");
+    vi.stubEnv("OFFLINE_UNLOCK_MAX_DAYS", "14");
+    vi.stubEnv("PROOF_MAX_MB", "8");
+    vi.stubEnv("PROOF_MAX_FILES_PER_RECORD", "6");
+    vi.stubEnv("SEMAPHORE_API_KEY", "");
+
     const initial = await getBusinessSettings(state.ownerId);
     expect(initial.version).toBe(0);
-    expect(initial.policiesComplete).toBe(false);
-    expect(initial.prorationPolicy).toBeNull();
+    expect(initial.policiesComplete).toBe(true);
+    expect(initial.stayScheduleComplete).toBe(true);
+    expect(initial.billingDayOfMonth).toBe(5);
+    expect(initial.invoicePrefix).toBe("INV-");
+    expect(initial.receiptPrefix).toBe("RCP-");
+    expect(initial.offlineUnlockMaxDays).toBe(14);
+    expect(initial.proofMaxBytes).toBe(8 * 1024 * 1024);
+    expect(initial.proofMaxFilesPerRecord).toBe(6);
+    expect(initial.smsConfigured).toBe(false);
 
-    const v1 = await updateBusinessSettings(state.ownerId, {
+    // Enabling automatic overdue SMS without SEMAPHORE_API_KEY in env is rejected.
+    await expect(
+      updateBusinessSettingsModule(state.ownerId, {
+        module: "property",
+        expectedVersion: 0,
+        businessName: "Daisy Boarding House",
+        businessPhone: null,
+        businessAddress: null,
+        tin: null,
+        checkInTimeManila: "14:00",
+        checkOutTimeManila: "12:00",
+        smsOverdueEnabled: true,
+        smsOverdueSendTimeManila: "09:00",
+      }),
+    ).rejects.toBeInstanceOf(ValidationError);
+
+    vi.stubEnv("SEMAPHORE_API_KEY", "sem_live_test_key");
+
+    const v1 = await updateBusinessSettingsModule(state.ownerId, {
+      module: "property",
       expectedVersion: 0,
-      businessName: "Daisy Boarding House",
+      businessName: "  Daisy Boarding House  ",
       businessPhone: "+63 917 555 0100",
       businessAddress: "Quezon City",
       tin: null,
-      billingDayOfMonth: 1,
-      gracePeriodDays: 5,
-      prorationPolicy: "DAILY_EXACT",
-      depositPolicy: "HOLD_SEPARATE",
-      overpaymentPolicy: "CREDIT_NEXT_INVOICE",
-      invoicePrefix: "INV-",
-      receiptPrefix: "RCP-",
-      checkInTimeManila: "14:00",
-      checkOutTimeManila: "12:00",
-      offlineUnlockMaxDays: 7,
-      proofMaxMb: 5,
-      proofMaxFilesPerRecord: 5,
+      checkInTimeManila: "15:00",
+      checkOutTimeManila: "11:00",
+      smsOverdueEnabled: true,
+      smsOverdueSendTimeManila: "08:30",
     });
     expect(v1.version).toBe(1);
+    expect(v1.businessName).toBe("Daisy Boarding House");
+    expect(v1.checkInTimeManila).toBe("15:00");
+    expect(v1.checkOutTimeManila).toBe("11:00");
+    expect(v1.smsConfigured).toBe(true);
+    expect(v1.smsOverdueEnabled).toBe(true);
+    expect(v1.smsOverdueSendTimeManila).toBe("08:30");
     expect(v1.policiesComplete).toBe(true);
 
     // Stale expectedVersion must reject cleanly with ConflictError.
     await expect(
-      updateBusinessSettings(state.ownerId, {
+      updateBusinessSettingsModule(state.ownerId, {
+        module: "property",
         expectedVersion: 0,
         businessName: "Stale overwrite",
         businessPhone: null,
         businessAddress: null,
         tin: null,
-        billingDayOfMonth: 1,
-        gracePeriodDays: 5,
-        prorationPolicy: "NONE",
-        depositPolicy: "HOLD_SEPARATE",
-        overpaymentPolicy: "REJECT_OVERPAYMENT",
-        invoicePrefix: "INV-",
-        receiptPrefix: "RCP-",
         checkInTimeManila: "14:00",
         checkOutTimeManila: "12:00",
-        offlineUnlockMaxDays: 7,
-        proofMaxMb: 5,
-        proofMaxFilesPerRecord: 5,
+        smsOverdueEnabled: false,
+        smsOverdueSendTimeManila: "09:00",
       }),
     ).rejects.toBeInstanceOf(ConflictError);
 
-    const audit = await listAuditLogs(state.ownerId, { area: "settings" });
-    expect(audit.entries).toHaveLength(1);
-    expect(audit.entries[0]?.action).toBe("settings.updated");
-    expect(audit.entries[0]?.entityId).toBe(v1.id);
-  });
-
-  it("saves policies, operations, and profile modules independently without overwriting each other", async () => {
-    // Owner starts by configuring Billing & policies before ever saving Property profile.
-    const v1 = await updateBusinessSettingsModule(state.ownerId, {
-      module: "policies",
-      expectedVersion: 0,
-      billingDayOfMonth: 5,
-      gracePeriodDays: 4,
-      prorationPolicy: "DAILY_30",
-      depositPolicy: "APPLY_ON_MOVE_OUT",
-      overpaymentPolicy: "REJECT_OVERPAYMENT",
-      invoicePrefix: "inv-",
-      receiptPrefix: "rcp-",
-    });
-    expect(v1.version).toBe(1);
-    expect(v1.businessName).toBe("");
-    expect(v1.invoicePrefix).toBe("INV-");
-    expect(v1.policiesComplete).toBe(true);
-    expect(v1.stayScheduleComplete).toBe(false);
-
-    // Next save Stays & limits independently; policies values remain intact and stayScheduleComplete flips true.
+    // House rules update preserves property details and increments version.
     const v2 = await updateBusinessSettingsModule(state.ownerId, {
-      module: "operations",
+      module: "house_rules",
       expectedVersion: v1.version,
-      checkInTimeManila: "14:00",
-      checkOutTimeManila: "12:00",
-      offlineUnlockMaxDays: 14,
-      proofMaxMb: 8,
-      proofMaxFilesPerRecord: 6,
+      transientPolicyNote: "1. Quiet hours at 10 PM.",
     });
     expect(v2.version).toBe(2);
-    expect(v2.billingDayOfMonth).toBe(5);
-    expect(v2.invoicePrefix).toBe("INV-");
-    expect(v2.offlineUnlockMaxDays).toBe(14);
-    expect(v2.policiesComplete).toBe(true);
-    expect(v2.stayScheduleComplete).toBe(true);
-
-    // Finally save Property profile independently; policies and operations remain intact.
-    const v3 = await updateBusinessSettingsModule(state.ownerId, {
-      module: "profile",
-      expectedVersion: v2.version,
-      businessName: "  Daisy Residences  ",
-      businessPhone: "+63 917 000 1111",
-      businessAddress: "Sampaloc, Manila",
-      tin: "123-456-789-000",
-    });
-    expect(v3.version).toBe(3);
-    expect(v3.businessName).toBe("Daisy Residences");
-    expect(v3.billingDayOfMonth).toBe(5);
-    expect(v3.offlineUnlockMaxDays).toBe(14);
-    expect(v3.policiesComplete).toBe(true);
+    expect(v2.businessName).toBe("Daisy Boarding House");
+    expect(v2.transientPolicyNote).toBe("1. Quiet hours at 10 PM.");
 
     const audit = await listAuditLogs(state.ownerId, { area: "settings" });
-    expect(audit.entries).toHaveLength(3);
+    expect(audit.entries).toHaveLength(2);
+    expect(audit.entries[0]?.action).toBe("settings.updated");
+    expect(audit.entries[0]?.entityId).toBe(v1.id);
   });
 
   it("registers devices with HttpOnly cookies, reuses active tokens, and revokes idempotently", async () => {
@@ -391,8 +378,8 @@ describe("settings, devices, notifications and auth limits integration", () => {
       notifications: Array<{ key: string; read: boolean }>;
     };
     const keys = json1.notifications.map((n) => n.key);
-    expect(keys).toContain("settings:financial-policy-incomplete");
-    expect(keys).toContain("settings:stay-schedule-incomplete");
+    expect(keys).not.toContain("settings:financial-policy-incomplete");
+    expect(keys).not.toContain("settings:stay-schedule-incomplete");
     expect(keys.some((k) => k.startsWith("sec:"))).toBe(true);
     expect(json1.notifications.every((n) => !n.read)).toBe(true);
 

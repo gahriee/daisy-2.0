@@ -69,9 +69,6 @@ async function cleanupTestOwners(db: PrismaClient, ownerPrefix: string) {
   await db.room.deleteMany({
     where: { ownerUserId: { startsWith: ownerPrefix } },
   });
-  await db.roomType.deleteMany({
-    where: { ownerUserId: { startsWith: ownerPrefix } },
-  });
   await db.auditLog.deleteMany({
     where: { ownerUserId: { startsWith: ownerPrefix } },
   });
@@ -136,19 +133,9 @@ describe("POST /api/jobs/maintenance/cleanup integration", () => {
     const ownerId = process.env.OWNER_USER_ID!;
     await db.owner.create({ data: { id: ownerId } });
 
-    const rt = await db.roomType.create({
-      data: {
-        ownerUserId: ownerId,
-        name: "Standard",
-        building: "BOARDING",
-        monthlyRate: "4000.00",
-      },
-      select: { id: true },
-    });
     const room = await db.room.create({
       data: {
         ownerUserId: ownerId,
-        roomTypeId: rt.id,
         number: "101",
         building: "BOARDING",
         capacity: 1,

@@ -187,7 +187,6 @@ model Owner {
   notifReads                 NotificationRead[]
   notifDismissals            NotificationDismissal[]
   pushSubscriptions          PushSubscription[]
-  roomTypes                  RoomType[]
   rooms                      Room[]
   roomPhotoIntents           RoomPhotoIntent[]
   roomPhotos                 RoomPhoto[]
@@ -385,25 +384,6 @@ model SecurityRateLimit {
   resetsAt DateTime @db.Timestamptz(3)
 }
 
-model RoomType {
-  id          String       @id @default(uuid()) @db.Uuid
-  ownerUserId String
-  owner       Owner        @relation(fields: [ownerUserId], references: [id], onDelete: Restrict)
-  version     Int          @default(1)
-  building    RoomBuilding @default(BOARDING)
-  name        String
-  monthlyRate Decimal?     @db.Decimal(12, 2)
-  dailyRate   Decimal?     @db.Decimal(12, 2)
-  description String?
-  archivedAt  DateTime?    @db.Timestamptz(3)
-  createdAt   DateTime     @default(now()) @db.Timestamptz(3)
-  updatedAt   DateTime     @updatedAt @db.Timestamptz(3)
-  rooms       Room[]
-
-  @@index([ownerUserId, archivedAt])
-  @@index([ownerUserId, building, archivedAt])
-}
-
 model Room {
   id                   String                 @id @default(uuid()) @db.Uuid
   ownerUserId          String
@@ -412,8 +392,6 @@ model Room {
   building             RoomBuilding           @default(BOARDING)
   number               String
   floor                String?
-  roomTypeId           String                 @db.Uuid
-  roomType             RoomType               @relation(fields: [roomTypeId], references: [id], onDelete: Restrict)
   capacity             Int
   baseMonthlyRate      Decimal?               @db.Decimal(12, 2)
   transientDailyRate   Decimal?               @db.Decimal(12, 2)
@@ -436,7 +414,6 @@ model Room {
 
   @@index([ownerUserId, archivedAt])
   @@index([ownerUserId, building, archivedAt])
-  @@index([ownerUserId, roomTypeId])
   @@index([ownerUserId, isTransientPublished, archivedAt])
 }
 

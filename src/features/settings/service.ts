@@ -1,26 +1,21 @@
 import "server-only";
 import { z } from "zod";
+import {
+  getServerBillingPolicies,
+  getServerOperationalLimits,
+  getServerSmsConfig,
+} from "@/config/business-config";
 import { Prisma } from "@/generated/prisma/client";
 import { ConflictError, ValidationError } from "@/lib/errors";
-import { ensureOwnerRecord } from "@/server/db/owner-record";
 import { getDatabase } from "@/server/db/client";
-import {
-  encryptAppSecret,
-  maskSecretLast4,
-} from "@/server/security/secret-box";
+import { ensureOwnerRecord } from "@/server/db/owner-record";
 import { writeAuditEntry } from "@/server/sync/publish";
 import {
   BusinessSettingsModuleUpdateSchema,
-  BusinessSettingsUpdateSchema,
-  hasCompleteFinancialPolicies,
-  hasCompleteStaySchedule,
   type BusinessSettingsDto,
   type BusinessSettingsModuleUpdateInput,
-  type BusinessSettingsUpdateInput,
   type SettingsModule,
 } from "./schemas";
-
-const BYTES_PER_MB = 1024 * 1024;
 
 const SETTINGS_SELECT = {
   id: true,
@@ -31,80 +26,15 @@ const SETTINGS_SELECT = {
   businessLatitude: true,
   businessLongitude: true,
   tin: true,
-  billingDayOfMonth: true,
-  gracePeriodDays: true,
-  prorationPolicy: true,
-  depositPolicy: true,
-  overpaymentPolicy: true,
-  invoicePrefix: true,
-  receiptPrefix: true,
   checkInTimeManila: true,
   checkOutTimeManila: true,
   transientPolicyNote: true,
   smsOverdueEnabled: true,
-  smsOverdueFrequencyDays: true,
   smsOverdueSendTimeManila: true,
-  smsApiKeyEncrypted: true,
-  smsApiKeyLast4: true,
-  smsSenderName: true,
-  smsOverdueTemplate: true,
-  smtpEnabled: true,
-  smtpHost: true,
-  smtpPort: true,
-  smtpSecure: true,
-  smtpUser: true,
-  smtpPassEncrypted: true,
-  smtpPassLast4: true,
-  smtpFromName: true,
-  smtpFromEmail: true,
-  offlineUnlockMaxDays: true,
-  proofMaxBytes: true,
-  proofMaxFilesPerRecord: true,
   updatedAt: true,
 } as const;
 
-const INITIAL_CREATE_DEFAULTS: Omit<
-  Prisma.BusinessSettingsUncheckedCreateInput,
-  "id" | "ownerUserId" | "version" | "createdAt" | "updatedAt"
-> = {
-  businessName: "",
-  businessPhone: null,
-  businessAddress: null,
-  businessLatitude: null,
-  businessLongitude: null,
-  tin: null,
-  billingDayOfMonth: null,
-  gracePeriodDays: null,
-  prorationPolicy: null,
-  depositPolicy: null,
-  overpaymentPolicy: null,
-  invoicePrefix: null,
-  receiptPrefix: null,
-  checkInTimeManila: null,
-  checkOutTimeManila: null,
-  transientPolicyNote: null,
-  smsOverdueEnabled: false,
-  smsOverdueFrequencyDays: 1,
-  smsOverdueSendTimeManila: "09:00",
-  smsApiKeyEncrypted: null,
-  smsApiKeyLast4: null,
-  smsSenderName: null,
-  smsOverdueTemplate: null,
-  smtpEnabled: false,
-  smtpHost: null,
-  smtpPort: null,
-  smtpSecure: false,
-  smtpUser: null,
-  smtpPassEncrypted: null,
-  smtpPassLast4: null,
-  smtpFromName: null,
-  smtpFromEmail: null,
-  offlineUnlockMaxDays: 7,
-  proofMaxBytes: 5 * BYTES_PER_MB,
-  proofMaxFilesPerRecord: 5,
-};
-
-function toSettingsDto(row: {
+type PersistedOwnerSettingsRow = {
   id: string;
   version: number;
   businessName: string;
@@ -113,78 +43,62 @@ function toSettingsDto(row: {
   businessLatitude: number | null;
   businessLongitude: number | null;
   tin: string | null;
-  billingDayOfMonth: number | null;
-  gracePeriodDays: number | null;
-  prorationPolicy: BusinessSettingsDto["prorationPolicy"];
-  depositPolicy: BusinessSettingsDto["depositPolicy"];
-  overpaymentPolicy: BusinessSettingsDto["overpaymentPolicy"];
-  invoicePrefix: string | null;
-  receiptPrefix: string | null;
   checkInTimeManila: string | null;
   checkOutTimeManila: string | null;
   transientPolicyNote: string | null;
   smsOverdueEnabled: boolean;
-  smsOverdueFrequencyDays: number;
   smsOverdueSendTimeManila: string;
-  smsApiKeyEncrypted: string | null;
-  smsApiKeyLast4: string | null;
-  smsSenderName: string | null;
-  smsOverdueTemplate: string | null;
-  smtpEnabled: boolean;
-  smtpHost: string | null;
-  smtpPort: number | null;
-  smtpSecure: boolean;
-  smtpUser: string | null;
-  smtpPassEncrypted: string | null;
-  smtpPassLast4: string | null;
-  smtpFromName: string | null;
-  smtpFromEmail: string | null;
-  offlineUnlockMaxDays: number;
-  proofMaxBytes: number;
-  proofMaxFilesPerRecord: number;
   updatedAt: Date;
-}): BusinessSettingsDto {
+};
+
+type PersistedSettingsWriteData = Partial<
+  Omit<
+    Prisma.BusinessSettingsUncheckedCreateInput,
+    "id" | "ownerUserId" | "version" | "createdAt" | "updatedAt"
+  >
+>;
+
+function toSettingsDto(
+  row: PersistedOwnerSettingsRow | null,
+): BusinessSettingsDto {
+  const policies = getServerBillingPolicies();
+  const limits = getServerOperationalLimits();
+  const sms = getServerSmsConfig();
+
+  const checkInTimeManila =
+    row?.checkInTimeManila ?? limits.defaultCheckInTimeManila;
+  const checkOutTimeManila =
+    row?.checkOutTimeManila ?? limits.defaultCheckOutTimeManila;
+
   return {
-    id: row.id,
-    version: row.version,
-    businessName: row.businessName,
-    businessPhone: row.businessPhone,
-    businessAddress: row.businessAddress,
-    businessLatitude: row.businessLatitude,
-    businessLongitude: row.businessLongitude,
-    tin: row.tin,
-    billingDayOfMonth: row.billingDayOfMonth,
-    gracePeriodDays: row.gracePeriodDays,
-    prorationPolicy: row.prorationPolicy,
-    depositPolicy: row.depositPolicy,
-    overpaymentPolicy: row.overpaymentPolicy,
-    invoicePrefix: row.invoicePrefix,
-    receiptPrefix: row.receiptPrefix,
-    checkInTimeManila: row.checkInTimeManila,
-    checkOutTimeManila: row.checkOutTimeManila,
-    transientPolicyNote: row.transientPolicyNote,
-    smsOverdueEnabled: row.smsOverdueEnabled,
-    smsOverdueFrequencyDays: row.smsOverdueFrequencyDays,
-    smsOverdueSendTimeManila: row.smsOverdueSendTimeManila,
-    smsApiKeyConfigured: Boolean(row.smsApiKeyEncrypted),
-    smsApiKeyLast4: row.smsApiKeyEncrypted ? row.smsApiKeyLast4 : null,
-    smsSenderName: row.smsSenderName,
-    smsOverdueTemplate: row.smsOverdueTemplate,
-    smtpEnabled: row.smtpEnabled,
-    smtpHost: row.smtpHost,
-    smtpPort: row.smtpPort,
-    smtpSecure: row.smtpSecure,
-    smtpUser: row.smtpUser,
-    smtpPassConfigured: Boolean(row.smtpPassEncrypted),
-    smtpPassLast4: row.smtpPassEncrypted ? row.smtpPassLast4 : null,
-    smtpFromName: row.smtpFromName,
-    smtpFromEmail: row.smtpFromEmail,
-    offlineUnlockMaxDays: row.offlineUnlockMaxDays,
-    proofMaxBytes: row.proofMaxBytes,
-    proofMaxFilesPerRecord: row.proofMaxFilesPerRecord,
-    updatedAt: row.updatedAt.toISOString(),
-    policiesComplete: hasCompleteFinancialPolicies(row),
-    stayScheduleComplete: hasCompleteStaySchedule(row),
+    id: row?.id ?? null,
+    version: row?.version ?? 0,
+    businessName: row?.businessName ?? "",
+    businessPhone: row?.businessPhone ?? null,
+    businessAddress: row?.businessAddress ?? null,
+    businessLatitude: row?.businessLatitude ?? null,
+    businessLongitude: row?.businessLongitude ?? null,
+    tin: row?.tin ?? null,
+    billingDayOfMonth: policies.billingDayOfMonth,
+    gracePeriodDays: policies.gracePeriodDays,
+    prorationPolicy: policies.prorationPolicy,
+    depositPolicy: policies.depositPolicy,
+    overpaymentPolicy: policies.overpaymentPolicy,
+    invoicePrefix: policies.invoicePrefix,
+    receiptPrefix: policies.receiptPrefix,
+    checkInTimeManila,
+    checkOutTimeManila,
+    transientPolicyNote: row?.transientPolicyNote ?? null,
+    offlineUnlockMaxDays: limits.offlineUnlockMaxDays,
+    proofMaxBytes: limits.proofMaxBytes,
+    proofMaxFilesPerRecord: limits.proofMaxFilesPerRecord,
+    smsConfigured: sms.configured,
+    smsOverdueEnabled: row?.smsOverdueEnabled ?? false,
+    smsOverdueFrequencyDays: sms.overdueFrequencyDays,
+    smsOverdueSendTimeManila: row?.smsOverdueSendTimeManila ?? "09:00",
+    updatedAt: row ? row.updatedAt.toISOString() : null,
+    policiesComplete: true,
+    stayScheduleComplete: true,
   };
 }
 
@@ -196,61 +110,14 @@ export async function getBusinessSettings(
     select: SETTINGS_SELECT,
   });
 
-  if (!row) {
-    return {
-      id: null,
-      version: 0,
-      businessName: "",
-      businessPhone: null,
-      businessAddress: null,
-      businessLatitude: null,
-      businessLongitude: null,
-      tin: null,
-      billingDayOfMonth: null,
-      gracePeriodDays: null,
-      prorationPolicy: null,
-      depositPolicy: null,
-      overpaymentPolicy: null,
-      invoicePrefix: null,
-      receiptPrefix: null,
-      checkInTimeManila: null,
-      checkOutTimeManila: null,
-      transientPolicyNote: null,
-      smsOverdueEnabled: false,
-      smsOverdueFrequencyDays: 1,
-      smsOverdueSendTimeManila: "09:00",
-      smsApiKeyConfigured: false,
-      smsApiKeyLast4: null,
-      smsSenderName: null,
-      smsOverdueTemplate: null,
-      smtpEnabled: false,
-      smtpHost: null,
-      smtpPort: null,
-      smtpSecure: false,
-      smtpUser: null,
-      smtpPassConfigured: false,
-      smtpPassLast4: null,
-      smtpFromName: null,
-      smtpFromEmail: null,
-      offlineUnlockMaxDays: 7,
-      proofMaxBytes: 5 * BYTES_PER_MB,
-      proofMaxFilesPerRecord: 5,
-      updatedAt: null,
-      policiesComplete: false,
-      stayScheduleComplete: false,
-    };
-  }
-
   return toSettingsDto(row);
 }
-
-type PersistedSettingsWriteData = Partial<typeof INITIAL_CREATE_DEFAULTS>;
 
 function buildModuleWriteData(
   input: z.output<typeof BusinessSettingsModuleUpdateSchema>,
 ): PersistedSettingsWriteData {
   switch (input.module) {
-    case "profile":
+    case "property":
       return {
         businessName: input.businessName,
         businessPhone: input.businessPhone,
@@ -264,68 +131,15 @@ function buildModuleWriteData(
             ? input.businessLongitude
             : null,
         tin: input.tin,
-      };
-    case "policies":
-      return {
-        billingDayOfMonth: input.billingDayOfMonth,
-        gracePeriodDays: input.gracePeriodDays,
-        prorationPolicy: input.prorationPolicy,
-        depositPolicy: input.depositPolicy,
-        overpaymentPolicy: input.overpaymentPolicy,
-        invoicePrefix: input.invoicePrefix,
-        receiptPrefix: input.receiptPrefix,
-      };
-    case "operations":
-      return {
         checkInTimeManila: input.checkInTimeManila,
         checkOutTimeManila: input.checkOutTimeManila,
-        ...(input.transientPolicyNote !== undefined
-          ? { transientPolicyNote: input.transientPolicyNote }
-          : {}),
-        offlineUnlockMaxDays: input.offlineUnlockMaxDays,
-        proofMaxBytes: input.proofMaxMb * BYTES_PER_MB,
-        proofMaxFilesPerRecord: input.proofMaxFilesPerRecord,
+        smsOverdueEnabled: input.smsOverdueEnabled,
+        smsOverdueSendTimeManila: input.smsOverdueSendTimeManila,
       };
     case "house_rules":
       return {
         transientPolicyNote: input.transientPolicyNote,
       };
-    case "sms": {
-      const next: PersistedSettingsWriteData = {
-        smsOverdueEnabled: input.smsOverdueEnabled,
-        smsOverdueFrequencyDays: input.smsOverdueFrequencyDays,
-        smsOverdueSendTimeManila: input.smsOverdueSendTimeManila,
-        smsSenderName: input.smsSenderName,
-        smsOverdueTemplate: input.smsOverdueTemplate,
-      };
-      if (input.clearSmsApiKey) {
-        next.smsApiKeyEncrypted = null;
-        next.smsApiKeyLast4 = null;
-      } else if (input.smsApiKey) {
-        next.smsApiKeyEncrypted = encryptAppSecret(input.smsApiKey);
-        next.smsApiKeyLast4 = maskSecretLast4(input.smsApiKey);
-      }
-      return next;
-    }
-    case "email": {
-      const next: PersistedSettingsWriteData = {
-        smtpEnabled: input.smtpEnabled,
-        smtpHost: input.smtpHost ?? "smtp.gmail.com",
-        smtpPort: input.smtpPort ?? 587,
-        smtpSecure: input.smtpSecure,
-        smtpUser: input.smtpUser,
-        smtpFromName: input.smtpFromName,
-        smtpFromEmail: input.smtpFromEmail,
-      };
-      if (input.clearSmtpPass) {
-        next.smtpPassEncrypted = null;
-        next.smtpPassLast4 = null;
-      } else if (input.smtpPass) {
-        next.smtpPassEncrypted = encryptAppSecret(input.smtpPass);
-        next.smtpPassLast4 = maskSecretLast4(input.smtpPass);
-      }
-      return next;
-    }
   }
 }
 
@@ -333,21 +147,32 @@ async function persistSettingsChange(
   ownerUserId: string,
   expectedVersion: number,
   data: PersistedSettingsWriteData,
-  auditModule?: SettingsModule,
+  auditModule: SettingsModule,
 ): Promise<BusinessSettingsDto> {
   const db = getDatabase();
+  const limits = getServerOperationalLimits();
 
   try {
     return await db.$transaction(async (tx) => {
       await ensureOwnerRecord(tx, ownerUserId);
 
-      let saved;
+      let saved: PersistedOwnerSettingsRow;
       if (expectedVersion === 0) {
         saved = await tx.businessSettings.create({
           data: {
             ownerUserId,
             version: 1,
-            ...INITIAL_CREATE_DEFAULTS,
+            businessName: "",
+            businessPhone: null,
+            businessAddress: null,
+            businessLatitude: null,
+            businessLongitude: null,
+            tin: null,
+            checkInTimeManila: limits.defaultCheckInTimeManila,
+            checkOutTimeManila: limits.defaultCheckOutTimeManila,
+            transientPolicyNote: null,
+            smsOverdueEnabled: false,
+            smsOverdueSendTimeManila: "09:00",
             ...data,
           },
           select: SETTINGS_SELECT,
@@ -386,7 +211,7 @@ async function persistSettingsChange(
         entityType: "business_settings",
         entityId: saved.id,
         metadata: {
-          ...(auditModule ? { module: auditModule } : {}),
+          module: auditModule,
           version: saved.version,
           policiesComplete: dto.policiesComplete,
         },
@@ -408,8 +233,8 @@ async function persistSettingsChange(
 }
 
 /**
- * Updates or creates a single Settings module independently without validating
- * or overwriting columns owned by the other Settings modules.
+ * Updates Owner-editable settings (`property` or `house_rules`) atomically
+ * with an integer-version precondition and identifier-only audit entry.
  */
 export async function updateBusinessSettingsModule(
   ownerUserId: string,
@@ -422,44 +247,10 @@ export async function updateBusinessSettingsModule(
     );
   }
   const input = parsed.data;
-  if (input.module === "sms" && input.smsOverdueEnabled) {
-    const existing = await getDatabase().businessSettings.findUnique({
-      where: { ownerUserId },
-      select: { smsApiKeyEncrypted: true },
-    });
-    const willHaveApiKey =
-      !input.clearSmsApiKey &&
-      (Boolean(input.smsApiKey) || Boolean(existing?.smsApiKeyEncrypted));
-    if (!willHaveApiKey) {
+  if (input.module === "property" && input.smsOverdueEnabled) {
+    if (!getServerSmsConfig().configured) {
       throw new ValidationError(
-        "Enter your Semaphore API key before enabling automatic overdue SMS reminders.",
-      );
-    }
-  }
-  if (input.module === "email" && input.smtpEnabled) {
-    if (!input.smtpHost) {
-      throw new ValidationError(
-        "Enter your mail server address (for Gmail, use smtp.gmail.com).",
-      );
-    }
-    if (input.smtpPort === null) {
-      throw new ValidationError("Enter your mail server port (e.g. 587).");
-    }
-    if (!input.smtpUser) {
-      throw new ValidationError(
-        "Enter the email address used to sign in to your mail server.",
-      );
-    }
-    const existing = await getDatabase().businessSettings.findUnique({
-      where: { ownerUserId },
-      select: { smtpPassEncrypted: true },
-    });
-    const willHavePass =
-      !input.clearSmtpPass &&
-      (Boolean(input.smtpPass) || Boolean(existing?.smtpPassEncrypted));
-    if (!willHavePass) {
-      throw new ValidationError(
-        "Enter your Google App Password or SMTP password before turning on email delivery.",
+        "Automatic texting is not connected yet. Ask your setup contact to turn on SMS delivery first.",
       );
     }
   }
@@ -469,52 +260,4 @@ export async function updateBusinessSettingsModule(
     buildModuleWriteData(input),
     input.module,
   );
-}
-
-/**
- * Updates or creates BusinessSettings atomically with an integer-version
- * precondition and writes an identifier-only audit record in the transaction.
- */
-export async function updateBusinessSettings(
-  ownerUserId: string,
-  rawInput: BusinessSettingsUpdateInput,
-): Promise<BusinessSettingsDto> {
-  const parsed = BusinessSettingsUpdateSchema.safeParse(rawInput);
-  if (!parsed.success) {
-    throw new ValidationError(
-      parsed.error.issues[0]?.message ?? "Check settings values and try again.",
-    );
-  }
-  const input = parsed.data;
-  return persistSettingsChange(ownerUserId, input.expectedVersion, {
-    businessName: input.businessName,
-    businessPhone: input.businessPhone,
-    businessAddress: input.businessAddress,
-    ...(input.businessLatitude !== undefined &&
-    input.businessLongitude !== undefined
-      ? {
-          businessLatitude:
-            input.businessLatitude !== null && input.businessLongitude !== null
-              ? input.businessLatitude
-              : null,
-          businessLongitude:
-            input.businessLatitude !== null && input.businessLongitude !== null
-              ? input.businessLongitude
-              : null,
-        }
-      : {}),
-    tin: input.tin,
-    billingDayOfMonth: input.billingDayOfMonth,
-    gracePeriodDays: input.gracePeriodDays,
-    prorationPolicy: input.prorationPolicy,
-    depositPolicy: input.depositPolicy,
-    overpaymentPolicy: input.overpaymentPolicy,
-    invoicePrefix: input.invoicePrefix,
-    receiptPrefix: input.receiptPrefix,
-    checkInTimeManila: input.checkInTimeManila,
-    checkOutTimeManila: input.checkOutTimeManila,
-    offlineUnlockMaxDays: input.offlineUnlockMaxDays,
-    proofMaxBytes: input.proofMaxMb * BYTES_PER_MB,
-    proofMaxFilesPerRecord: input.proofMaxFilesPerRecord,
-  });
 }

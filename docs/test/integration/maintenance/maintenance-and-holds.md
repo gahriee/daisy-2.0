@@ -30,4 +30,5 @@ Teardown deleted all UUID-prefixed `SecurityRateLimit`, `NotificationRead`, `Aud
 | 2026-11-14 11:59:05 | pnpm test:integration tests/integration/billing/invoicing-and-lifecycle.test.ts tests/integration/payments/payments-proofs-and-sync.test.ts tests/integration/rooms/inventory-and-archival.test.ts tests/integration/transients/transients-and-public-booking.test.ts tests/integration/maintenance/maintenance-and-holds.test.ts | 4 passed (targeted 23/23 across 5 files) | 82.09 s (314.33 s targeted) |
 | 2026-11-15 20:24:10 | pnpm test:integration | 4 passed (suite: 56/56 across 13 files) | 63.48 s (434.42 s suite) |
 | 2026-11-16 23:31:26 | `pnpm test:integration` | 4 passed (suite: 64/64 across 17 files) | 74.37 s (509.94 s suite) |
+| 2026-11-27 18:27:57 | `pnpm test:integration tests/integration/settings/settings-and-devices.test.ts ...` (6 files) | 0 passed, 4 failed — blocked: `TEST_DATABASE_URL` authentication failed; no database substituted | 1.15 s (13.89 s batch) |
 

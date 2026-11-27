@@ -4,7 +4,6 @@ import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 
 import { useState, useTransition } from "react";
 import Image from "next/image";
-import Link from "next/link";
 import {
   OfflineSnapshotBanner,
   useOfflineSnapshotState,
@@ -460,15 +459,8 @@ export function NoticesWorkspace({
 
       {!isOfflineView && !overview.smsConfigured && (
         <Alert tone="info">
-          Connect your Semaphore account in{" "}
-          <Link
-            href="/settings/sms"
-            className="font-medium underline underline-offset-2"
-          >
-            Overdue SMS settings
-          </Link>{" "}
-          to text notices directly to tenants. You can still copy any notice for
-          Messenger or Viber.
+          Text notices are not connected yet. You can still save any notice and
+          copy it for Messenger or Viber.
         </Alert>
       )}
 

@@ -10,9 +10,6 @@ import {
   ApexChart,
   ChartCard,
   DAISY_CHART_COLORS,
-  formatChartPhp,
-  formatCompactPhpAxis,
-  toChartPhpNumber,
 } from "@/components/ui/chart";
 import { TableEmptyState } from "@/components/ui/empty-state";
 import { MetricCard } from "@/components/ui/metric-card";
@@ -27,105 +24,8 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { computeSharePercent } from "@/features/reports/calculations";
-import type {
-  OccupancyRoomTypeComparisonDto,
-  RentRollRoomTypeSummaryDto,
-  ReportsOverviewDto,
-} from "@/features/reports/schemas";
-import { useTableSort } from "@/hooks/use-table-sort";
+import type { ReportsOverviewDto } from "@/features/reports/schemas";
 import { formatPhpCurrency } from "@/lib/money";
-import type { SortColumnDef } from "@/lib/table-sort";
-
-type OccupancySortKey =
-  | "roomType"
-  | "building"
-  | "rooms"
-  | "occupied"
-  | "available"
-  | "held"
-  | "rate"
-  | "occupancyPct";
-
-const OCCUPANCY_SORT_COLUMNS: Record<
-  OccupancySortKey,
-  SortColumnDef<OccupancyRoomTypeComparisonDto>
-> = {
-  roomType: { getValue: (row) => row.roomTypeName },
-  building: { getValue: (row) => row.buildingLabel },
-  rooms: {
-    getValue: (row) => row.totalRooms,
-    kind: "number",
-    defaultDirection: "desc",
-  },
-  occupied: {
-    getValue: (row) => row.occupiedRooms,
-    kind: "number",
-    defaultDirection: "desc",
-  },
-  available: {
-    getValue: (row) => row.availableRooms,
-    kind: "number",
-    defaultDirection: "desc",
-  },
-  held: {
-    getValue: (row) => row.maintenanceRooms,
-    kind: "number",
-    defaultDirection: "desc",
-  },
-  rate: {
-    getValue: (row) =>
-      row.building === "TRANSIENT"
-        ? (row.avgDailyRate ?? "0.00")
-        : (row.avgMonthlyRate ?? "0.00"),
-    kind: "money",
-    defaultDirection: "desc",
-  },
-  occupancyPct: {
-    getValue: (row) => row.occupancyRatePercent ?? -1,
-    kind: "number",
-    defaultDirection: "desc",
-  },
-};
-
-type RentRollSortKey =
-  | "roomType"
-  | "assignments"
-  | "share"
-  | "monthlyRent"
-  | "deposits"
-  | "openBalance";
-
-const RENT_ROLL_SORT_COLUMNS: Record<
-  RentRollSortKey,
-  SortColumnDef<RentRollRoomTypeSummaryDto>
-> = {
-  roomType: { getValue: (row) => row.roomTypeName },
-  assignments: {
-    getValue: (row) => row.activeAssignments,
-    kind: "number",
-    defaultDirection: "desc",
-  },
-  share: {
-    getValue: (row) => row.sharePercent,
-    kind: "number",
-    defaultDirection: "desc",
-  },
-  monthlyRent: {
-    getValue: (row) => row.totalMonthlyRent,
-    kind: "money",
-    defaultDirection: "desc",
-  },
-  deposits: {
-    getValue: (row) => row.totalSecurityDeposits,
-    kind: "money",
-    defaultDirection: "desc",
-  },
-  openBalance: {
-    getValue: (row) => row.totalOpenBalance,
-    kind: "money",
-    defaultDirection: "desc",
-  },
-};
 
 function MetricBuildingIcon() {
   return (
@@ -185,16 +85,7 @@ export function OccupancyReportPanel({
   overview: ReportsOverviewDto;
   asOfLabel: string;
 }) {
-  const { summary, byBuilding, byRoomType } = overview.occupancy;
-
-  const { sortedRows: sortedRoomTypes, sortHeaderProps } = useTableSort(
-    byRoomType,
-    OCCUPANCY_SORT_COLUMNS,
-    {
-      key: "occupancyPct",
-      direction: "desc",
-    },
-  );
+  const { summary, byBuilding } = overview.occupancy;
 
   const buildingChartSeries = useMemo(
     () => [
@@ -264,60 +155,6 @@ export function OccupancyReportPanel({
     [byBuilding],
   );
 
-  const roomTypeChartSeries = useMemo(
-    () => [
-      {
-        name: "Occupancy %",
-        data: byRoomType.map((rt) => rt.occupancyRatePercent ?? 0),
-      },
-    ],
-    [byRoomType],
-  );
-
-  const roomTypeChartOptions = useMemo<Omit<ApexOptions, "series">>(
-    () => ({
-      colors: [DAISY_CHART_COLORS.rausch],
-      plotOptions: {
-        bar: {
-          horizontal: true,
-          barHeight: "56%",
-          borderRadius: 4,
-          borderRadiusApplication: "end",
-        },
-      },
-      dataLabels: {
-        enabled: true,
-        formatter: (val: number) => `${val}%`,
-      },
-      xaxis: {
-        min: 0,
-        max: 100,
-        categories: byRoomType.map((rt) => rt.roomTypeName),
-        labels: {
-          formatter: (val) => `${val}%`,
-        },
-      },
-      yaxis: {
-        labels: {
-          style: {
-            colors: DAISY_CHART_COLORS.charcoal,
-            fontSize: "12px",
-          },
-        },
-      },
-      tooltip: {
-        y: {
-          formatter: (val: number, opts) => {
-            const item = byRoomType[opts.dataPointIndex];
-            if (!item) return `${val}%`;
-            return `${val}% (${item.occupiedRooms}/${item.totalRooms} rooms)`;
-          },
-        },
-      },
-    }),
-    [byRoomType],
-  );
-
   const heldShare = computeSharePercent(
     summary.maintenanceRooms,
     summary.totalRooms,
@@ -363,59 +200,34 @@ export function OccupancyReportPanel({
         />
       </div>
 
-      <div className="grid grid-cols-1 gap-5 xl:grid-cols-2">
-        <ChartCard
-          title="Building capacity comparison"
-          description="Occupied, available, and held room distribution across buildings."
-          summary={`${summary.totalRooms} active rooms`}
-        >
-          {summary.totalRooms === 0 ? (
-            <TableEmptyState
-              illustration="document-search"
-              illustrationSize="xs"
-              title="No active rooms"
-              description="Adjust the building filter or add rooms to analyze building utilization."
-            />
-          ) : (
-            <ApexChart
-              type="bar"
-              height={260}
-              series={buildingChartSeries}
-              options={buildingChartOptions}
-              ariaLabel="Stacked horizontal bar chart comparing occupied, available, and maintenance rooms by building"
-            />
-          )}
-        </ChartCard>
-
-        <ChartCard
-          title="Utilization by room type"
-          description="Percentage of active rooms occupied per room category."
-          summary={`${byRoomType.length} ${byRoomType.length === 1 ? "type" : "types"}`}
-        >
-          {byRoomType.length === 0 ? (
-            <TableEmptyState
-              illustration="document-search"
-              illustrationSize="xs"
-              title="No room type breakdown"
-              description="Active room types matching the filter will be compared here."
-            />
-          ) : (
-            <ApexChart
-              type="bar"
-              height={260}
-              series={roomTypeChartSeries}
-              options={roomTypeChartOptions}
-              ariaLabel="Horizontal bar chart showing occupancy rate percentage per room type"
-            />
-          )}
-        </ChartCard>
-      </div>
+      <ChartCard
+        title="Building capacity comparison"
+        description="Occupied, available, and held room distribution across buildings."
+        summary={`${summary.totalRooms} active rooms`}
+      >
+        {summary.totalRooms === 0 ? (
+          <TableEmptyState
+            illustration="document-search"
+            illustrationSize="xs"
+            title="No active rooms"
+            description="Adjust the building filter or add rooms to analyze building utilization."
+          />
+        ) : (
+          <ApexChart
+            type="bar"
+            height={260}
+            series={buildingChartSeries}
+            options={buildingChartOptions}
+            ariaLabel="Stacked horizontal bar chart comparing occupied, available, and maintenance rooms by building"
+          />
+        )}
+      </ChartCard>
 
       <Card className="overflow-hidden p-0 sm:p-0">
         <TableCardHeader
-          title="Occupancy comparison by room type"
-          count={`${sortedRoomTypes.length} ${sortedRoomTypes.length === 1 ? "group" : "groups"}`}
-          description={`Computed room utilization and average rates as of ${asOfLabel}.`}
+          title="Occupancy by building"
+          count={`${byBuilding.length} ${byBuilding.length === 1 ? "building" : "buildings"}`}
+          description={`Computed room utilization and occupied revenue as of ${asOfLabel}.`}
           actions={
             <Link
               href="/rooms"
@@ -425,26 +237,21 @@ export function OccupancyReportPanel({
             </Link>
           }
         />
-        {sortedRoomTypes.length === 0 ? (
+        {byBuilding.length === 0 ? (
           <TableEmptyState
             illustration="document-search"
-            title="No room groups to compare"
-            description="Adjust the building filter or add rooms to populate the room type comparison."
+            title="No buildings to compare"
+            description="Adjust the building filter or add rooms to populate the occupancy breakdown."
           />
         ) : (
           <>
             <div className="grid divide-y divide-border md:hidden">
-              {sortedRoomTypes.map((row) => (
-                <div key={row.roomTypeId} className="grid gap-2 p-4">
+              {byBuilding.map((row) => (
+                <div key={row.building} className="grid gap-2 p-4">
                   <div className="flex items-start justify-between gap-2">
-                    <div className="grid gap-0.5">
-                      <span className="text-sm font-semibold text-foreground">
-                        {row.roomTypeName}
-                      </span>
-                      <span className="text-xs text-muted-foreground">
-                        {row.buildingLabel}
-                      </span>
-                    </div>
+                    <span className="text-sm font-semibold text-foreground">
+                      {row.buildingLabel}
+                    </span>
                     <Badge
                       tone={
                         row.occupancyRatePercent === null
@@ -465,11 +272,9 @@ export function OccupancyReportPanel({
                       {row.availableRooms} avail, {row.maintenanceRooms} held)
                     </span>
                     <span className="font-medium text-foreground">
-                      {row.building === "TRANSIENT" && row.avgDailyRate
-                        ? `${formatPhpCurrency(row.avgDailyRate)} / night`
-                        : row.avgMonthlyRate
-                          ? `${formatPhpCurrency(row.avgMonthlyRate)} / mo`
-                          : "—"}
+                      {row.building === "TRANSIENT"
+                        ? `${formatPhpCurrency(row.occupiedDailyRateTotal)} / night`
+                        : `${formatPhpCurrency(row.occupiedMonthlyRevenue)} / mo`}
                     </span>
                   </div>
                 </div>
@@ -479,49 +284,29 @@ export function OccupancyReportPanel({
               <Table containerClassName="rounded-none border-0">
                 <TableHeader>
                   <TableRow>
-                    <TableHead {...sortHeaderProps("roomType")}>
-                      Room type
-                    </TableHead>
-                    <TableHead {...sortHeaderProps("building")}>
-                      Building
-                    </TableHead>
-                    <TableHead numeric {...sortHeaderProps("rooms")}>
-                      Rooms
-                    </TableHead>
-                    <TableHead numeric {...sortHeaderProps("occupied")}>
-                      Occupied
-                    </TableHead>
-                    <TableHead numeric {...sortHeaderProps("available")}>
-                      Available
-                    </TableHead>
-                    <TableHead numeric {...sortHeaderProps("held")}>
-                      Held
-                    </TableHead>
-                    <TableHead numeric {...sortHeaderProps("rate")}>
-                      Avg. rate
-                    </TableHead>
-                    <TableHead numeric {...sortHeaderProps("occupancyPct")}>
-                      Occupancy %
-                    </TableHead>
+                    <TableHead>Building</TableHead>
+                    <TableHead numeric>Rooms</TableHead>
+                    <TableHead numeric>Occupied</TableHead>
+                    <TableHead numeric>Available</TableHead>
+                    <TableHead numeric>Held</TableHead>
+                    <TableHead numeric>Occupied rate total</TableHead>
+                    <TableHead numeric>Occupancy %</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
-                  {sortedRoomTypes.map((row) => (
-                    <TableRow key={row.roomTypeId}>
+                  {byBuilding.map((row) => (
+                    <TableRow key={row.building}>
                       <TableCell className="font-medium text-foreground">
-                        {row.roomTypeName}
+                        {row.buildingLabel}
                       </TableCell>
-                      <TableCell>{row.buildingLabel}</TableCell>
                       <TableCell numeric>{row.totalRooms}</TableCell>
                       <TableCell numeric>{row.occupiedRooms}</TableCell>
                       <TableCell numeric>{row.availableRooms}</TableCell>
                       <TableCell numeric>{row.maintenanceRooms}</TableCell>
                       <TableCell numeric>
-                        {row.building === "TRANSIENT" && row.avgDailyRate
-                          ? `${formatPhpCurrency(row.avgDailyRate)} / night`
-                          : row.avgMonthlyRate
-                            ? `${formatPhpCurrency(row.avgMonthlyRate)} / mo`
-                            : "—"}
+                        {row.building === "TRANSIENT"
+                          ? `${formatPhpCurrency(row.occupiedDailyRateTotal)} / night`
+                          : `${formatPhpCurrency(row.occupiedMonthlyRevenue)} / mo`}
                       </TableCell>
                       <TableCell
                         numeric
@@ -539,7 +324,6 @@ export function OccupancyReportPanel({
                     <TableCell className="font-semibold text-foreground">
                       Overall total
                     </TableCell>
-                    <TableCell>All filtered</TableCell>
                     <TableCell
                       numeric
                       className="font-semibold text-foreground"
@@ -591,59 +375,7 @@ export function RentRollReportPanel({
   overview: ReportsOverviewDto;
   asOfLabel: string;
 }) {
-  const { summary, byRoomType, leaseExpiries } = overview.rentRoll;
-
-  const { sortedRows: sortedRoomTypes, sortHeaderProps } = useTableSort(
-    byRoomType,
-    RENT_ROLL_SORT_COLUMNS,
-    { key: "monthlyRent", direction: "desc" },
-  );
-
-  const rentChartSeries = useMemo(
-    () => [
-      {
-        name: "Monthly rent",
-        data: byRoomType.map((rt) => toChartPhpNumber(rt.totalMonthlyRent)),
-      },
-      {
-        name: "Open balance",
-        data: byRoomType.map((rt) => toChartPhpNumber(rt.totalOpenBalance)),
-      },
-    ],
-    [byRoomType],
-  );
-
-  const rentChartOptions = useMemo<Omit<ApexOptions, "series">>(
-    () => ({
-      colors: [DAISY_CHART_COLORS.info, DAISY_CHART_COLORS.danger],
-      plotOptions: {
-        bar: {
-          columnWidth: "54%",
-          borderRadius: 4,
-          borderRadiusApplication: "end",
-        },
-      },
-      dataLabels: { enabled: false },
-      xaxis: {
-        categories: byRoomType.map((rt) => rt.roomTypeName),
-      },
-      yaxis: {
-        labels: {
-          formatter: (val: number) => formatCompactPhpAxis(val),
-        },
-      },
-      legend: {
-        position: "top",
-        horizontalAlign: "left",
-      },
-      tooltip: {
-        y: {
-          formatter: (val: number) => formatChartPhp(val),
-        },
-      },
-    }),
-    [byRoomType],
-  );
+  const { summary, leaseExpiries } = overview.rentRoll;
 
   const hasExpiries = leaseExpiries.some((b) => b.count > 0);
   const expiryChartSeries = useMemo(
@@ -734,59 +466,34 @@ export function RentRollReportPanel({
         />
       </div>
 
-      <div className="grid grid-cols-1 gap-5 xl:grid-cols-2">
-        <ChartCard
-          title="Rent roll vs. open balance by room type"
-          description="Contracted monthly rent compared against unpaid tenant balances."
-          summary={`${byRoomType.length} ${byRoomType.length === 1 ? "tier" : "tiers"}`}
-        >
-          {byRoomType.length === 0 ? (
-            <TableEmptyState
-              illustration="document-search"
-              illustrationSize="xs"
-              title="No active boarding rent roll"
-              description="Active tenant assignments will compare monthly rent and arrears by room type."
-            />
-          ) : (
-            <ApexChart
-              type="bar"
-              height={260}
-              series={rentChartSeries}
-              options={rentChartOptions}
-              ariaLabel="Grouped bar chart comparing contracted monthly rent and open balance across room types"
-            />
-          )}
-        </ChartCard>
-
-        <ChartCard
-          title="Lease expiration horizon"
-          description="Turnover exposure across scheduled move-out windows."
-          summary={`${summary.activeAssignments} active`}
-        >
-          {!hasExpiries ? (
-            <TableEmptyState
-              illustration="document-search"
-              illustrationSize="xs"
-              title="No lease expiration data"
-              description="Scheduled assignment end dates will group turnover exposure here."
-            />
-          ) : (
-            <ApexChart
-              type="bar"
-              height={260}
-              series={expiryChartSeries}
-              options={expiryChartOptions}
-              ariaLabel="Bar chart showing active boarding assignments grouped by lease expiration timeframe"
-            />
-          )}
-        </ChartCard>
-      </div>
+      <ChartCard
+        title="Lease expiration horizon"
+        description="Turnover exposure across scheduled move-out windows."
+        summary={`${summary.activeAssignments} active`}
+      >
+        {!hasExpiries ? (
+          <TableEmptyState
+            illustration="document-search"
+            illustrationSize="xs"
+            title="No lease expiration data"
+            description="Scheduled assignment end dates will group turnover exposure here."
+          />
+        ) : (
+          <ApexChart
+            type="bar"
+            height={260}
+            series={expiryChartSeries}
+            options={expiryChartOptions}
+            ariaLabel="Bar chart showing active boarding assignments grouped by lease expiration timeframe"
+          />
+        )}
+      </ChartCard>
 
       <Card className="overflow-hidden p-0 sm:p-0">
         <TableCardHeader
-          title="Portfolio computation by room type"
-          count={`${sortedRoomTypes.length} ${sortedRoomTypes.length === 1 ? "tier" : "tiers"}`}
-          description={`Aggregated contracted monthly revenue, deposits, and unpaid balances as of ${asOfLabel}.`}
+          title="Lease expiry windows"
+          count={`${summary.activeAssignments} ${summary.activeAssignments === 1 ? "assignment" : "assignments"}`}
+          description={`Contracted monthly rent grouped by scheduled move-out horizon as of ${asOfLabel}.`}
           actions={
             <Link
               href="/tenants"
@@ -796,7 +503,7 @@ export function RentRollReportPanel({
             </Link>
           }
         />
-        {sortedRoomTypes.length === 0 ? (
+        {!hasExpiries ? (
           <TableEmptyState
             illustration="document-search"
             title="No active boarding assignments"
@@ -805,36 +512,22 @@ export function RentRollReportPanel({
         ) : (
           <>
             <div className="grid divide-y divide-border md:hidden">
-              {sortedRoomTypes.map((row) => (
-                <div key={row.roomTypeId} className="grid gap-2 p-4">
-                  <div className="flex items-start justify-between gap-2">
-                    <div className="grid gap-0.5">
-                      <span className="text-sm font-semibold text-foreground">
-                        {row.roomTypeName}
-                      </span>
-                      <span className="text-xs text-muted-foreground tabular-nums">
-                        {row.activeAssignments} active ({row.sharePercent}%
-                        share)
-                      </span>
-                    </div>
-                    <Badge
-                      tone={
-                        row.totalOpenBalance !== "0.00" ? "warning" : "success"
-                      }
-                    >
-                      {row.totalOpenBalance !== "0.00"
-                        ? "Open balance"
-                        : "Settled"}
-                    </Badge>
-                  </div>
-                  <div className="flex flex-wrap items-center justify-between gap-2 text-xs tabular-nums">
-                    <span className="text-foreground">
-                      Rent: {formatPhpCurrency(row.totalMonthlyRent)}
+              {leaseExpiries.map((row) => (
+                <div
+                  key={row.bucket}
+                  className="flex items-center justify-between gap-2 p-4"
+                >
+                  <div className="grid gap-0.5">
+                    <span className="text-sm font-semibold text-foreground">
+                      {row.label}
                     </span>
-                    <span className="text-muted-foreground">
-                      Open: {formatPhpCurrency(row.totalOpenBalance)}
+                    <span className="text-xs text-muted-foreground tabular-nums">
+                      {row.count} {row.count === 1 ? "contract" : "contracts"}
                     </span>
                   </div>
+                  <span className="text-sm font-semibold text-foreground tabular-nums">
+                    {formatPhpCurrency(row.monthlyRentAtRisk)} / mo
+                  </span>
                 </div>
               ))}
             </div>
@@ -842,45 +535,20 @@ export function RentRollReportPanel({
               <Table containerClassName="rounded-none border-0">
                 <TableHeader>
                   <TableRow>
-                    <TableHead {...sortHeaderProps("roomType")}>
-                      Room type
-                    </TableHead>
-                    <TableHead numeric {...sortHeaderProps("assignments")}>
-                      Assignments
-                    </TableHead>
-                    <TableHead numeric {...sortHeaderProps("share")}>
-                      Share
-                    </TableHead>
-                    <TableHead numeric {...sortHeaderProps("monthlyRent")}>
-                      Monthly rent
-                    </TableHead>
-                    <TableHead numeric {...sortHeaderProps("deposits")}>
-                      Deposits held
-                    </TableHead>
-                    <TableHead numeric {...sortHeaderProps("openBalance")}>
-                      Open balance
-                    </TableHead>
+                    <TableHead>Expiry window</TableHead>
+                    <TableHead numeric>Contracts</TableHead>
+                    <TableHead numeric>Monthly rent at risk</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
-                  {sortedRoomTypes.map((row) => (
-                    <TableRow key={row.roomTypeId}>
+                  {leaseExpiries.map((row) => (
+                    <TableRow key={row.bucket}>
                       <TableCell className="font-medium text-foreground">
-                        {row.roomTypeName}
+                        {row.label}
                       </TableCell>
-                      <TableCell numeric>{row.activeAssignments}</TableCell>
-                      <TableCell numeric>{row.sharePercent}%</TableCell>
+                      <TableCell numeric>{row.count}</TableCell>
                       <TableCell numeric>
-                        {formatPhpCurrency(row.totalMonthlyRent)}
-                      </TableCell>
-                      <TableCell numeric>
-                        {formatPhpCurrency(row.totalSecurityDeposits)}
-                      </TableCell>
-                      <TableCell
-                        numeric
-                        className="font-medium text-foreground"
-                      >
-                        {formatPhpCurrency(row.totalOpenBalance)}
+                        {formatPhpCurrency(row.monthlyRentAtRisk)}
                       </TableCell>
                     </TableRow>
                   ))}
@@ -900,25 +568,7 @@ export function RentRollReportPanel({
                       numeric
                       className="font-semibold text-foreground"
                     >
-                      100%
-                    </TableCell>
-                    <TableCell
-                      numeric
-                      className="font-semibold text-foreground"
-                    >
                       {formatPhpCurrency(summary.totalMonthlyRent)}
-                    </TableCell>
-                    <TableCell
-                      numeric
-                      className="font-semibold text-foreground"
-                    >
-                      {formatPhpCurrency(summary.totalSecurityDeposits)}
-                    </TableCell>
-                    <TableCell
-                      numeric
-                      className="font-semibold text-foreground"
-                    >
-                      {formatPhpCurrency(summary.totalOpenBalance)}
                     </TableCell>
                   </TableRow>
                 </TableFooter>

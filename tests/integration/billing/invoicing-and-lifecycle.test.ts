@@ -59,12 +59,8 @@ import {
   issueDraftInvoice,
   voidInvoice,
 } from "../../../src/features/billing/service";
-import {
-  createBed,
-  createRoom,
-  createRoomType,
-} from "../../../src/features/rooms/service";
-import { updateBusinessSettings } from "../../../src/features/settings/service";
+import { createBed, createRoom } from "../../../src/features/rooms/service";
+import { updateBusinessSettingsModule } from "../../../src/features/settings/service";
 import {
   assignTenantToBed,
   createTenant,
@@ -79,24 +75,24 @@ const prefix = `billing-test-${randomUUID()}`;
 let seq = 0;
 
 async function configureOwnerSettings(ownerId: string) {
-  await updateBusinessSettings(ownerId, {
+  vi.stubEnv("BILLING_DAY_OF_MONTH", "5");
+  vi.stubEnv("BILLING_GRACE_PERIOD_DAYS", "5");
+  vi.stubEnv("BILLING_PRORATION_POLICY", "DAILY_EXACT");
+  vi.stubEnv("BILLING_DEPOSIT_POLICY", "HOLD_SEPARATE");
+  vi.stubEnv("BILLING_OVERPAYMENT_POLICY", "REJECT_OVERPAYMENT");
+  vi.stubEnv("INVOICE_PREFIX", "INV");
+  vi.stubEnv("RECEIPT_PREFIX", "OR");
+  await updateBusinessSettingsModule(ownerId, {
+    module: "property",
     expectedVersion: 0,
     businessName: "Daisy Test Boarding House",
     businessPhone: null,
     businessAddress: null,
     tin: null,
-    billingDayOfMonth: 5,
-    gracePeriodDays: 5,
-    prorationPolicy: "DAILY_EXACT",
-    depositPolicy: "HOLD_SEPARATE",
-    overpaymentPolicy: "REJECT_OVERPAYMENT",
-    invoicePrefix: "INV",
-    receiptPrefix: "OR",
     checkInTimeManila: "14:00",
     checkOutTimeManila: "12:00",
-    offlineUnlockMaxDays: 7,
-    proofMaxMb: 5,
-    proofMaxFilesPerRecord: 5,
+    smsOverdueEnabled: false,
+    smsOverdueSendTimeManila: "09:00",
   });
 }
 
@@ -104,16 +100,9 @@ async function seedTenantWithBedAssignment(
   ownerId: string,
   options?: { startDateManila?: string; endDateManila?: string },
 ) {
-  const roomType = await createRoomType(ownerId, {
-    name: `Dorm-${randomUUID().slice(0, 6)}`,
-    monthlyRate: "6000.00",
-    dailyRate: null,
-    description: null,
-  });
   const room = await createRoom(ownerId, {
     number: `R-${randomUUID().slice(0, 4)}`,
     floor: "1F",
-    roomTypeId: roomType.id,
     capacity: 2,
     baseMonthlyRate: "6000.00",
     transientDailyRate: null,
@@ -207,9 +196,6 @@ afterAll(async () => {
     await db.room.deleteMany({
       where: { ownerUserId: { startsWith: prefix } },
     });
-    await db.roomType.deleteMany({
-      where: { ownerUserId: { startsWith: prefix } },
-    });
     await db.businessSettings.deleteMany({
       where: { ownerUserId: { startsWith: prefix } },
     });
@@ -227,13 +213,19 @@ afterAll(async () => {
 });
 
 describe("billing and invoicing integration", () => {
-  it("refuses period generation when billing policies are unconfigured", async () => {
-    await expect(
-      generatePeriodInvoices(state.ownerId, {
-        billingPeriod: "2026-11",
-        issueImmediately: false,
-      }),
-    ).rejects.toBeInstanceOf(PreconditionError);
+  it("resolves env-backed billing policies cleanly even before BusinessSettings row exists", async () => {
+    vi.stubEnv("BILLING_DAY_OF_MONTH", "1");
+    vi.stubEnv("BILLING_GRACE_PERIOD_DAYS", "5");
+    vi.stubEnv("BILLING_PRORATION_POLICY", "DAILY_EXACT");
+    vi.stubEnv("BILLING_DEPOSIT_POLICY", "HOLD_SEPARATE");
+    vi.stubEnv("INVOICE_PREFIX", "INV-");
+
+    const result = await generatePeriodInvoices(state.ownerId, {
+      billingPeriod: "2026-11",
+      issueImmediately: false,
+    });
+    expect(result.createdCount).toBe(0);
+    expect(result.skippedExistingCount).toBe(0);
   });
 
   it("generates prorated period invoices idempotently and serializes official numbering", async () => {

@@ -1,7 +1,5 @@
-import { renderSettingsSectionPage } from "../_lib/settings-page";
+import { redirect } from "next/navigation";
 
-export const instant = false;
-
-export default function SettingsSmsPage() {
-  return renderSettingsSectionPage("sms");
+export default function SettingsSmsRedirectPage() {
+  redirect("/settings");
 }

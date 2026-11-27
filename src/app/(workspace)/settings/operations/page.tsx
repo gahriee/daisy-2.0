@@ -1,7 +1,5 @@
-import { renderSettingsSectionPage } from "../_lib/settings-page";
+import { redirect } from "next/navigation";
 
-export const instant = false;
-
-export default function SettingsOperationsPage() {
-  return renderSettingsSectionPage("operations");
+export default function SettingsOperationsRedirectPage() {
+  redirect("/settings");
 }

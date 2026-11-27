@@ -6,6 +6,7 @@ import {
   RateLimitedError,
   ValidationError,
 } from "@/lib/errors";
+import { getServerOperationalLimits } from "@/config/business-config";
 import { getDatabase } from "@/server/db/client";
 import { ensureOwnerRecord } from "@/server/db/owner-record";
 import { isPgConstraintError } from "@/server/db/pg-errors";
@@ -21,8 +22,6 @@ import {
   type MaintenanceAttachmentIntentDto,
 } from "./schemas";
 
-const DEFAULT_MAX_BYTES = 5 * 1024 * 1024;
-const DEFAULT_MAX_FILES_PER_RECORD = 5;
 const ATTACHMENT_INTENT_TTL_SECONDS = 300;
 const ATTACHMENT_UPLOAD_RATE_LIMIT = { maximum: 30, seconds: 600 } as const;
 
@@ -73,18 +72,14 @@ export async function consumeMaintenanceUploadLimit(
   return row.count > maximum ? row.retry : 0;
 }
 
-async function readOwnerAttachmentLimits(ownerUserId: string): Promise<{
+function readOwnerAttachmentLimits(): {
   proofMaxBytes: number;
   proofMaxFilesPerRecord: number;
-}> {
-  const settings = await getDatabase().businessSettings.findUnique({
-    where: { ownerUserId },
-    select: { proofMaxBytes: true, proofMaxFilesPerRecord: true },
-  });
+} {
+  const limits = getServerOperationalLimits();
   return {
-    proofMaxBytes: settings?.proofMaxBytes ?? DEFAULT_MAX_BYTES,
-    proofMaxFilesPerRecord:
-      settings?.proofMaxFilesPerRecord ?? DEFAULT_MAX_FILES_PER_RECORD,
+    proofMaxBytes: limits.proofMaxBytes,
+    proofMaxFilesPerRecord: limits.proofMaxFilesPerRecord,
   };
 }
 
@@ -113,7 +108,7 @@ export async function createMaintenanceAttachmentIntent(params: {
     );
   }
 
-  const limits = await readOwnerAttachmentLimits(params.ownerUserId);
+  const limits = readOwnerAttachmentLimits();
   if (input.byteSize > limits.proofMaxBytes) {
     const maxMb = Math.max(1, Math.round(limits.proofMaxBytes / (1024 * 1024)));
     throw new ValidationError(
@@ -330,7 +325,7 @@ export async function verifyUploadedMaintenanceAttachments(
 ): Promise<VerifiedMaintenanceAttachment[]> {
   if (intentIds.length === 0) return [];
 
-  const limits = await readOwnerAttachmentLimits(ownerUserId);
+  const limits = readOwnerAttachmentLimits();
   if (
     existingAttachmentCount + intentIds.length >
     limits.proofMaxFilesPerRecord

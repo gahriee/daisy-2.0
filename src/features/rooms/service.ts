@@ -8,7 +8,6 @@ import {
   ValidationError,
 } from "@/lib/errors";
 import { formatMoneyDecimal, parseMoneyDecimal } from "@/lib/money";
-import { hasCompleteStaySchedule } from "@/features/settings/schemas";
 import { getDatabase } from "@/server/db/client";
 import { ensureOwnerRecord } from "@/server/db/owner-record";
 import { isPgConstraintError } from "@/server/db/pg-errors";
@@ -31,45 +30,21 @@ import {
 import {
   ArchiveRestoreBedSchema,
   ArchiveRestoreRoomSchema,
-  ArchiveRestoreRoomTypeSchema,
   CreateBedSchema,
   CreateRoomSchema,
-  CreateRoomTypeSchema,
   UpdateBedSchema,
   UpdateRoomSchema,
-  UpdateRoomTypeSchema,
   type BedDto,
   type BedStatusValue,
   type CreateBedInput,
   type CreateRoomInput,
-  type CreateRoomTypeInput,
   type InventoryOverviewDto,
   type RoomBuildingValue,
   type RoomDto,
-  type RoomTypeDto,
   type RoomWithBedsDto,
   type UpdateBedInput,
   type UpdateRoomInput,
-  type UpdateRoomTypeInput,
 } from "./schemas";
-
-const roomTypeSelect = {
-  id: true,
-  version: true,
-  building: true,
-  name: true,
-  monthlyRate: true,
-  dailyRate: true,
-  description: true,
-  archivedAt: true,
-  createdAt: true,
-  updatedAt: true,
-  _count: {
-    select: {
-      rooms: { where: { archivedAt: null } },
-    },
-  },
-} as const;
 
 export const roomSummarySelect = {
   id: true,
@@ -77,14 +52,6 @@ export const roomSummarySelect = {
   building: true,
   number: true,
   floor: true,
-  roomTypeId: true,
-  roomType: {
-    select: {
-      id: true,
-      name: true,
-      archivedAt: true,
-    },
-  },
   capacity: true,
   baseMonthlyRate: true,
   transientDailyRate: true,
@@ -109,46 +76,12 @@ function decimalToString(value: { toString(): string }): string {
   return formatMoneyDecimal(parseMoneyDecimal(value.toString()));
 }
 
-function toRoomTypeDto(row: {
-  id: string;
-  version: number;
-  building: RoomBuildingValue;
-  name: string;
-  monthlyRate: { toString(): string } | null;
-  dailyRate: { toString(): string } | null;
-  description: string | null;
-  archivedAt: Date | null;
-  createdAt: Date;
-  updatedAt: Date;
-  _count?: { rooms: number };
-}): RoomTypeDto {
-  return {
-    id: row.id,
-    version: row.version,
-    building: row.building,
-    name: row.name,
-    monthlyRate: row.monthlyRate ? decimalToString(row.monthlyRate) : null,
-    dailyRate: row.dailyRate ? decimalToString(row.dailyRate) : null,
-    description: row.description,
-    activeRoomCount: row._count?.rooms ?? 0,
-    archivedAt: row.archivedAt ? row.archivedAt.toISOString() : null,
-    createdAt: row.createdAt.toISOString(),
-    updatedAt: row.updatedAt.toISOString(),
-  };
-}
-
 export function toRoomDto(row: {
   id: string;
   version: number;
   building: RoomBuildingValue;
   number: string;
   floor: string | null;
-  roomTypeId: string;
-  roomType: {
-    id: string;
-    name: string;
-    archivedAt: Date | null;
-  };
   capacity: number;
   baseMonthlyRate: { toString(): string } | null;
   transientDailyRate: { toString(): string } | null;
@@ -168,9 +101,6 @@ export function toRoomDto(row: {
     building: row.building,
     number: row.number,
     floor: row.floor,
-    roomTypeId: row.roomTypeId,
-    roomTypeName: row.roomType.name,
-    roomTypeArchived: row.roomType.archivedAt !== null,
     capacity: row.capacity,
     baseMonthlyRate: row.baseMonthlyRate
       ? decimalToString(row.baseMonthlyRate)
@@ -226,43 +156,15 @@ function toBedDto(
   };
 }
 
-async function listRoomTypesForOwner(
-  db: ReturnType<typeof getDatabase>,
-  ownerUserId: string,
-  building?: RoomBuildingValue,
-): Promise<RoomTypeDto[]> {
-  const rows = await db.roomType.findMany({
-    where: { ownerUserId, ...(building ? { building } : {}) },
-    orderBy: [{ archivedAt: "asc" }, { name: "asc" }],
-    select: roomTypeSelect,
-  });
-  return rows.map(toRoomTypeDto);
-}
-
-export async function getRoomCreateContext(
-  ownerUserId: string,
-  building?: RoomBuildingValue,
-): Promise<{ activeRoomTypes: RoomTypeDto[] }> {
-  const db = getDatabase();
-  const roomTypes = await listRoomTypesForOwner(db, ownerUserId, building);
-  return {
-    activeRoomTypes: roomTypes.filter((rt) => rt.archivedAt === null),
-  };
-}
-
 export async function getRoomDetail(
   ownerUserId: string,
   roomId: string,
   expectedBuilding?: RoomBuildingValue,
-): Promise<{
-  room: RoomDto & { activeAllocationCount: number };
-  roomTypes: RoomTypeDto[];
-} | null> {
+): Promise<(RoomDto & { activeAllocationCount: number }) | null> {
   const db = getDatabase();
   const nowUtc = new Date();
 
-  const [roomTypes, roomRow, activeAllocationCount] = await Promise.all([
-    listRoomTypesForOwner(db, ownerUserId, expectedBuilding),
+  const [roomRow, activeAllocationCount] = await Promise.all([
     db.room.findFirst({
       where: {
         id: roomId,
@@ -286,11 +188,8 @@ export async function getRoomDetail(
   }
 
   return {
-    room: {
-      ...toRoomDto(roomRow),
-      activeAllocationCount,
-    },
-    roomTypes: roomTypes.filter((rt) => rt.building === roomRow.building),
+    ...toRoomDto(roomRow),
+    activeAllocationCount,
   };
 }
 
@@ -302,8 +201,7 @@ export async function listInventoryOverview(
   const asOfUtc = options?.asOfUtc ?? new Date();
   const building = options?.building;
 
-  const [roomTypes, rooms, activeAllocations] = await Promise.all([
-    listRoomTypesForOwner(db, ownerUserId, building),
+  const [rooms, activeAllocations] = await Promise.all([
     db.room.findMany({
       where: { ownerUserId, ...(building ? { building } : {}) },
       orderBy: [{ archivedAt: "asc" }, { number: "asc" }],
@@ -447,388 +345,8 @@ export async function listInventoryOverview(
       occupiedBeds,
       maintenanceBeds,
     },
-    roomTypes,
     rooms: roomDtos,
   };
-}
-
-type RoomTxClient = Parameters<
-  Parameters<ReturnType<typeof getDatabase>["$transaction"]>[0]
->[0];
-
-async function publishRoomTypeChange(
-  tx: RoomTxClient,
-  ownerUserId: string,
-  dto: RoomTypeDto,
-  action:
-    | "room_type.created"
-    | "room_type.updated"
-    | "room_type.archived"
-    | "room_type.restored",
-  operation: "upsert" | "tombstone",
-): Promise<void> {
-  const sequence = await allocateSyncSequence(tx, ownerUserId);
-
-  await writeAuditEntry(tx, {
-    ownerUserId,
-    sequence,
-    area: "rooms",
-    action,
-    actorType: "owner",
-    actorId: ownerUserId,
-    entityType: "room_type",
-    entityId: dto.id,
-    metadata: { version: dto.version },
-  });
-
-  await appendChangeFeed(tx, {
-    ownerUserId,
-    sequence,
-    entityType: "room_type",
-    entityId: dto.id,
-    version: dto.version,
-    operation,
-    payload: dto,
-  });
-}
-
-export async function createRoomType(
-  ownerUserId: string,
-  rawInput: CreateRoomTypeInput,
-): Promise<RoomTypeDto> {
-  const parsed = CreateRoomTypeSchema.safeParse(rawInput);
-  if (!parsed.success) {
-    throw new ValidationError(
-      parsed.error.issues[0]?.message ??
-        "Check room type fields and try again.",
-    );
-  }
-  const input = parsed.data;
-  const db = getDatabase();
-
-  try {
-    return await db.$transaction(async (tx) => {
-      await ensureOwnerRecord(tx, ownerUserId);
-
-      const created = await tx.roomType.create({
-        data: {
-          ownerUserId,
-          version: 1,
-          building: input.building,
-          name: input.name,
-          monthlyRate: input.monthlyRate,
-          dailyRate: input.dailyRate,
-          description: input.description,
-        },
-        select: roomTypeSelect,
-      });
-
-      const dto = toRoomTypeDto(created);
-      await publishRoomTypeChange(
-        tx,
-        ownerUserId,
-        dto,
-        "room_type.created",
-        "upsert",
-      );
-      return dto;
-    });
-  } catch (error) {
-    if (
-      isPgConstraintError(
-        error,
-        "23505",
-        "RoomType_ownerUserId_building_name_active_key",
-      )
-    ) {
-      throw new ConflictError(
-        "An active room type with that name already exists in this building.",
-      );
-    }
-    throw error;
-  }
-}
-
-export async function updateRoomType(
-  ownerUserId: string,
-  rawInput: UpdateRoomTypeInput,
-): Promise<RoomTypeDto> {
-  const parsed = UpdateRoomTypeSchema.safeParse(rawInput);
-  if (!parsed.success) {
-    throw new ValidationError(
-      parsed.error.issues[0]?.message ??
-        "Check room type fields and try again.",
-    );
-  }
-  const input = parsed.data;
-  const db = getDatabase();
-
-  try {
-    return await db.$transaction(async (tx) => {
-      const existing = await tx.roomType.findFirst({
-        where: { id: input.roomTypeId, ownerUserId },
-        select: { id: true, building: true, version: true, archivedAt: true },
-      });
-      if (!existing) {
-        throw new NotFoundError("The requested room type was not found.");
-      }
-      if (existing.archivedAt !== null) {
-        throw new PreconditionError(
-          "Restore this room type before editing it.",
-        );
-      }
-      if (existing.version !== input.expectedVersion) {
-        throw new ConflictError(
-          "This room type changed elsewhere. Reload and try again.",
-        );
-      }
-      if (
-        input.building !== undefined &&
-        input.building !== existing.building
-      ) {
-        throw new ValidationError(
-          "Room type building cannot be changed after creation.",
-        );
-      }
-      if (existing.building === "BOARDING") {
-        if (!input.monthlyRate) {
-          throw new ValidationError(
-            "Enter a monthly price for Boarding House room types.",
-          );
-        }
-        if (input.dailyRate !== null) {
-          throw new ValidationError(
-            "Boarding House room types use monthly pricing only.",
-          );
-        }
-      } else {
-        if (!input.dailyRate) {
-          throw new ValidationError(
-            "Enter a daily rate for Transient room types.",
-          );
-        }
-        if (input.monthlyRate !== null) {
-          throw new ValidationError(
-            "Transient room types use daily pricing only.",
-          );
-        }
-      }
-
-      const updated = await tx.roomType.updateMany({
-        where: {
-          id: existing.id,
-          ownerUserId,
-          version: input.expectedVersion,
-          archivedAt: null,
-        },
-        data: {
-          version: { increment: 1 },
-          name: input.name,
-          monthlyRate: input.monthlyRate,
-          dailyRate: input.dailyRate,
-          description: input.description,
-        },
-      });
-      if (updated.count === 0) {
-        throw new ConflictError(
-          "This room type changed elsewhere. Reload and try again.",
-        );
-      }
-
-      const saved = await tx.roomType.findUniqueOrThrow({
-        where: { id: existing.id },
-        select: roomTypeSelect,
-      });
-
-      const dto = toRoomTypeDto(saved);
-      await publishRoomTypeChange(
-        tx,
-        ownerUserId,
-        dto,
-        "room_type.updated",
-        "upsert",
-      );
-      return dto;
-    });
-  } catch (error) {
-    if (
-      isPgConstraintError(
-        error,
-        "23505",
-        "RoomType_ownerUserId_building_name_active_key",
-      )
-    ) {
-      throw new ConflictError(
-        "An active room type with that name already exists in this building.",
-      );
-    }
-    throw error;
-  }
-}
-
-export async function archiveRoomType(
-  ownerUserId: string,
-  rawInput: { roomTypeId: string; expectedVersion: number },
-  asOfUtc: Date = new Date(),
-): Promise<RoomTypeDto> {
-  const parsed = ArchiveRestoreRoomTypeSchema.safeParse(rawInput);
-  if (!parsed.success) {
-    throw new ValidationError(
-      parsed.error.issues[0]?.message ?? "Invalid room type archive request.",
-    );
-  }
-  const input = parsed.data;
-  const db = getDatabase();
-
-  return db.$transaction(async (tx) => {
-    const existing = await tx.roomType.findFirst({
-      where: { id: input.roomTypeId, ownerUserId },
-      select: { id: true, version: true, archivedAt: true },
-    });
-    if (!existing) {
-      throw new NotFoundError("The requested room type was not found.");
-    }
-    if (existing.archivedAt !== null) {
-      throw new ConflictError("This room type is already archived.");
-    }
-    if (existing.version !== input.expectedVersion) {
-      throw new ConflictError(
-        "This room type changed elsewhere. Reload and try again.",
-      );
-    }
-
-    const updated = await tx.roomType.updateMany({
-      where: {
-        id: existing.id,
-        ownerUserId,
-        version: input.expectedVersion,
-        archivedAt: null,
-      },
-      data: {
-        archivedAt: asOfUtc,
-        version: { increment: 1 },
-      },
-    });
-    if (updated.count === 0) {
-      throw new ConflictError(
-        "This room type changed elsewhere. Reload and try again.",
-      );
-    }
-
-    const saved = await tx.roomType.findUniqueOrThrow({
-      where: { id: existing.id },
-      select: roomTypeSelect,
-    });
-
-    const dto = toRoomTypeDto(saved);
-    await publishRoomTypeChange(
-      tx,
-      ownerUserId,
-      dto,
-      "room_type.archived",
-      "tombstone",
-    );
-    return dto;
-  });
-}
-
-export async function restoreRoomType(
-  ownerUserId: string,
-  rawInput: { roomTypeId: string; expectedVersion: number },
-): Promise<RoomTypeDto> {
-  const parsed = ArchiveRestoreRoomTypeSchema.safeParse(rawInput);
-  if (!parsed.success) {
-    throw new ValidationError(
-      parsed.error.issues[0]?.message ?? "Invalid room type restore request.",
-    );
-  }
-  const input = parsed.data;
-  const db = getDatabase();
-
-  try {
-    return await db.$transaction(async (tx) => {
-      const existing = await tx.roomType.findFirst({
-        where: { id: input.roomTypeId, ownerUserId },
-        select: { id: true, version: true, archivedAt: true },
-      });
-      if (!existing) {
-        throw new NotFoundError("The requested room type was not found.");
-      }
-      if (existing.archivedAt === null) {
-        throw new ConflictError("This room type is already active.");
-      }
-      if (existing.version !== input.expectedVersion) {
-        throw new ConflictError(
-          "This room type changed elsewhere. Reload and try again.",
-        );
-      }
-
-      const updated = await tx.roomType.updateMany({
-        where: {
-          id: existing.id,
-          ownerUserId,
-          version: input.expectedVersion,
-        },
-        data: {
-          archivedAt: null,
-          version: { increment: 1 },
-        },
-      });
-      if (updated.count === 0) {
-        throw new ConflictError(
-          "This room type changed elsewhere. Reload and try again.",
-        );
-      }
-
-      const saved = await tx.roomType.findUniqueOrThrow({
-        where: { id: existing.id },
-        select: roomTypeSelect,
-      });
-
-      const dto = toRoomTypeDto(saved);
-      await publishRoomTypeChange(
-        tx,
-        ownerUserId,
-        dto,
-        "room_type.restored",
-        "upsert",
-      );
-      return dto;
-    });
-  } catch (error) {
-    if (
-      isPgConstraintError(
-        error,
-        "23505",
-        "RoomType_ownerUserId_building_name_active_key",
-      )
-    ) {
-      throw new ConflictError(
-        "An active room type with that name already exists in this building.",
-      );
-    }
-    throw error;
-  }
-}
-
-async function requireConfiguredStayScheduleInTx(
-  tx: Prisma.TransactionClient,
-  ownerUserId: string,
-): Promise<void> {
-  const settings = await tx.businessSettings.findUnique({
-    where: { ownerUserId },
-    select: { checkInTimeManila: true, checkOutTimeManila: true },
-  });
-  if (
-    !settings ||
-    !hasCompleteStaySchedule(settings) ||
-    !settings.checkInTimeManila ||
-    !settings.checkOutTimeManila
-  ) {
-    throw new PreconditionError(
-      "Configure check-in and check-out times in Settings -> Stays & limits before publishing a room for public booking.",
-    );
-  }
 }
 
 export async function createRoom(
@@ -853,65 +371,31 @@ export async function createRoom(
     return await db.$transaction(async (tx) => {
       await ensureOwnerRecord(tx, ownerUserId);
 
-      const roomType = await tx.roomType.findFirst({
-        where: { id: input.roomTypeId, ownerUserId },
-        select: {
-          id: true,
-          building: true,
-          monthlyRate: true,
-          dailyRate: true,
-          archivedAt: true,
-        },
-      });
-      if (!roomType) {
-        throw new NotFoundError("The selected room type was not found.");
-      }
-      if (roomType.archivedAt !== null) {
-        throw new PreconditionError(
-          "Selected room type is archived. Restore it or choose an active room type.",
-        );
-      }
-      if (roomType.building !== input.building) {
-        throw new PreconditionError(
-          "Selected room type belongs to a different building.",
-        );
-      }
-
       const resolvedMonthlyRate =
-        input.building === "BOARDING"
-          ? (input.baseMonthlyRate ??
-            (roomType.monthlyRate
-              ? decimalToString(roomType.monthlyRate)
-              : null))
-          : null;
+        input.building === "BOARDING" ? input.baseMonthlyRate : null;
       const resolvedDailyRate =
-        input.building === "TRANSIENT"
-          ? (input.transientDailyRate ??
-            (roomType.dailyRate ? decimalToString(roomType.dailyRate) : null))
-          : null;
+        input.building === "TRANSIENT" ? input.transientDailyRate : null;
       if (input.building === "BOARDING" && !resolvedMonthlyRate) {
         throw new ValidationError(
-          "Enter a monthly rate or select a Boarding House room type with a default monthly rate.",
+          "Enter a monthly rate for Boarding House rooms.",
         );
       }
       if (input.building === "TRANSIENT" && !resolvedDailyRate) {
         throw new ValidationError(
-          "Enter a daily rate or select a Transient room type with a default daily rate.",
+          "Enter a daily rate for Transient Building rooms.",
         );
       }
 
       const publishToPublic =
         input.building === "TRANSIENT" && input.isTransientPublished === true;
-      if (publishToPublic) {
-        if (
-          !resolvedDailyRate ||
-          parseMoneyDecimal(resolvedDailyRate) <= BigInt(0)
-        ) {
-          throw new PreconditionError(
-            "Set a positive daily rate on the room type before publishing this room for public booking.",
-          );
-        }
-        await requireConfiguredStayScheduleInTx(tx, ownerUserId);
+      if (
+        publishToPublic &&
+        (!resolvedDailyRate ||
+          parseMoneyDecimal(resolvedDailyRate) <= BigInt(0))
+      ) {
+        throw new PreconditionError(
+          "Enter a daily rate greater than ₱0 before publishing this room for public booking.",
+        );
       }
 
       const created = await tx.room.create({
@@ -921,7 +405,6 @@ export async function createRoom(
           building: input.building,
           number: input.number,
           floor: input.floor,
-          roomTypeId: roomType.id,
           capacity: input.capacity,
           baseMonthlyRate: resolvedMonthlyRate,
           transientDailyRate: resolvedDailyRate,
@@ -961,7 +444,6 @@ export async function createRoom(
         entityType: "room",
         entityId: dto.id,
         metadata: {
-          roomTypeId: dto.roomTypeId,
           capacity: dto.capacity,
           isTransientPublished: dto.isTransientPublished,
           photoCount: (dto.previewPhoto ? 1 : 0) + dto.galleryPhotos.length,
@@ -1023,7 +505,6 @@ export async function updateRoom(
         select: {
           id: true,
           building: true,
-          roomTypeId: true,
           version: true,
           archivedAt: true,
           isTransientPublished: true,
@@ -1085,33 +566,6 @@ export async function updateRoom(
         );
       }
 
-      const roomType = await tx.roomType.findFirst({
-        where: { id: input.roomTypeId, ownerUserId },
-        select: {
-          id: true,
-          building: true,
-          monthlyRate: true,
-          dailyRate: true,
-          archivedAt: true,
-        },
-      });
-      if (!roomType) {
-        throw new NotFoundError("The selected room type was not found.");
-      }
-      if (roomType.building !== existing.building) {
-        throw new PreconditionError(
-          "Selected room type belongs to a different building.",
-        );
-      }
-      if (
-        input.roomTypeId !== existing.roomTypeId &&
-        roomType.archivedAt !== null
-      ) {
-        throw new PreconditionError(
-          "Selected room type is archived. Restore it or choose an active room type.",
-        );
-      }
-
       const activeBedCount = await tx.bed.count({
         where: { ownerUserId, roomId: existing.id, archivedAt: null },
       });
@@ -1122,25 +576,17 @@ export async function updateRoom(
       }
 
       const resolvedMonthlyRate =
-        existing.building === "BOARDING"
-          ? (input.baseMonthlyRate ??
-            (roomType.monthlyRate
-              ? decimalToString(roomType.monthlyRate)
-              : null))
-          : null;
+        existing.building === "BOARDING" ? input.baseMonthlyRate : null;
       const resolvedDailyRate =
-        existing.building === "TRANSIENT"
-          ? (input.transientDailyRate ??
-            (roomType.dailyRate ? decimalToString(roomType.dailyRate) : null))
-          : null;
+        existing.building === "TRANSIENT" ? input.transientDailyRate : null;
       if (existing.building === "BOARDING" && !resolvedMonthlyRate) {
         throw new ValidationError(
-          "Enter a monthly rate or select a Boarding House room type with a default monthly rate.",
+          "Enter a monthly rate for Boarding House rooms.",
         );
       }
       if (existing.building === "TRANSIENT" && !resolvedDailyRate) {
         throw new ValidationError(
-          "Enter a daily rate or select a Transient room type with a default daily rate.",
+          "Enter a daily rate for Transient Building rooms.",
         );
       }
 
@@ -1161,16 +607,14 @@ export async function updateRoom(
             : input.transientDescription
           : null;
 
-      if (nextIsTransientPublished) {
-        if (
-          !resolvedDailyRate ||
-          parseMoneyDecimal(resolvedDailyRate) <= BigInt(0)
-        ) {
-          throw new PreconditionError(
-            "Set a positive daily rate on the room type before publishing this room for public booking.",
-          );
-        }
-        await requireConfiguredStayScheduleInTx(tx, ownerUserId);
+      if (
+        nextIsTransientPublished &&
+        (!resolvedDailyRate ||
+          parseMoneyDecimal(resolvedDailyRate) <= BigInt(0))
+      ) {
+        throw new PreconditionError(
+          "Enter a daily rate greater than ₱0 before publishing this room for public booking.",
+        );
       }
 
       const updated = await tx.room.updateMany({
@@ -1184,7 +628,6 @@ export async function updateRoom(
           version: { increment: 1 },
           number: input.number,
           floor: input.floor,
-          roomTypeId: roomType.id,
           capacity: input.capacity,
           baseMonthlyRate: resolvedMonthlyRate,
           transientDailyRate: resolvedDailyRate,
@@ -1225,7 +668,6 @@ export async function updateRoom(
         entityId: dto.id,
         metadata: {
           version: dto.version,
-          roomTypeId: dto.roomTypeId,
           capacity: dto.capacity,
           isTransientPublished: dto.isTransientPublished,
           photosUpdated: photoResult.changed,

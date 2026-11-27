@@ -98,9 +98,6 @@ async function cleanupTestOwners(db: PrismaClient, ownerPrefix: string) {
   await db.room.deleteMany({
     where: { ownerUserId: { startsWith: ownerPrefix } },
   });
-  await db.roomType.deleteMany({
-    where: { ownerUserId: { startsWith: ownerPrefix } },
-  });
   await db.auditLog.deleteMany({
     where: { ownerUserId: { startsWith: ownerPrefix } },
   });
@@ -178,30 +175,9 @@ describe("reports overview & bounded CSV exports integration", () => {
       data: [{ id: ownerId }, { id: otherOwnerId }],
     });
 
-    const rt = await db.roomType.create({
-      data: {
-        ownerUserId: ownerId,
-        name: "Standard",
-        building: "BOARDING",
-        monthlyRate: "5000.00",
-      },
-      select: { id: true },
-    });
-
-    const trRt = await db.roomType.create({
-      data: {
-        ownerUserId: ownerId,
-        name: "Transient Suite",
-        building: "TRANSIENT",
-        dailyRate: "1400.00",
-      },
-      select: { id: true },
-    });
-
     const boardingRoom = await db.room.create({
       data: {
         ownerUserId: ownerId,
-        roomTypeId: rt.id,
         number: "B-101",
         building: "BOARDING",
         floor: "1",
@@ -236,7 +212,6 @@ describe("reports overview & bounded CSV exports integration", () => {
     const transientRoom = await db.room.create({
       data: {
         ownerUserId: ownerId,
-        roomTypeId: trRt.id,
         number: "T-201",
         building: "TRANSIENT",
         floor: "2",
@@ -458,20 +433,9 @@ describe("reports overview & bounded CSV exports integration", () => {
     });
 
     // Unrelated owner fixture that must stay isolated
-    const otherRt = await db.roomType.create({
-      data: {
-        ownerUserId: otherOwnerId,
-        name: "Other Type",
-        building: "BOARDING",
-        monthlyRate: "9999.00",
-      },
-      select: { id: true },
-    });
-
     await db.room.create({
       data: {
         ownerUserId: otherOwnerId,
-        roomTypeId: otherRt.id,
         number: "X-999",
         building: "BOARDING",
         floor: "9",
@@ -504,12 +468,10 @@ describe("reports overview & bounded CSV exports integration", () => {
     expect(novSnapshot.occupancy.summary.occupiedRooms).toBe(1);
     expect(novSnapshot.occupancy.summary.maintenanceRooms).toBe(1);
     expect(novSnapshot.occupancy.byBuilding).toHaveLength(2);
-    expect(novSnapshot.occupancy.byRoomType).toHaveLength(2);
     expect(novSnapshot.rentRoll.summary.activeAssignments).toBe(1);
     expect(novSnapshot.rentRoll.summary.totalOpenBalance).toBe("5000.00");
     expect(novSnapshot.rentRoll.summary.averageMonthlyRent).toBe("5000.00");
     expect(novSnapshot.rentRoll.summary.openBalanceToRentPercent).toBe(100);
-    expect(novSnapshot.rentRoll.byRoomType).toHaveLength(1);
     expect(
       novSnapshot.rentRoll.leaseExpiries.reduce(
         (acc: number, b: { count: number }) => acc + b.count,
@@ -537,7 +499,6 @@ describe("reports overview & bounded CSV exports integration", () => {
     expect(novSnapshot.transientRevenue.summary.averageDailyRate).toBe(
       "1400.00",
     );
-    expect(novSnapshot.transientRevenue.byRoomType).toHaveLength(1);
     expect(novSnapshot.transientRevenue.byStatus).toHaveLength(6);
 
     expect(novSnapshot.maintenance.summary.openCount).toBe(1);

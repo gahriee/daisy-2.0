@@ -137,9 +137,7 @@ export function BookingRequestDetail({
             {request.guestName}
           </h1>
           <div className="grid gap-0.5 text-sm text-muted-foreground tabular-nums">
-            <span>
-              Room {room.number} ({room.roomTypeName})
-            </span>
+            <span>Room {room.number}</span>
             <span>
               {formatManilaDate(request.checkInDateManila)} &rarr;{" "}
               {formatManilaDate(request.checkOutDateManila)} ({request.nights}{" "}

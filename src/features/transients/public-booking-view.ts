@@ -211,7 +211,6 @@ export function getRoomAvailabilityStatus(
 export function filterAndSortPublicRooms(
   rooms: ReadonlyArray<PublicPublishedRoomDto>,
   options: {
-    roomTypeFilter: string;
     availabilityFilter: PublicAvailabilityFilter;
     sortBy: PublicSortOption;
     requestedGuests?: number;
@@ -225,12 +224,6 @@ export function filterAndSortPublicRooms(
       : room.isAvailableForRequestedStay;
 
   const filtered = rooms.filter((room) => {
-    if (
-      options.roomTypeFilter !== "ALL" &&
-      room.roomTypeName !== options.roomTypeFilter
-    ) {
-      return false;
-    }
     if (options.availabilityFilter === "AVAILABLE" && !isAvailable(room)) {
       return false;
     }

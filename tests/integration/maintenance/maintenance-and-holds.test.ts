@@ -81,12 +81,8 @@ import {
 import { listAuditLogs } from "../../../src/features/audit/service";
 import { registerOwnerDevice } from "../../../src/server/auth/device";
 import { listOwnerNotifications } from "../../../src/server/notifications/service";
-import {
-  createBed,
-  createRoom,
-  createRoomType,
-} from "../../../src/features/rooms/service";
-import { updateBusinessSettings } from "../../../src/features/settings/service";
+import { createBed, createRoom } from "../../../src/features/rooms/service";
+import { updateBusinessSettingsModule } from "../../../src/features/settings/service";
 import {
   createTransientGuest,
   createTransientReservation,
@@ -110,24 +106,26 @@ const prefix = `maint-test-${randomUUID()}`;
 let seq = 0;
 
 async function configureOwnerSettings(ownerId: string) {
-  await updateBusinessSettings(ownerId, {
+  vi.stubEnv("BILLING_DAY_OF_MONTH", "5");
+  vi.stubEnv("BILLING_GRACE_PERIOD_DAYS", "5");
+  vi.stubEnv("BILLING_PRORATION_POLICY", "DAILY_EXACT");
+  vi.stubEnv("BILLING_DEPOSIT_POLICY", "HOLD_SEPARATE");
+  vi.stubEnv("BILLING_OVERPAYMENT_POLICY", "REJECT_OVERPAYMENT");
+  vi.stubEnv("INVOICE_PREFIX", "INV");
+  vi.stubEnv("RECEIPT_PREFIX", "OR");
+  vi.stubEnv("PROOF_MAX_MB", "5");
+  vi.stubEnv("PROOF_MAX_FILES_PER_RECORD", "5");
+  await updateBusinessSettingsModule(ownerId, {
+    module: "property",
     expectedVersion: 0,
     businessName: "Daisy Maintenance Property",
     businessPhone: null,
     businessAddress: null,
     tin: null,
-    billingDayOfMonth: 5,
-    gracePeriodDays: 5,
-    prorationPolicy: "DAILY_EXACT",
-    depositPolicy: "HOLD_SEPARATE",
-    overpaymentPolicy: "REJECT_OVERPAYMENT",
-    invoicePrefix: "INV",
-    receiptPrefix: "OR",
     checkInTimeManila: "14:00",
     checkOutTimeManila: "12:00",
-    offlineUnlockMaxDays: 7,
-    proofMaxMb: 5,
-    proofMaxFilesPerRecord: 5,
+    smsOverdueEnabled: false,
+    smsOverdueSendTimeManila: "09:00",
   });
 }
 
@@ -136,16 +134,9 @@ async function seedRoomWithBeds(
   roomNumber: string,
   bedNumbers: string[],
 ) {
-  const rt = await createRoomType(ownerId, {
-    building: "TRANSIENT",
-    name: `Standard-${roomNumber}`,
-    monthlyRate: null,
-    dailyRate: "750.00",
-  });
   const room = await createRoom(ownerId, {
     building: "TRANSIENT",
     number: roomNumber,
-    roomTypeId: rt.id,
     capacity: bedNumbers.length,
     transientDailyRate: "750.00",
   });
@@ -230,9 +221,6 @@ afterAll(async () => {
       where: { ownerUserId: { startsWith: prefix } },
     });
     await db.room.deleteMany({
-      where: { ownerUserId: { startsWith: prefix } },
-    });
-    await db.roomType.deleteMany({
       where: { ownerUserId: { startsWith: prefix } },
     });
     await db.device.deleteMany({
@@ -804,18 +792,10 @@ describe("maintenance requests, attachment relay, bed holds, urgent alerts & off
 
   it("loads maintenance create-context and owner-scoped request detail cleanly", async () => {
     await configureOwnerSettings(state.ownerId);
-    const roomType = await createRoomType(state.ownerId, {
-      building: "BOARDING",
-      name: "Maint Detail Type",
-      monthlyRate: "5000.00",
-      dailyRate: null,
-      description: null,
-    });
     const room = await createRoom(state.ownerId, {
       building: "BOARDING",
       number: "M-99",
       floor: "1st Floor",
-      roomTypeId: roomType.id,
       capacity: 1,
       baseMonthlyRate: "5000.00",
       transientDailyRate: null,

@@ -4,7 +4,6 @@ import {
   CreateBedSchema,
   CreateRoomPhotoIntentSchema,
   CreateRoomSchema,
-  CreateRoomTypeSchema,
   parseRoomPhotosManifestJsonField,
   ROOM_PHOTO_ASPECT_RATIO,
   ROOM_PHOTO_OUTPUT_HEIGHT,
@@ -12,76 +11,14 @@ import {
   RoomPhotoManifestSchema,
   UpdateBedSchema,
   UpdateRoomSchema,
-  UpdateRoomTypeSchema,
 } from "@/features/rooms/schemas";
 
-describe("rooms, room types & beds schemas", () => {
-  it("validates building-specific room type inputs and normalizes peso pricing", () => {
-    const boarding = CreateRoomTypeSchema.parse({
-      building: "BOARDING",
-      name: "  Single Aircon  ",
-      monthlyRate: "4500",
-      description: "  Includes private CR  ",
-    });
-
-    expect(boarding.building).toBe("BOARDING");
-    expect(boarding.name).toBe("Single Aircon");
-    expect(boarding.monthlyRate).toBe("4500.00");
-    expect(boarding.dailyRate).toBeNull();
-    expect(boarding.description).toBe("Includes private CR");
-
-    const transient = CreateRoomTypeSchema.parse({
-      building: "TRANSIENT",
-      name: "  Transient Suite  ",
-      dailyRate: "650.5",
-    });
-    expect(transient.building).toBe("TRANSIENT");
-    expect(transient.dailyRate).toBe("650.50");
-    expect(transient.monthlyRate).toBeNull();
-
-    // Rejects cross-building rate leakage on room types
-    expect(
-      CreateRoomTypeSchema.safeParse({
-        building: "BOARDING",
-        name: "Single Aircon",
-        monthlyRate: "4500",
-        dailyRate: "650",
-      }).success,
-    ).toBe(false);
-
-    expect(
-      CreateRoomTypeSchema.safeParse({
-        building: "TRANSIENT",
-        name: "Transient Suite",
-        monthlyRate: "4500",
-        dailyRate: "650",
-      }).success,
-    ).toBe(false);
-
-    expect(
-      CreateRoomTypeSchema.safeParse({
-        name: "   ",
-        monthlyRate: "4500",
-      }).success,
-    ).toBe(false);
-
-    expect(
-      UpdateRoomTypeSchema.safeParse({
-        roomTypeId: randomUUID(),
-        expectedVersion: 0,
-        name: "Single Fan",
-        monthlyRate: "3200",
-      }).success,
-    ).toBe(false);
-  });
-
-  it("normalizes non-negative peso amounts per building and allows omitted create rate for room-type inheritance", () => {
-    const roomTypeId = randomUUID();
+describe("rooms & beds schemas", () => {
+  it("normalizes non-negative peso amounts per building and requires direct room pricing", () => {
     const parsedBoarding = CreateRoomSchema.parse({
       building: "BOARDING",
       number: " 101 ",
       floor: "2nd ",
-      roomTypeId,
       capacity: "2",
       baseMonthlyRate: "4500",
       notes: "  Corner room  ",
@@ -90,7 +27,6 @@ describe("rooms, room types & beds schemas", () => {
     expect(parsedBoarding.building).toBe("BOARDING");
     expect(parsedBoarding.number).toBe("101");
     expect(parsedBoarding.floor).toBe("2nd");
-    expect(parsedBoarding.roomTypeId).toBe(roomTypeId);
     expect(parsedBoarding.capacity).toBe(2);
     expect(parsedBoarding.baseMonthlyRate).toBe("4500.00");
     expect(parsedBoarding.transientDailyRate).toBeNull();
@@ -99,48 +35,55 @@ describe("rooms, room types & beds schemas", () => {
     const parsedTransient = CreateRoomSchema.parse({
       building: "TRANSIENT",
       number: "202",
-      roomTypeId,
       capacity: 1,
       transientDailyRate: "650.5",
     });
     expect(parsedTransient.baseMonthlyRate).toBeNull();
     expect(parsedTransient.transientDailyRate).toBe("650.50");
 
+    // Rejects cross-building rate leakage
     expect(
       CreateRoomSchema.safeParse({
         building: "BOARDING",
         number: "101",
-        roomTypeId,
         capacity: 1,
         baseMonthlyRate: "4500",
         transientDailyRate: "650",
       }).success,
     ).toBe(false);
 
-    const inherited = CreateRoomSchema.parse({
-      number: "102",
-      roomTypeId,
-      capacity: 1,
-    });
-    expect(inherited.baseMonthlyRate).toBeNull();
-    expect(inherited.transientDailyRate).toBeNull();
-  });
-
-  it("rejects negative rates, invalid roomTypeId, and out-of-range capacities", () => {
-    const roomTypeId = randomUUID();
-
     expect(
       CreateRoomSchema.safeParse({
+        building: "TRANSIENT",
+        number: "202",
+        capacity: 1,
+        baseMonthlyRate: "4500",
+        transientDailyRate: "650",
+      }).success,
+    ).toBe(false);
+
+    // Rejects missing required rates per building
+    expect(
+      CreateRoomSchema.safeParse({
+        building: "BOARDING",
         number: "102",
-        roomTypeId: "not-a-uuid",
         capacity: 1,
       }).success,
     ).toBe(false);
 
     expect(
       CreateRoomSchema.safeParse({
+        building: "TRANSIENT",
+        number: "203",
+        capacity: 1,
+      }).success,
+    ).toBe(false);
+  });
+
+  it("rejects negative rates, invalid versions, and out-of-range capacities", () => {
+    expect(
+      CreateRoomSchema.safeParse({
         number: "102",
-        roomTypeId,
         capacity: 0,
         baseMonthlyRate: "3000",
       }).success,
@@ -149,7 +92,6 @@ describe("rooms, room types & beds schemas", () => {
     expect(
       CreateRoomSchema.safeParse({
         number: "102",
-        roomTypeId,
         capacity: 1,
         baseMonthlyRate: "-100",
       }).success,
@@ -160,7 +102,6 @@ describe("rooms, room types & beds schemas", () => {
         roomId: randomUUID(),
         expectedVersion: 0,
         number: "102",
-        roomTypeId,
         capacity: 1,
         baseMonthlyRate: "3000",
       }).success,
@@ -189,16 +130,37 @@ describe("rooms, room types & beds schemas", () => {
     ).toBe(false);
   });
 
-  it("allows omitted rate fields on UpdateRoomSchema so rooms use configured room type rates", () => {
-    const parsed = UpdateRoomSchema.parse({
+  it("validates UpdateRoomSchema rates against building when provided", () => {
+    const updatedBoarding = UpdateRoomSchema.parse({
       roomId: randomUUID(),
       expectedVersion: 2,
-      number: "202",
-      roomTypeId: randomUUID(),
-      capacity: 1,
+      building: "BOARDING",
+      number: "101",
+      capacity: 2,
+      baseMonthlyRate: "5000",
     });
-    expect(parsed.baseMonthlyRate).toBeNull();
-    expect(parsed.transientDailyRate).toBeNull();
+    expect(updatedBoarding.baseMonthlyRate).toBe("5000.00");
+    expect(updatedBoarding.transientDailyRate).toBeNull();
+
+    expect(
+      UpdateRoomSchema.safeParse({
+        roomId: randomUUID(),
+        expectedVersion: 2,
+        building: "BOARDING",
+        number: "101",
+        capacity: 2,
+      }).success,
+    ).toBe(false);
+
+    expect(
+      UpdateRoomSchema.safeParse({
+        roomId: randomUUID(),
+        expectedVersion: 2,
+        building: "TRANSIENT",
+        number: "202",
+        capacity: 2,
+      }).success,
+    ).toBe(false);
   });
 
   it("validates room photo upload intents, captions, unlimited gallery shots, boarding rejection, and FormData parsing", () => {
@@ -253,12 +215,10 @@ describe("rooms, room types & beds schemas", () => {
     expect(parseRoomPhotosManifestJsonField(formData)).toEqual(manifest);
 
     // Boarding House rooms reject public room photos on create and update.
-    const roomTypeId = randomUUID();
     expect(
       CreateRoomSchema.safeParse({
         building: "BOARDING",
         number: "101",
-        roomTypeId,
         capacity: 1,
         baseMonthlyRate: "4500",
         photos: manifest,
@@ -271,7 +231,6 @@ describe("rooms, room types & beds schemas", () => {
         expectedVersion: 1,
         building: "BOARDING",
         number: "101",
-        roomTypeId,
         capacity: 1,
         baseMonthlyRate: "4500",
         photos: {
@@ -285,7 +244,6 @@ describe("rooms, room types & beds schemas", () => {
       CreateRoomSchema.safeParse({
         building: "BOARDING",
         number: "101",
-        roomTypeId,
         capacity: 1,
         baseMonthlyRate: "4500",
         photos: { preview: null, gallery: [] },
@@ -294,12 +252,9 @@ describe("rooms, room types & beds schemas", () => {
   });
 
   it("validates public /book listing options on transient rooms and rejects them on boarding rooms", () => {
-    const roomTypeId = randomUUID();
-
     const createdTransient = CreateRoomSchema.parse({
       building: "TRANSIENT",
       number: "205",
-      roomTypeId,
       capacity: 1,
       transientDailyRate: "850",
       isTransientPublished: true,
@@ -316,7 +271,6 @@ describe("rooms, room types & beds schemas", () => {
       CreateRoomSchema.safeParse({
         building: "BOARDING",
         number: "101",
-        roomTypeId,
         capacity: 1,
         baseMonthlyRate: "4500",
         isTransientPublished: true,
@@ -327,7 +281,6 @@ describe("rooms, room types & beds schemas", () => {
       CreateRoomSchema.safeParse({
         building: "BOARDING",
         number: "101",
-        roomTypeId,
         capacity: 1,
         baseMonthlyRate: "4500",
         transientTitle: "Public suite",
@@ -339,8 +292,8 @@ describe("rooms, room types & beds schemas", () => {
       roomId: randomUUID(),
       expectedVersion: 1,
       number: "205",
-      roomTypeId,
       capacity: 1,
+      transientDailyRate: "850",
     });
     expect(partialUpdate.isTransientPublished).toBeUndefined();
     expect(partialUpdate.transientTitle).toBeUndefined();
@@ -352,8 +305,8 @@ describe("rooms, room types & beds schemas", () => {
       expectedVersion: 2,
       building: "TRANSIENT",
       number: "205",
-      roomTypeId,
       capacity: 1,
+      transientDailyRate: "850",
       isTransientPublished: false,
       transientTitle: "   ",
       transientDescription: "",

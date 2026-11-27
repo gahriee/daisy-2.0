@@ -95,33 +95,38 @@ afterAll(async () => {
 });
 
 describe("boarding house overdue SMS notifier (Semaphore) integration", () => {
-  it("encrypts Semaphore API key in Settings, never returns plaintext, and sends deduplicated overdue SMS with PII-free audits", async () => {
+  it("reads Semaphore credentials from env, never exposes secrets in settings DTO, and sends deduplicated overdue SMS with PII-free audits", async () => {
     const db = state.db!;
     const ownerId = state.ownerId;
 
-    // 1. Save SMS settings via Settings module
+    vi.stubEnv("SEMAPHORE_API_KEY", "sem_live_secret_key_9988");
+    vi.stubEnv("SEMAPHORE_SENDER_NAME", "DAISYBH");
+    vi.stubEnv("SEMAPHORE_OVERDUE_FREQUENCY_DAYS", "1");
+    vi.stubEnv(
+      "SEMAPHORE_OVERDUE_TEMPLATE",
+      "Hello {{tenantName}}, bill {{invoiceNumber}} (Room {{roomNumber}}) balance {{balance}} is {{daysOverdue}}d overdue.",
+    );
+
+    // 1. Enable overdue SMS via simplified Property settings module
     const saved = await updateBusinessSettingsModule(ownerId, {
-      module: "sms",
+      module: "property",
       expectedVersion: 0,
+      businessName: "Daisy Boarding House",
+      businessPhone: null,
+      businessAddress: null,
+      tin: null,
+      checkInTimeManila: "14:00",
+      checkOutTimeManila: "12:00",
       smsOverdueEnabled: true,
-      smsOverdueFrequencyDays: 1,
       smsOverdueSendTimeManila: "09:00",
-      smsApiKey: "sem_live_secret_key_9988",
-      clearSmsApiKey: false,
-      smsSenderName: "DAISYBH",
-      smsOverdueTemplate:
-        "Hello {{tenantName}}, bill {{invoiceNumber}} (Room {{roomNumber}}) balance {{balance}} is {{daysOverdue}}d overdue.",
     });
 
     expect(saved.smsOverdueEnabled).toBe(true);
-    expect(saved.smsApiKeyConfigured).toBe(true);
-    expect(saved.smsApiKeyLast4).toBe("9988");
-    expect(saved.smsSenderName).toBe("DAISYBH");
+    expect(saved.smsConfigured).toBe(true);
     expect(JSON.stringify(saved)).not.toContain("sem_live_secret_key_9988");
 
     const fetched = await getBusinessSettings(ownerId);
-    expect(fetched.smsApiKeyConfigured).toBe(true);
-    expect(fetched.smsApiKeyLast4).toBe("9988");
+    expect(fetched.smsConfigured).toBe(true);
 
     // 2. Seed an overdue boarding house tenant invoice, a no-phone tenant, and a transient invoice
     const tenantWithPhone = await db.tenant.create({
@@ -309,15 +314,16 @@ describe("boarding house overdue SMS notifier (Semaphore) integration", () => {
 
     // Disable automatic SMS so cron route executes cleanly without hitting live network
     await updateBusinessSettingsModule(ownerId, {
-      module: "sms",
+      module: "property",
       expectedVersion: saved.version,
+      businessName: "Daisy Boarding House",
+      businessPhone: null,
+      businessAddress: null,
+      tin: null,
+      checkInTimeManila: "14:00",
+      checkOutTimeManila: "12:00",
       smsOverdueEnabled: false,
-      smsOverdueFrequencyDays: 1,
       smsOverdueSendTimeManila: "09:00",
-      smsApiKey: null,
-      clearSmsApiKey: false,
-      smsSenderName: "DAISYBH",
-      smsOverdueTemplate: null,
     });
     const authRes = await overdueSmsCronRoute(
       new Request("http://localhost:3000/api/jobs/billing/overdue-sms", {

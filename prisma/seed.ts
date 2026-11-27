@@ -15,15 +15,11 @@ import {
 } from "../src/features/maintenance/service";
 import { createNotice } from "../src/features/notices/service";
 import { recordPayment } from "../src/features/payments/service";
-import {
-  createRoom,
-  createRoomType,
-  syncRoomUnitBed,
-} from "../src/features/rooms/service";
+import { createRoom, syncRoomUnitBed } from "../src/features/rooms/service";
 import { DEFAULT_HOUSE_RULES } from "../src/features/settings/schemas";
 import {
   getBusinessSettings,
-  updateBusinessSettings,
+  updateBusinessSettingsModule,
 } from "../src/features/settings/service";
 import {
   assignTenantToBed,
@@ -135,18 +131,13 @@ async function main(): Promise<void> {
       await db.notice.deleteMany({ where: { ownerUserId } });
       await db.bed.deleteMany({ where: { ownerUserId } });
       await db.room.deleteMany({ where: { ownerUserId } });
-      await db.roomType.deleteMany({ where: { ownerUserId } });
     }
 
-    // 1. Business Settings (preserve existing Owner settings; fill only if missing/incomplete)
+    // 1. Business Settings (preserve existing Owner settings; fill only if missing)
     const settings = await getBusinessSettings(ownerUserId);
-    if (
-      settings.id === null ||
-      !settings.policiesComplete ||
-      !settings.stayScheduleComplete ||
-      !settings.businessName.trim()
-    ) {
-      await updateBusinessSettings(ownerUserId, {
+    if (settings.id === null || !settings.businessName.trim()) {
+      await updateBusinessSettingsModule(ownerUserId, {
+        module: "property",
         expectedVersion: settings.version,
         businessName: settings.businessName.trim() || "Daisy Residences",
         businessPhone: settings.businessPhone ?? "+63 917 555 0100",
@@ -154,21 +145,10 @@ async function main(): Promise<void> {
           settings.businessAddress ??
           "142 Katipunan Ave, Loyola Heights, Quezon City",
         tin: settings.tin ?? "123-456-789-000",
-        billingDayOfMonth: settings.billingDayOfMonth ?? 1,
-        gracePeriodDays: settings.gracePeriodDays ?? 5,
-        prorationPolicy: settings.prorationPolicy ?? "DAILY_EXACT",
-        depositPolicy: settings.depositPolicy ?? "HOLD_SEPARATE",
-        overpaymentPolicy: settings.overpaymentPolicy ?? "REJECT_OVERPAYMENT",
-        invoicePrefix: settings.invoicePrefix ?? "INV",
-        receiptPrefix: settings.receiptPrefix ?? "RCP",
-        checkInTimeManila: settings.checkInTimeManila ?? "14:00",
-        checkOutTimeManila: settings.checkOutTimeManila ?? "12:00",
-        offlineUnlockMaxDays: settings.offlineUnlockMaxDays || 7,
-        proofMaxMb: Math.max(
-          1,
-          Math.round(settings.proofMaxBytes / (1024 * 1024)) || 5,
-        ),
-        proofMaxFilesPerRecord: settings.proofMaxFilesPerRecord || 5,
+        checkInTimeManila: settings.checkInTimeManila || "14:00",
+        checkOutTimeManila: settings.checkOutTimeManila || "12:00",
+        smsOverdueEnabled: settings.smsOverdueEnabled,
+        smsOverdueSendTimeManila: settings.smsOverdueSendTimeManila || "09:00",
       });
     }
 
@@ -187,66 +167,11 @@ async function main(): Promise<void> {
       });
     }
 
-    // 2. Room Types (separated by building)
-    async function ensureRoomType(input: {
-      building: "BOARDING" | "TRANSIENT";
-      name: string;
-      monthlyRate: string | null;
-      dailyRate: string | null;
-      description: string;
-    }) {
-      const existing = await db.roomType.findFirst({
-        where: {
-          ownerUserId,
-          building: input.building,
-          name: input.name,
-          archivedAt: null,
-        },
-        select: { id: true, name: true },
-      });
-      if (existing) return existing;
-      return createRoomType(ownerUserId, input);
-    }
-
-    const singleRoomType = await ensureRoomType({
-      building: "BOARDING",
-      name: "Standard Single Room",
-      monthlyRate: "4500.00",
-      dailyRate: null,
-      description:
-        "Air-conditioned single boarder room with study desk, wardrobe locker, and shared floor bath.",
-    });
-    const studioRoomType = await ensureRoomType({
-      building: "BOARDING",
-      name: "Deluxe Studio Room",
-      monthlyRate: "6500.00",
-      dailyRate: null,
-      description:
-        "Private studio room with en-suite bathroom, study area, and mini-refrigerator.",
-    });
-    const suiteType = await ensureRoomType({
-      building: "TRANSIENT",
-      name: "Private Transient Suite",
-      monthlyRate: null,
-      dailyRate: "1250.00",
-      description:
-        "Private studio suite with queen bed, en-suite bath, and work desk for short stays.",
-    });
-    const loftType = await ensureRoomType({
-      building: "TRANSIENT",
-      name: "Family & Barkada Loft",
-      monthlyRate: null,
-      dailyRate: "2200.00",
-      description:
-        "Spacious group loft with lounge seating, kitchenette, private bath, and garden balcony.",
-    });
-
-    // 3. Rooms (each with 1 synced backing unit; separated into Boarding & Transient buildings)
+    // 2. Rooms (each with 1 synced backing unit; separated into Boarding & Transient buildings)
     async function ensureRoomWithUnit(input: {
       building: "BOARDING" | "TRANSIENT";
       number: string;
       floor: string;
-      roomTypeId: string;
       baseMonthlyRate: string | null;
       transientDailyRate: string | null;
       notes: string;
@@ -373,7 +298,6 @@ async function main(): Promise<void> {
       building: "BOARDING",
       number: "101",
       floor: "1st Floor",
-      roomTypeId: singleRoomType.id,
       baseMonthlyRate: "4500.00",
       transientDailyRate: null,
       notes: "East wing ground-floor single room near study lounge.",
@@ -382,7 +306,6 @@ async function main(): Promise<void> {
       building: "BOARDING",
       number: "102",
       floor: "1st Floor",
-      roomTypeId: singleRoomType.id,
       baseMonthlyRate: "4500.00",
       transientDailyRate: null,
       notes: "Ground-floor single room with courtyard window.",
@@ -391,7 +314,6 @@ async function main(): Promise<void> {
       building: "BOARDING",
       number: "103",
       floor: "1st Floor",
-      roomTypeId: singleRoomType.id,
       baseMonthlyRate: "4500.00",
       transientDailyRate: null,
       notes: "Ground-floor single room near garden exit.",
@@ -400,7 +322,6 @@ async function main(): Promise<void> {
       building: "BOARDING",
       number: "104",
       floor: "1st Floor",
-      roomTypeId: singleRoomType.id,
       baseMonthlyRate: "4500.00",
       transientDailyRate: null,
       notes: "Quiet end-corridor single room ready for move-in.",
@@ -410,7 +331,6 @@ async function main(): Promise<void> {
       building: "BOARDING",
       number: "201",
       floor: "2nd Floor",
-      roomTypeId: studioRoomType.id,
       baseMonthlyRate: "6500.00",
       transientDailyRate: null,
       notes: "Quiet corner studio room with morning sun.",
@@ -420,7 +340,6 @@ async function main(): Promise<void> {
       building: "TRANSIENT",
       number: "202",
       floor: "2nd Floor",
-      roomTypeId: suiteType.id,
       baseMonthlyRate: null,
       transientDailyRate: "1250.00",
       capacity: 2,
@@ -479,7 +398,6 @@ async function main(): Promise<void> {
       building: "TRANSIENT",
       number: "203",
       floor: "2nd Floor",
-      roomTypeId: suiteType.id,
       baseMonthlyRate: null,
       transientDailyRate: "1350.00",
       capacity: 2,
@@ -538,7 +456,6 @@ async function main(): Promise<void> {
       building: "TRANSIENT",
       number: "301",
       floor: "3rd Floor",
-      roomTypeId: loftType.id,
       baseMonthlyRate: null,
       transientDailyRate: "2200.00",
       capacity: 4,
@@ -605,7 +522,6 @@ async function main(): Promise<void> {
       building: "TRANSIENT",
       number: "302",
       floor: "3rd Floor",
-      roomTypeId: suiteType.id,
       baseMonthlyRate: null,
       transientDailyRate: "1550.00",
       capacity: 2,
@@ -1145,7 +1061,6 @@ async function main(): Promise<void> {
     });
 
     const [
-      roomTypesCount,
       roomsCount,
       roomPhotosCount,
       tenantsCount,
@@ -1158,7 +1073,6 @@ async function main(): Promise<void> {
       maintenanceCount,
       noticesCount,
     ] = await Promise.all([
-      db.roomType.count({ where: { ownerUserId } }),
       db.room.count({ where: { ownerUserId } }),
       db.roomPhoto.count({ where: { ownerUserId } }),
       db.tenant.count({ where: { ownerUserId } }),
@@ -1177,7 +1091,6 @@ async function main(): Promise<void> {
         seeded: true,
         storagePhotosEnabled: storageReady,
         counts: {
-          roomTypes: roomTypesCount,
           rooms: roomsCount,
           roomPhotos: roomPhotosCount,
           tenants: tenantsCount,

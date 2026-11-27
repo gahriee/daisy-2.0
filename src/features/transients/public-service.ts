@@ -1,9 +1,9 @@
 import "server-only";
+import { getServerOperationalLimits } from "@/config/business-config";
 import { createHash, createHmac, randomBytes, randomUUID } from "node:crypto";
 import { z } from "zod";
 import { roomPhotoSelect, splitRoomPhotoDtos } from "@/features/rooms/photos";
 import { lockAllocationResources } from "@/features/allocations/service";
-import { hasCompleteStaySchedule } from "@/features/settings/schemas";
 import { addManilaDays, toManilaDate } from "@/lib/dates";
 import {
   ConflictError,
@@ -229,7 +229,6 @@ export async function getPublicPublishedAvailability(
         transientDescription: true,
         transientScope: true,
         transientDailyRate: true,
-        roomType: { select: { name: true, dailyRate: true } },
         photos: {
           orderBy: [
             { role: "asc" },
@@ -246,24 +245,21 @@ export async function getPublicPublishedAvailability(
     }),
   ]);
 
-  const scheduleReady = Boolean(
-    settings &&
-    hasCompleteStaySchedule(settings) &&
-    settings.checkInTimeManila &&
-    settings.checkOutTimeManila,
-  );
-  const checkInTimeManila = settings?.checkInTimeManila ?? "14:00";
-  const checkOutTimeManila = settings?.checkOutTimeManila ?? "12:00";
+  const limits = getServerOperationalLimits();
+  const checkInTimeManila =
+    settings?.checkInTimeManila ?? limits.defaultCheckInTimeManila;
+  const checkOutTimeManila =
+    settings?.checkOutTimeManila ?? limits.defaultCheckOutTimeManila;
 
-  if (!scheduleReady || roomRows.length === 0) {
+  if (roomRows.length === 0) {
     return {
       propertyName: settings?.businessName || "Daisy Residences",
       propertyAddress: settings?.businessAddress ?? null,
       propertyLatitude: settings?.businessLatitude ?? null,
       propertyLongitude: settings?.businessLongitude ?? null,
       contactPhone: settings?.businessPhone ?? null,
-      checkInTimeManila: settings?.checkInTimeManila ?? "",
-      checkOutTimeManila: settings?.checkOutTimeManila ?? "",
+      checkInTimeManila,
+      checkOutTimeManila,
       transientPolicyNote: settings?.transientPolicyNote?.trim() || null,
       checkInDateManila: query.checkInDateManila,
       checkOutDateManila: query.checkOutDateManila,
@@ -297,7 +293,6 @@ export async function getPublicPublishedAvailability(
   for (const room of roomRows) {
     const rateCentavos = resolveTransientDailyRateCentavos({
       roomDailyRate: room.transientDailyRate,
-      roomTypeDailyRate: room.roomType.dailyRate,
     });
     if (rateCentavos <= ZERO) continue;
 
@@ -326,7 +321,6 @@ export async function getPublicPublishedAvailability(
       roomId: room.id,
       title: room.transientTitle?.trim() || `Room ${room.number}`,
       description: room.transientDescription ?? null,
-      roomTypeName: room.roomType.name,
       scope,
       capacity: scope === "WHOLE_ROOM" ? room.capacity : 1,
       availableUnitsForRange,
@@ -466,7 +460,6 @@ export async function getPublicPublishedRoomUnavailableDates(
         id: true,
         transientScope: true,
         transientDailyRate: true,
-        roomType: { select: { dailyRate: true } },
         beds: {
           where: { archivedAt: null },
           select: { id: true, status: true },
@@ -481,36 +474,22 @@ export async function getPublicPublishedRoomUnavailableDates(
 
   const rateCentavos = resolveTransientDailyRateCentavos({
     roomDailyRate: room.transientDailyRate,
-    roomTypeDailyRate: room.roomType.dailyRate,
   });
   if (rateCentavos <= ZERO) {
     return null;
   }
 
-  const scheduleReady = Boolean(
-    settings &&
-    hasCompleteStaySchedule(settings) &&
-    settings.checkInTimeManila &&
-    settings.checkOutTimeManila,
-  );
-  if (
-    !scheduleReady ||
-    !settings?.checkInTimeManila ||
-    !settings.checkOutTimeManila
-  ) {
-    return {
-      roomId: room.id,
-      fromDateManila,
-      toDateManila,
-      unavailableDates: [],
-    };
-  }
+  const limits = getServerOperationalLimits();
+  const checkInTimeManila =
+    settings?.checkInTimeManila ?? limits.defaultCheckInTimeManila;
+  const checkOutTimeManila =
+    settings?.checkOutTimeManila ?? limits.defaultCheckOutTimeManila;
 
   const { startUtc, endUtc } = computeTransientStayUtcBounds({
     checkInDateManila: fromDateManila,
     checkOutDateManila: toDateManila,
-    checkInTimeHHmm: settings.checkInTimeManila,
-    checkOutTimeHHmm: settings.checkOutTimeManila,
+    checkInTimeHHmm: checkInTimeManila,
+    checkOutTimeHHmm: checkOutTimeManila,
   });
 
   const allocations = await db.allocation.findMany({
@@ -532,8 +511,8 @@ export async function getPublicPublishedRoomUnavailableDates(
   const unavailableDates = computeUnavailableNightDates({
     startDateManila: fromDateManila,
     days,
-    checkInTimeHHmm: settings.checkInTimeManila,
-    checkOutTimeHHmm: settings.checkOutTimeManila,
+    checkInTimeHHmm: checkInTimeManila,
+    checkOutTimeHHmm: checkOutTimeManila,
     scope,
     beds: room.beds,
     allocations,
@@ -676,20 +655,15 @@ export async function submitPublicBookingRequestWithMeta(
         };
       }
 
+      const limits = getServerOperationalLimits();
       const settings = await tx.businessSettings.findUnique({
         where: { ownerUserId },
         select: { checkInTimeManila: true, checkOutTimeManila: true },
       });
-      if (
-        !settings ||
-        !hasCompleteStaySchedule(settings) ||
-        !settings.checkInTimeManila ||
-        !settings.checkOutTimeManila
-      ) {
-        throw new PreconditionError(
-          "Public stays are not accepting requests right now.",
-        );
-      }
+      const checkInTimeManila =
+        settings?.checkInTimeManila ?? limits.defaultCheckInTimeManila;
+      const checkOutTimeManila =
+        settings?.checkOutTimeManila ?? limits.defaultCheckOutTimeManila;
 
       await lockAllocationResources(tx, ownerUserId, [input.roomId], []);
 
@@ -708,7 +682,6 @@ export async function submitPublicBookingRequestWithMeta(
           transientTitle: true,
           transientScope: true,
           transientDailyRate: true,
-          roomType: { select: { dailyRate: true } },
           beds: {
             where: { archivedAt: null },
             select: { id: true, status: true },
@@ -740,7 +713,6 @@ export async function submitPublicBookingRequestWithMeta(
 
       const rateCentavos = resolveTransientDailyRateCentavos({
         roomDailyRate: room.transientDailyRate,
-        roomTypeDailyRate: room.roomType.dailyRate,
       });
       if (rateCentavos <= ZERO) {
         throw new PreconditionError(
@@ -751,8 +723,8 @@ export async function submitPublicBookingRequestWithMeta(
       const { startUtc, endUtc } = computeTransientStayUtcBounds({
         checkInDateManila: input.checkInDateManila,
         checkOutDateManila: input.checkOutDateManila,
-        checkInTimeHHmm: settings.checkInTimeManila,
-        checkOutTimeHHmm: settings.checkOutTimeManila,
+        checkInTimeHHmm: checkInTimeManila,
+        checkOutTimeHHmm: checkOutTimeManila,
       });
 
       const activeOverlaps = await tx.allocation.findMany({
@@ -980,7 +952,6 @@ export async function lookupPublicBookingRequestStatus(
           select: {
             number: true,
             transientTitle: true,
-            roomType: { select: { name: true } },
           },
         },
       },
@@ -1023,12 +994,15 @@ export async function lookupPublicBookingRequestStatus(
     reservationStatus,
     roomTitle:
       request.room.transientTitle?.trim() || `Room ${request.room.number}`,
-    roomTypeName: request.room.roomType.name,
     scope: request.scope,
     checkInDateManila: request.checkInDateManila,
     checkOutDateManila: request.checkOutDateManila,
-    checkInTimeManila: settings?.checkInTimeManila ?? "",
-    checkOutTimeManila: settings?.checkOutTimeManila ?? "",
+    checkInTimeManila:
+      settings?.checkInTimeManila ??
+      getServerOperationalLimits().defaultCheckInTimeManila,
+    checkOutTimeManila:
+      settings?.checkOutTimeManila ??
+      getServerOperationalLimits().defaultCheckOutTimeManila,
     nights: request.nights,
     partySize: request.partySize,
     adultsCount: request.adultsCount,

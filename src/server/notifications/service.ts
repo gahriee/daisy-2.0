@@ -38,7 +38,6 @@ export async function listOwnerNotifications(
 
   const [
     completedResets,
-    settings,
     endingAssignments,
     overdueInvoices,
     pendingBookingRequests,
@@ -51,21 +50,6 @@ export async function listOwnerNotifications(
       orderBy: { createdAt: "desc" },
       take: 20,
       select: { id: true, createdAt: true },
-    }),
-    db.businessSettings.findUnique({
-      where: { ownerUserId },
-      select: {
-        billingDayOfMonth: true,
-        gracePeriodDays: true,
-        prorationPolicy: true,
-        depositPolicy: true,
-        overpaymentPolicy: true,
-        invoicePrefix: true,
-        receiptPrefix: true,
-        checkInTimeManila: true,
-        checkOutTimeManila: true,
-        updatedAt: true,
-      },
     }),
     db.tenantAssignment.findMany({
       where: {
@@ -150,51 +134,6 @@ export async function listOwnerNotifications(
   );
 
   const items: OwnerNotification[] = [];
-
-  const policiesIncomplete =
-    !settings ||
-    settings.billingDayOfMonth === null ||
-    settings.gracePeriodDays === null ||
-    settings.prorationPolicy === null ||
-    settings.depositPolicy === null ||
-    settings.overpaymentPolicy === null ||
-    !settings.invoicePrefix ||
-    !settings.receiptPrefix;
-
-  if (policiesIncomplete) {
-    const key = "settings:financial-policy-incomplete";
-    const readAt = readMap.get(key) ?? null;
-    items.push({
-      key,
-      title: "Configure billing & policies",
-      message:
-        "Billing day, grace period, proration, deposit, overpayment, and document prefixes must be configured before invoicing or payments.",
-      destination: "/settings/policies",
-      tone: "warning",
-      createdAt: (settings?.updatedAt ?? new Date()).toISOString(),
-      read: readAt !== null,
-      readAt,
-    });
-  }
-
-  const stayScheduleIncomplete =
-    !settings || !settings.checkInTimeManila || !settings.checkOutTimeManila;
-
-  if (stayScheduleIncomplete) {
-    const key = "settings:stay-schedule-incomplete";
-    const readAt = readMap.get(key) ?? null;
-    items.push({
-      key,
-      title: "Configure stay check-in & check-out times",
-      message:
-        "Standard check-in and check-out times are required for transient stays and turnovers.",
-      destination: "/settings/operations",
-      tone: "warning",
-      createdAt: (settings?.updatedAt ?? new Date()).toISOString(),
-      read: readAt !== null,
-      readAt,
-    });
-  }
 
   for (const assignment of endingAssignments) {
     const endManila = toManilaDate(assignment.endDate);

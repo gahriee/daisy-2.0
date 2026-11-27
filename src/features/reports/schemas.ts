@@ -238,22 +238,6 @@ export type OccupancyBuildingComparisonDto = {
   occupiedDailyRateTotal: string;
 };
 
-export type OccupancyRoomTypeComparisonDto = {
-  roomTypeId: string;
-  roomTypeName: string;
-  building: RoomBuildingValue;
-  buildingLabel: string;
-  totalRooms: number;
-  occupiedRooms: number;
-  availableRooms: number;
-  maintenanceRooms: number;
-  occupancyRatePercent: number | null;
-  totalBeds: number;
-  occupiedBeds: number;
-  avgMonthlyRate: string | null;
-  avgDailyRate: string | null;
-};
-
 export type OccupancyReportDto = {
   summary: {
     totalRooms: number;
@@ -271,7 +255,6 @@ export type OccupancyReportDto = {
     transientOccupancyRatePercent: number | null;
   };
   byBuilding: OccupancyBuildingComparisonDto[];
-  byRoomType: OccupancyRoomTypeComparisonDto[];
   rows: OccupancyRoomRowDto[];
 };
 
@@ -291,16 +274,6 @@ export type RentRollRowDto = {
   openInvoiceBalance: string;
 };
 
-export type RentRollRoomTypeSummaryDto = {
-  roomTypeId: string;
-  roomTypeName: string;
-  activeAssignments: number;
-  sharePercent: number;
-  totalMonthlyRent: string;
-  totalSecurityDeposits: string;
-  totalOpenBalance: string;
-};
-
 export type RentRollExpiryBucketDto = {
   bucket: LeaseExpiryBucketValue;
   label: string;
@@ -317,7 +290,6 @@ export type RentRollReportDto = {
     averageMonthlyRent: string | null;
     openBalanceToRentPercent: number | null;
   };
-  byRoomType: RentRollRoomTypeSummaryDto[];
   leaseExpiries: RentRollExpiryBucketDto[];
   rows: RentRollRowDto[];
 };
@@ -445,18 +417,6 @@ export type TransientStatusSummaryDto = {
   collectedAmount: string;
 };
 
-export type TransientRoomTypeSummaryDto = {
-  roomTypeId: string;
-  roomTypeName: string;
-  staysCount: number;
-  activeOrCompletedCount: number;
-  cancelledOrNoShowCount: number;
-  totalNights: number;
-  grossStayRevenue: string;
-  invoicedAmount: string;
-  collectedAmount: string;
-};
-
 export type TransientRevenueReportDto = {
   summary: {
     staysCount: number;
@@ -472,7 +432,6 @@ export type TransientRevenueReportDto = {
     collectionRatePercent: number | null;
   };
   byStatus: TransientStatusSummaryDto[];
-  byRoomType: TransientRoomTypeSummaryDto[];
   rows: TransientRevenueRowDto[];
 };
 

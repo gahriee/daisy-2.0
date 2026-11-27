@@ -182,7 +182,6 @@ export function PublicBookingClient({
   const sortedRooms = useMemo(
     () =>
       filterAndSortPublicRooms(availability.rooms, {
-        roomTypeFilter: "ALL",
         availabilityFilter: "ALL",
         sortBy: "RECOMMENDED",
         requestedGuests: activeTotalGuests,
@@ -1230,16 +1229,11 @@ function RoomStorefrontCard({
       </div>
 
       <div className="flex flex-1 flex-col gap-1.5 p-4">
-        <div className="flex items-start justify-between gap-2">
-          <h3 className="min-w-0 text-base leading-snug font-semibold text-foreground">
-            <Link href={detailHref} className="hover:underline">
-              {room.title}
-            </Link>
-          </h3>
-          <span className="shrink-0 text-xs font-medium text-muted-foreground">
-            {room.roomTypeName}
-          </span>
-        </div>
+        <h3 className="min-w-0 text-base leading-snug font-semibold text-foreground">
+          <Link href={detailHref} className="hover:underline">
+            {room.title}
+          </Link>
+        </h3>
 
         <p className="text-xs text-muted-foreground">
           {getScopeLabel(room.scope)}, {capacityText}, {photoCountText}

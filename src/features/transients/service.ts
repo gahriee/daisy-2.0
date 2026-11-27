@@ -1,4 +1,5 @@
 import "server-only";
+import { getServerOperationalLimits } from "@/config/business-config";
 import { randomUUID } from "node:crypto";
 import { Prisma } from "@/generated/prisma/client";
 import {
@@ -14,7 +15,6 @@ import {
   verifyRoomPhotoManifestForWrite,
 } from "@/features/rooms/photos";
 import { roomSummarySelect, toRoomDto } from "@/features/rooms/service";
-import { hasCompleteStaySchedule } from "@/features/settings/schemas";
 import { manilaDateTimeToUtc } from "@/lib/dates";
 import {
   ConflictError,
@@ -168,7 +168,6 @@ export const transientReservationSelect = {
   room: {
     select: {
       number: true,
-      roomType: { select: { name: true } },
     },
   },
   bed: { select: { number: true } },
@@ -217,7 +216,7 @@ type SelectedReservationRow = {
   createdAt: Date;
   updatedAt: Date;
   guest: { fullName: string; phone: string | null; email: string | null };
-  room: { number: string; roomType: { name: string } };
+  room: { number: string };
   bed: { number: string } | null;
   invoices: Array<{
     id: string;
@@ -247,7 +246,6 @@ export function toTransientReservationDto(
     guestEmail: row.guest.email,
     roomId: row.roomId,
     roomNumber: row.room.number,
-    roomTypeName: row.room.roomType.name,
     bedId: row.bedId,
     bedNumber: row.bed?.number ?? null,
     scope: row.scope,
@@ -311,7 +309,6 @@ export const bookingRequestSelect = {
     select: {
       number: true,
       transientDailyRate: true,
-      roomType: { select: { name: true, dailyRate: true } },
     },
   },
 } as const;
@@ -348,7 +345,6 @@ type SelectedBookingRequestRow = {
   room: {
     number: string;
     transientDailyRate: { toString(): string } | null;
-    roomType: { name: string; dailyRate: { toString(): string } | null };
   };
 };
 
@@ -361,7 +357,6 @@ export function toBookingRequestDto(
 ): BookingRequestDto {
   const currentRateCentavos = resolveTransientDailyRateCentavos({
     roomDailyRate: row.room.transientDailyRate,
-    roomTypeDailyRate: row.room.roomType.dailyRate,
   });
   const quotedCentavos = parseMoneyDecimal(row.quotedDailyRate.toString());
   const currentDailyRate =
@@ -376,7 +371,6 @@ export function toBookingRequestDto(
     referenceCode: row.referenceCode,
     roomId: row.roomId,
     roomNumber: row.room.number,
-    roomTypeName: row.room.roomType.name,
     scope: row.scope,
     guestName: row.guestName,
     guestAge: row.guestAge,
@@ -465,23 +459,16 @@ async function requireConfiguredStayScheduleInTx(
   tx: DatabaseExecutor,
   ownerUserId: string,
 ): Promise<{ checkInTimeManila: string; checkOutTimeManila: string }> {
+  const limits = getServerOperationalLimits();
   const settings = await tx.businessSettings.findUnique({
     where: { ownerUserId },
     select: { checkInTimeManila: true, checkOutTimeManila: true },
   });
-  if (
-    !settings ||
-    !hasCompleteStaySchedule(settings) ||
-    !settings.checkInTimeManila ||
-    !settings.checkOutTimeManila
-  ) {
-    throw new PreconditionError(
-      "Configure check-in and check-out times in Settings -> Stays & limits before scheduling transient stays.",
-    );
-  }
   return {
-    checkInTimeManila: settings.checkInTimeManila,
-    checkOutTimeManila: settings.checkOutTimeManila,
+    checkInTimeManila:
+      settings?.checkInTimeManila ?? limits.defaultCheckInTimeManila,
+    checkOutTimeManila:
+      settings?.checkOutTimeManila ?? limits.defaultCheckOutTimeManila,
   };
 }
 
@@ -496,7 +483,6 @@ const transientRoomListingSelect = {
   transientTitle: true,
   transientDescription: true,
   transientScope: true,
-  roomType: { select: { name: true, dailyRate: true } },
   photos: {
     orderBy: [
       { role: "asc" as const },
@@ -517,7 +503,6 @@ function toTransientRoomOptionDto(
 ): TransientRoomOptionDto {
   const resolvedCentavos = resolveTransientDailyRateCentavos({
     roomDailyRate: room.transientDailyRate,
-    roomTypeDailyRate: room.roomType.dailyRate,
   });
   const { previewPhoto, galleryPhotos } = splitRoomPhotoDtos(room.photos);
   return {
@@ -525,7 +510,6 @@ function toTransientRoomOptionDto(
     version: room.version,
     number: room.number,
     floor: room.floor,
-    roomTypeName: room.roomType.name,
     capacity: room.capacity,
     resolvedDailyRate:
       resolvedCentavos > ZERO ? formatMoneyDecimal(resolvedCentavos) : null,
@@ -608,9 +592,12 @@ export async function getTransientsOverview(
   const guests = guestRows.map(toTransientGuestDto);
   const rooms = roomRows.map(toTransientRoomOptionDto);
 
+  const limits = getServerOperationalLimits();
   return {
-    checkInTimeManila: settings?.checkInTimeManila ?? "",
-    checkOutTimeManila: settings?.checkOutTimeManila ?? "",
+    checkInTimeManila:
+      settings?.checkInTimeManila ?? limits.defaultCheckInTimeManila,
+    checkOutTimeManila:
+      settings?.checkOutTimeManila ?? limits.defaultCheckOutTimeManila,
     transientPolicyNote: settings?.transientPolicyNote ?? null,
     totals: {
       pendingRequests: requests.filter((r) => r.status === "PENDING").length,
@@ -658,7 +645,6 @@ export async function getBookingRequestDetail(
             transientTitle: true,
             transientDescription: true,
             transientScope: true,
-            roomType: { select: { name: true, dailyRate: true } },
             photos: {
               orderBy: [
                 { role: "asc" },
@@ -686,8 +672,11 @@ export async function getBookingRequestDetail(
     throw new NotFoundError("The requested booking request was not found.");
   }
 
-  const checkInTimeManila = settings?.checkInTimeManila ?? "14:00";
-  const checkOutTimeManila = settings?.checkOutTimeManila ?? "12:00";
+  const limits = getServerOperationalLimits();
+  const checkInTimeManila =
+    settings?.checkInTimeManila ?? limits.defaultCheckInTimeManila;
+  const checkOutTimeManila =
+    settings?.checkOutTimeManila ?? limits.defaultCheckOutTimeManila;
   const { startUtc, endUtc } = computeTransientStayUtcBounds({
     checkInDateManila: row.checkInDateManila,
     checkOutDateManila: row.checkOutDateManila,
@@ -742,7 +731,6 @@ export async function getBookingRequestDetail(
 
   const resolvedCentavos = resolveTransientDailyRateCentavos({
     roomDailyRate: row.room.transientDailyRate,
-    roomTypeDailyRate: row.room.roomType.dailyRate,
   });
   const { previewPhoto, galleryPhotos } = splitRoomPhotoDtos(row.room.photos);
 
@@ -753,7 +741,6 @@ export async function getBookingRequestDetail(
       version: row.room.version,
       number: row.room.number,
       floor: row.room.floor,
-      roomTypeName: row.room.roomType.name,
       capacity: row.room.capacity,
       resolvedDailyRate:
         resolvedCentavos > ZERO ? formatMoneyDecimal(resolvedCentavos) : null,
@@ -862,7 +849,6 @@ export async function updateRoomTransientPublish(
           version: true,
           archivedAt: true,
           transientDailyRate: true,
-          roomType: { select: { dailyRate: true } },
         },
       });
       if (!room) {
@@ -886,7 +872,6 @@ export async function updateRoomTransientPublish(
 
       const effectiveDailyRateCentavos = resolveTransientDailyRateCentavos({
         roomDailyRate: input.transientDailyRate ?? room.transientDailyRate,
-        roomTypeDailyRate: room.roomType.dailyRate,
       });
       if (input.isTransientPublished && effectiveDailyRateCentavos <= ZERO) {
         throw new PreconditionError(
@@ -1293,7 +1278,6 @@ export async function createTransientReservationInTx(
         capacity: true,
         archivedAt: true,
         transientDailyRate: true,
-        roomType: { select: { dailyRate: true } },
       },
     }),
     requireConfiguredStayScheduleInTx(tx, ownerUserId),
@@ -1343,11 +1327,10 @@ export async function createTransientReservationInTx(
     ? parseMoneyDecimal(input.dailyRateOverride)
     : resolveTransientDailyRateCentavos({
         roomDailyRate: room.transientDailyRate,
-        roomTypeDailyRate: room.roomType.dailyRate,
       });
   if (dailyRateCentavos <= ZERO) {
     throw new PreconditionError(
-      "Set a positive daily rate on the room or room type before booking a stay.",
+      "Set a positive daily rate on the room before booking a stay.",
     );
   }
   const totalCentavos = computeTransientStayTotalCentavos(
@@ -1618,13 +1601,14 @@ export async function checkOutTransientReservationInTx(
   const nowUtc = new Date();
   let candidateEndUtc = nowUtc;
   if (actualCheckOutDateManila) {
+    const limits = getServerOperationalLimits();
     const settings = await tx.businessSettings.findUnique({
       where: { ownerUserId },
       select: { checkOutTimeManila: true },
     });
     candidateEndUtc = manilaDateTimeToUtc(
       actualCheckOutDateManila,
-      settings?.checkOutTimeManila ?? "12:00",
+      settings?.checkOutTimeManila ?? limits.defaultCheckOutTimeManila,
     );
   }
 
@@ -1884,7 +1868,6 @@ export async function approveBookingRequest(
             select: {
               building: true,
               transientDailyRate: true,
-              roomType: { select: { dailyRate: true } },
             },
           },
         },
@@ -1916,7 +1899,6 @@ export async function approveBookingRequest(
 
       const currentRateCentavos = resolveTransientDailyRateCentavos({
         roomDailyRate: request.room.transientDailyRate,
-        roomTypeDailyRate: request.room.roomType.dailyRate,
       });
       const quotedCentavos = parseMoneyDecimal(
         request.quotedDailyRate.toString(),

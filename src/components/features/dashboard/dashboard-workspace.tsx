@@ -534,28 +534,15 @@ export function DashboardWorkspace({
               </span>
             </div>
             <div className="flex flex-wrap items-center gap-2">
-              {!snapshot.configuration.policiesConfigured && (
-                <Link
-                  href="/settings/policies"
-                  className={buttonClasses({
-                    variant: "secondary",
-                    size: "sm",
-                  })}
-                >
-                  Billing policies
-                </Link>
-              )}
-              {!snapshot.configuration.stayScheduleConfigured && (
-                <Link
-                  href="/settings/operations"
-                  className={buttonClasses({
-                    variant: "secondary",
-                    size: "sm",
-                  })}
-                >
-                  Stay schedule
-                </Link>
-              )}
+              <Link
+                href="/settings"
+                className={buttonClasses({
+                  variant: "secondary",
+                  size: "sm",
+                })}
+              >
+                Open settings
+              </Link>
             </div>
           </div>
         </Alert>

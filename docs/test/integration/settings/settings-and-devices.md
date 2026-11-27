@@ -1,7 +1,7 @@
 # Business settings, devices, notifications and auth limits
 
-- Status: PASS for backend and PostgreSQL integration checks; Owner UI/device verification PENDING.
-- Last run: 2026-11-17 01:00:38 (UTC+8)
+- Status: BLOCKED on `TEST_DATABASE_URL` authentication; Owner UI/device verification PENDING.
+- Last run: 2026-11-27 18:27:57 (UTC+8)
 - Runtime: Windows, Node 26.13.1, pnpm 12.18.0, Vitest 5.1.0, Prisma 7.10.1, Neon PostgreSQL (Singapore).
 - Command: `pnpm test:integration tests/integration/settings/settings-and-devices.test.ts`
 - Result: 5 passed here (`8.63 s` targeted).
@@ -32,4 +32,5 @@ Teardown deleted all UUID-prefixed `NotificationDismissal`, `NotificationRead`, 
 | 2026-11-14 11:23:32 | pnpm test:integration tests/integration/tenants/tenants-and-assignments.test.ts tests/integration/settings/settings-and-devices.test.ts | 5 passed (targeted 8/8 across 2 files) | 6.44 s (50.87 s targeted) |
 | 2026-11-16 23:31:26 | `pnpm test:integration` | 5 passed (suite: 64/64 across 17 files) | 5.67 s (509.94 s suite) |
 | 2026-11-23 22:32:47 | `pnpm test:integration tests/integration/sync/sync-transport.test.ts tests/integration/settings/settings-and-devices.test.ts` | 0 passed, 5 failed — blocked: `.env.test.local` `TEST_DATABASE_URL` branch credentials expired/invalid (`Authentication failed against the database server`); no database substituted | 1.48 s |
+| 2026-11-27 18:27:57 | `pnpm test:integration tests/integration/settings/settings-and-devices.test.ts ...` (6 files) | 0 passed, 4 failed here (0/25 across 6 files) — blocked: `.env.test.local` `TEST_DATABASE_URL` branch credentials expired/invalid (`Authentication failed against the database server`); no database substituted | 1.40 s (13.89 s batch) |
 

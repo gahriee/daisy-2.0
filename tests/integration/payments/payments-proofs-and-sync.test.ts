@@ -88,7 +88,7 @@ import {
   registerOwnerDevice,
   revokeOwnerDevice,
 } from "../../../src/server/auth/device";
-import { updateBusinessSettings } from "../../../src/features/settings/service";
+import { updateBusinessSettingsModule } from "../../../src/features/settings/service";
 import {
   createTenant,
   getTenantDetail,
@@ -115,24 +115,26 @@ async function configureOwnerSettings(
   overpaymentPolicy:
     "REJECT_OVERPAYMENT" | "CREDIT_NEXT_INVOICE" = "REJECT_OVERPAYMENT",
 ) {
-  await updateBusinessSettings(ownerId, {
+  vi.stubEnv("BILLING_DAY_OF_MONTH", "5");
+  vi.stubEnv("BILLING_GRACE_PERIOD_DAYS", "5");
+  vi.stubEnv("BILLING_PRORATION_POLICY", "DAILY_EXACT");
+  vi.stubEnv("BILLING_DEPOSIT_POLICY", "HOLD_SEPARATE");
+  vi.stubEnv("BILLING_OVERPAYMENT_POLICY", overpaymentPolicy);
+  vi.stubEnv("INVOICE_PREFIX", "INV");
+  vi.stubEnv("RECEIPT_PREFIX", "OR");
+  vi.stubEnv("PROOF_MAX_MB", "5");
+  vi.stubEnv("PROOF_MAX_FILES_PER_RECORD", "5");
+  await updateBusinessSettingsModule(ownerId, {
+    module: "property",
     expectedVersion: 0,
     businessName: "Daisy Payments Test Property",
     businessPhone: null,
     businessAddress: null,
     tin: null,
-    billingDayOfMonth: 5,
-    gracePeriodDays: 5,
-    prorationPolicy: "DAILY_EXACT",
-    depositPolicy: "HOLD_SEPARATE",
-    overpaymentPolicy,
-    invoicePrefix: "INV",
-    receiptPrefix: "OR",
     checkInTimeManila: "14:00",
     checkOutTimeManila: "12:00",
-    offlineUnlockMaxDays: 7,
-    proofMaxMb: 5,
-    proofMaxFilesPerRecord: 5,
+    smsOverdueEnabled: false,
+    smsOverdueSendTimeManila: "09:00",
   });
 }
 
@@ -255,20 +257,10 @@ afterAll(async () => {
 });
 
 describe("payments, proofs, credit carry-forward, reversals & sync integration", () => {
-  it("requires receipt policy configuration, settles multiple invoices atomically, and assigns unique sequential receipt numbers", async () => {
+  it("enforces env-backed overpayment policy, settles multiple invoices atomically, and assigns unique sequential receipt numbers", async () => {
     const tenant = await createTenant(state.ownerId, {
       fullName: "Juan Dela Cruz",
     });
-
-    await expect(
-      recordPayment(state.ownerId, {
-        tenantId: tenant.id,
-        amount: "1000.00",
-        method: "CASH",
-        allocations: [],
-        proofIntentIds: [],
-      }),
-    ).rejects.toBeInstanceOf(PreconditionError);
 
     await configureOwnerSettings(state.ownerId, "REJECT_OVERPAYMENT");
 

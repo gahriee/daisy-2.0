@@ -73,19 +73,16 @@ import {
   type MaintenanceReportRowDto,
   type OccupancyBuildingComparisonDto,
   type OccupancyRoomRowDto,
-  type OccupancyRoomTypeComparisonDto,
   type ReceivablesAgingBucketDto,
   type ReceivablesAgingRowDto,
   type ReceivablesScopeComparisonDto,
   type RentRollExpiryBucketDto,
-  type RentRollRoomTypeSummaryDto,
   type RentRollRowDto,
   type ReportExportFormat,
   type ReportsOverviewDto,
   type ReportTypeValue,
   type ResolvedReportFilters,
   type TransientRevenueRowDto,
-  type TransientRoomTypeSummaryDto,
   type TransientStatusSummaryDto,
 } from "./schemas";
 import {
@@ -191,19 +188,11 @@ async function computeReportsOverviewInTx(
         number: true,
         building: true,
         floor: true,
-        roomTypeId: true,
         capacity: true,
         baseMonthlyRate: true,
         transientDailyRate: true,
         isTransientPublished: true,
         transientTitle: true,
-        roomType: {
-          select: {
-            name: true,
-            monthlyRate: true,
-            dailyRate: true,
-          },
-        },
         beds: {
           where: { archivedAt: null },
           select: {
@@ -266,8 +255,6 @@ async function computeReportsOverviewInTx(
               select: {
                 number: true,
                 transientTitle: true,
-                roomTypeId: true,
-                roomType: { select: { name: true } },
               },
             },
             bed: {
@@ -398,8 +385,6 @@ async function computeReportsOverviewInTx(
               select: {
                 number: true,
                 transientTitle: true,
-                roomTypeId: true,
-                roomType: { select: { name: true } },
               },
             },
             invoices: {
@@ -447,7 +432,6 @@ async function computeReportsOverviewInTx(
             number: true,
             transientTitle: true,
             building: true,
-            roomType: { select: { name: true } },
           },
         },
         holdAllocations: {
@@ -513,23 +497,6 @@ async function computeReportsOverviewInTx(
     });
   }
 
-  type RoomTypeOccAcc = {
-    roomTypeId: string;
-    roomTypeName: string;
-    building: RoomBuildingValue;
-    totalRooms: number;
-    occupiedRooms: number;
-    availableRooms: number;
-    maintenanceRooms: number;
-    totalBeds: number;
-    occupiedBeds: number;
-    monthlySum: bigint;
-    monthlyCount: number;
-    dailySum: bigint;
-    dailyCount: number;
-  };
-  const roomTypeOccMap = new Map<string, RoomTypeOccAcc>();
-
   const occupancyRows: OccupancyRoomRowDto[] = rooms.map((room) => {
     const roomAllocs = allocationsByRoom.get(room.id) ?? [];
     const activeNonHoldAllocs = roomAllocs.filter(
@@ -591,14 +558,8 @@ async function computeReportsOverviewInTx(
     availableBedsTotal += availBeds;
     maintenanceBedsTotal += maintBeds;
 
-    const monthlyDecimal =
-      room.baseMonthlyRate?.toString() ??
-      room.roomType.monthlyRate?.toString() ??
-      "0.00";
-    const dailyDecimal =
-      room.transientDailyRate?.toString() ??
-      room.roomType.dailyRate?.toString() ??
-      null;
+    const monthlyDecimal = room.baseMonthlyRate?.toString() ?? "0.00";
+    const dailyDecimal = room.transientDailyRate?.toString() ?? null;
 
     const monthlyCentavos = parseMoneyDecimal(monthlyDecimal);
     const dailyCentavos = dailyDecimal ? parseMoneyDecimal(dailyDecimal) : ZERO;
@@ -624,41 +585,10 @@ async function computeReportsOverviewInTx(
       }
     }
 
-    const existingRtAcc = roomTypeOccMap.get(room.roomTypeId);
-    const rtAcc: RoomTypeOccAcc = existingRtAcc ?? {
-      roomTypeId: room.roomTypeId,
-      roomTypeName: room.roomType.name,
-      building: room.building,
-      totalRooms: 0,
-      occupiedRooms: 0,
-      availableRooms: 0,
-      maintenanceRooms: 0,
-      totalBeds: 0,
-      occupiedBeds: 0,
-      monthlySum: ZERO,
-      monthlyCount: 0,
-      dailySum: ZERO,
-      dailyCount: 0,
-    };
-    rtAcc.totalRooms += 1;
-    if (status === "OCCUPIED") rtAcc.occupiedRooms += 1;
-    else if (status === "MAINTENANCE") rtAcc.maintenanceRooms += 1;
-    else rtAcc.availableRooms += 1;
-    rtAcc.totalBeds += bedCount;
-    rtAcc.occupiedBeds += occBeds;
-    if (room.building === "BOARDING") {
-      rtAcc.monthlySum = addMoney(rtAcc.monthlySum, monthlyCentavos);
-      rtAcc.monthlyCount += 1;
-    } else if (dailyDecimal) {
-      rtAcc.dailySum = addMoney(rtAcc.dailySum, dailyCentavos);
-      rtAcc.dailyCount += 1;
-    }
-    roomTypeOccMap.set(room.roomTypeId, rtAcc);
-
     return {
       roomId: room.id,
       roomCode: room.number,
-      roomName: room.transientTitle ?? room.roomType.name,
+      roomName: room.transientTitle ?? `Room ${room.number}`,
       building: room.building,
       floor: room.floor ?? "—",
       isTransientPublished: room.isTransientPublished,
@@ -701,39 +631,6 @@ async function computeReportsOverviewInTx(
         occupiedDailyRateTotal: formatMoneyDecimal(acc.occupiedDaily),
       };
     });
-
-  const occupancyByRoomType: OccupancyRoomTypeComparisonDto[] = Array.from(
-    roomTypeOccMap.values(),
-  )
-    .sort(
-      (a, b) =>
-        a.building.localeCompare(b.building) ||
-        a.roomTypeName.localeCompare(b.roomTypeName),
-    )
-    .map((acc) => ({
-      roomTypeId: acc.roomTypeId,
-      roomTypeName: acc.roomTypeName,
-      building: acc.building,
-      buildingLabel: ROOM_BUILDING_LABELS[acc.building],
-      totalRooms: acc.totalRooms,
-      occupiedRooms: acc.occupiedRooms,
-      availableRooms: acc.availableRooms,
-      maintenanceRooms: acc.maintenanceRooms,
-      occupancyRatePercent: computeOccupancyPercent(
-        acc.occupiedRooms,
-        acc.totalRooms,
-      ),
-      totalBeds: acc.totalBeds,
-      occupiedBeds: acc.occupiedBeds,
-      avgMonthlyRate: computePerUnitMoney(
-        formatMoneyDecimal(acc.monthlySum),
-        acc.monthlyCount,
-      ),
-      avgDailyRate: computePerUnitMoney(
-        formatMoneyDecimal(acc.dailySum),
-        acc.dailyCount,
-      ),
-    }));
 
   // 2. Receivables aging as of asOfDate (shared open balance map with Rent Roll)
   const openBalanceByTenantId = new Map<string, bigint>();
@@ -896,19 +793,6 @@ async function computeReportsOverviewInTx(
   const seenRentRollTenantIds = new Set<string>();
   let totalRentRollOpenBalanceCentavos = ZERO;
 
-  const rentRollRtMap = new Map<
-    string,
-    {
-      roomTypeId: string;
-      roomTypeName: string;
-      activeAssignments: number;
-      monthlyRent: bigint;
-      deposits: bigint;
-      openBalance: bigint;
-      seenTenants: Set<string>;
-    }
-  >();
-
   const expiryMap = new Map<
     LeaseExpiryBucketValue,
     { count: number; monthlyRentAtRisk: bigint }
@@ -942,25 +826,6 @@ async function computeReportsOverviewInTx(
       );
     }
 
-    const rtKey = assignment.room.roomTypeId;
-    const rtEntry = rentRollRtMap.get(rtKey) ?? {
-      roomTypeId: rtKey,
-      roomTypeName: assignment.room.roomType.name,
-      activeAssignments: 0,
-      monthlyRent: ZERO,
-      deposits: ZERO,
-      openBalance: ZERO,
-      seenTenants: new Set<string>(),
-    };
-    rtEntry.activeAssignments += 1;
-    rtEntry.monthlyRent = addMoney(rtEntry.monthlyRent, monthlyRateCentavos);
-    rtEntry.deposits = addMoney(rtEntry.deposits, depositCentavos);
-    if (!rtEntry.seenTenants.has(assignment.tenantId)) {
-      rtEntry.seenTenants.add(assignment.tenantId);
-      rtEntry.openBalance = addMoney(rtEntry.openBalance, tenantOpenCentavos);
-    }
-    rentRollRtMap.set(rtKey, rtEntry);
-
     const endDateManila = toManilaDate(assignment.endDate);
     const expiryBucket = classifyLeaseExpiryBucket(
       endDateManila,
@@ -979,7 +844,8 @@ async function computeReportsOverviewInTx(
       tenantName: assignment.tenant.fullName,
       roomId: assignment.roomId,
       roomCode: assignment.room.number,
-      roomName: assignment.room.transientTitle ?? assignment.room.roomType.name,
+      roomName:
+        assignment.room.transientTitle ?? `Room ${assignment.room.number}`,
       bedCode: assignment.bed.number,
       startDate: toManilaDate(assignment.startDate),
       endDate: endDateManila,
@@ -989,23 +855,6 @@ async function computeReportsOverviewInTx(
       openInvoiceBalance: formatMoneyDecimal(tenantOpenCentavos),
     };
   });
-
-  const rentRollByRoomType: RentRollRoomTypeSummaryDto[] = Array.from(
-    rentRollRtMap.values(),
-  )
-    .sort((a, b) => a.roomTypeName.localeCompare(b.roomTypeName))
-    .map((entry) => ({
-      roomTypeId: entry.roomTypeId,
-      roomTypeName: entry.roomTypeName,
-      activeAssignments: entry.activeAssignments,
-      sharePercent: computeSharePercent(
-        entry.activeAssignments,
-        rentRollRows.length,
-      ),
-      totalMonthlyRent: formatMoneyDecimal(entry.monthlyRent),
-      totalSecurityDeposits: formatMoneyDecimal(entry.deposits),
-      totalOpenBalance: formatMoneyDecimal(entry.openBalance),
-    }));
 
   const rentRollExpiries: RentRollExpiryBucketDto[] = LEASE_EXPIRY_BUCKETS.map(
     (bucket) => {
@@ -1181,21 +1030,6 @@ async function computeReportsOverviewInTx(
     });
   }
 
-  const transientRtMap = new Map<
-    string,
-    {
-      roomTypeId: string;
-      roomTypeName: string;
-      staysCount: number;
-      activeOrCompletedCount: number;
-      cancelledOrNoShowCount: number;
-      totalNights: number;
-      grossStayRevenue: bigint;
-      invoicedAmount: bigint;
-      collectedAmount: bigint;
-    }
-  >();
-
   const transientRows: TransientRevenueRowDto[] = transientReservations.map(
     (stay) => {
       const dailyRateCentavos = parseMoneyDecimal(stay.dailyRate.toString());
@@ -1243,42 +1077,12 @@ async function computeReportsOverviewInTx(
       stAgg.invoiced = addMoney(stAgg.invoiced, invoicedCentavos);
       stAgg.collected = addMoney(stAgg.collected, collectedCentavos);
 
-      const rtId = stay.room.roomTypeId;
-      const rtAgg = transientRtMap.get(rtId) ?? {
-        roomTypeId: rtId,
-        roomTypeName: stay.room.roomType.name,
-        staysCount: 0,
-        activeOrCompletedCount: 0,
-        cancelledOrNoShowCount: 0,
-        totalNights: 0,
-        grossStayRevenue: ZERO,
-        invoicedAmount: ZERO,
-        collectedAmount: ZERO,
-      };
-      rtAgg.staysCount += 1;
-      if (stay.status === "CANCELLED" || stay.status === "NO_SHOW") {
-        rtAgg.cancelledOrNoShowCount += 1;
-      } else {
-        rtAgg.activeOrCompletedCount += 1;
-        rtAgg.totalNights += stay.nights;
-        rtAgg.grossStayRevenue = addMoney(
-          rtAgg.grossStayRevenue,
-          stayTotalCentavos,
-        );
-      }
-      rtAgg.invoicedAmount = addMoney(rtAgg.invoicedAmount, invoicedCentavos);
-      rtAgg.collectedAmount = addMoney(
-        rtAgg.collectedAmount,
-        collectedCentavos,
-      );
-      transientRtMap.set(rtId, rtAgg);
-
       return {
         reservationId: stay.id,
         guestId: stay.guestId,
         guestName: stay.guest.fullName,
         roomCode: stay.room.number,
-        roomName: stay.room.transientTitle ?? stay.room.roomType.name,
+        roomName: stay.room.transientTitle ?? `Room ${stay.room.number}`,
         checkInDate: stay.checkInDateManila,
         checkOutDate: stay.checkOutDateManila,
         nights: stay.nights,
@@ -1304,22 +1108,6 @@ async function computeReportsOverviewInTx(
         collectedAmount: formatMoneyDecimal(agg.collected),
       };
     });
-
-  const transientByRoomType: TransientRoomTypeSummaryDto[] = Array.from(
-    transientRtMap.values(),
-  )
-    .sort((a, b) => a.roomTypeName.localeCompare(b.roomTypeName))
-    .map((agg) => ({
-      roomTypeId: agg.roomTypeId,
-      roomTypeName: agg.roomTypeName,
-      staysCount: agg.staysCount,
-      activeOrCompletedCount: agg.activeOrCompletedCount,
-      cancelledOrNoShowCount: agg.cancelledOrNoShowCount,
-      totalNights: agg.totalNights,
-      grossStayRevenue: formatMoneyDecimal(agg.grossStayRevenue),
-      invoicedAmount: formatMoneyDecimal(agg.invoicedAmount),
-      collectedAmount: formatMoneyDecimal(agg.collectedAmount),
-    }));
 
   // 6. Maintenance summary
   let maintOpenCount = 0;
@@ -1428,7 +1216,7 @@ async function computeReportsOverviewInTx(
       return {
         requestId: req.id,
         roomCode: req.room.number,
-        roomName: req.room.transientTitle ?? req.room.roomType.name,
+        roomName: req.room.transientTitle ?? `Room ${req.room.number}`,
         building: req.room.building,
         title: req.title,
         category: req.category,
@@ -1531,7 +1319,6 @@ async function computeReportsOverviewInTx(
         ),
       },
       byBuilding: occupancyByBuilding,
-      byRoomType: occupancyByRoomType,
       rows: occupancyRows,
     },
     rentRoll: {
@@ -1551,7 +1338,6 @@ async function computeReportsOverviewInTx(
           totalMonthlyRentStr,
         ),
       },
-      byRoomType: rentRollByRoomType,
       leaseExpiries: rentRollExpiries,
       rows: rentRollRows,
     },
@@ -1615,7 +1401,6 @@ async function computeReportsOverviewInTx(
         ),
       },
       byStatus: transientByStatus,
-      byRoomType: transientByRoomType,
       rows: transientRows,
     },
     maintenance: {

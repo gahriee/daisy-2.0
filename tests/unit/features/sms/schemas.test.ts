@@ -4,17 +4,10 @@ import {
   estimateSmsSegments,
   normalizePhilippineMobileNumber,
   renderOverdueSmsTemplate,
-  SendTestOverdueSmsSchema,
 } from "../../../../src/features/sms/schemas";
-import { SmsSettingsUpdateSchema } from "../../../../src/features/settings/schemas";
 
 vi.mock("server-only", () => ({}));
 
-import {
-  decryptAppSecret,
-  encryptAppSecret,
-  maskSecretLast4,
-} from "../../../../src/server/security/secret-box";
 import { sendSemaphoreSms } from "../../../../src/server/sms/semaphore";
 
 describe("overdue SMS schemas, template rendering, and PH mobile normalization", () => {
@@ -66,99 +59,6 @@ describe("overdue SMS schemas, template rendering, and PH mobile normalization",
       segments: 1,
       encoding: "UNICODE",
     });
-  });
-
-  it("validates SmsSettingsUpdateSchema constraints (schedule, sender name & TEST prefix)", () => {
-    const valid = SmsSettingsUpdateSchema.safeParse({
-      module: "sms",
-      expectedVersion: 1,
-      smsOverdueEnabled: true,
-      smsOverdueFrequencyDays: 3,
-      smsOverdueSendTimeManila: "09:30",
-      smsApiKey: "sem_live_1234567890",
-      clearSmsApiKey: false,
-      smsSenderName: "DAISYBH",
-      smsOverdueTemplate: "Reminder: {{tenantName}} owes {{balance}}.",
-    });
-    expect(valid.success).toBe(true);
-
-    const badFrequency = SmsSettingsUpdateSchema.safeParse({
-      module: "sms",
-      expectedVersion: 1,
-      smsOverdueEnabled: true,
-      smsOverdueFrequencyDays: 0,
-      smsOverdueSendTimeManila: "09:00",
-      smsApiKey: null,
-      clearSmsApiKey: false,
-      smsSenderName: null,
-      smsOverdueTemplate: null,
-    });
-    expect(badFrequency.success).toBe(false);
-
-    const badTime = SmsSettingsUpdateSchema.safeParse({
-      module: "sms",
-      expectedVersion: 1,
-      smsOverdueEnabled: true,
-      smsOverdueFrequencyDays: 1,
-      smsOverdueSendTimeManila: "25:99",
-      smsApiKey: null,
-      clearSmsApiKey: false,
-      smsSenderName: null,
-      smsOverdueTemplate: null,
-    });
-    expect(badTime.success).toBe(false);
-
-    const badTestPrefix = SmsSettingsUpdateSchema.safeParse({
-      module: "sms",
-      expectedVersion: 1,
-      smsOverdueEnabled: false,
-      smsOverdueFrequencyDays: 1,
-      smsOverdueSendTimeManila: "09:00",
-      smsApiKey: null,
-      clearSmsApiKey: false,
-      smsSenderName: null,
-      smsOverdueTemplate: "TEST overdue reminder",
-    });
-    expect(badTestPrefix.success).toBe(false);
-
-    const badSender = SmsSettingsUpdateSchema.safeParse({
-      module: "sms",
-      expectedVersion: 1,
-      smsOverdueEnabled: false,
-      smsOverdueFrequencyDays: 1,
-      smsOverdueSendTimeManila: "09:00",
-      smsApiKey: null,
-      clearSmsApiKey: false,
-      smsSenderName: "TOO LONG SENDER NAME",
-      smsOverdueTemplate: null,
-    });
-    expect(badSender.success).toBe(false);
-
-    expect(
-      SendTestOverdueSmsSchema.safeParse({
-        phone: "0917 123 4567",
-        messageTemplate: "Hi {{tenantName}}, reminder for Room {{roomNumber}}.",
-        senderName: "DAISYBH",
-      }).success,
-    ).toBe(true);
-    expect(
-      SendTestOverdueSmsSchema.safeParse({
-        phone: "09171234567",
-        messageTemplate: "TEST hello",
-      }).success,
-    ).toBe(false);
-  });
-
-  it("encrypts and decrypts API secrets via AES-256-GCM and masks last 4 characters", () => {
-    const env = { SYNC_CURSOR_SECRET: "unit-test-secret-key-material" };
-    const secret = "semaphore_api_key_9876543210abcd";
-    const encrypted = encryptAppSecret(secret, env);
-    expect(encrypted).not.toContain(secret);
-    expect(decryptAppSecret(encrypted, env)).toBe(secret);
-    expect(maskSecretLast4(secret)).toBe("abcd");
-    expect(() =>
-      decryptAppSecret(encrypted, { SYNC_CURSOR_SECRET: "different-secret" }),
-    ).toThrow("Stored API key could not be decrypted");
   });
 
   it("sends form-urlencoded POST requests to Semaphore API v4 and handles errors safely", async () => {

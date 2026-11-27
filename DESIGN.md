@@ -338,20 +338,21 @@ forced-color mode restores native checkbox appearance and system highlights.
   bottom-mounted desktop rail collapse toggle (`76 px` icon rail paired with
   live local date and time), and a full-width mobile slide-over drawer
   (`Escape` and backdrop dismiss). Desktop rail collapse and individual
-  `SidebarNavDisclosure` expanded/collapsed states (`Rooms & beds`, `Settings`)
-  persist across refreshes via `localStorage`.
+  `SidebarNavDisclosure` expanded/collapsed state (`Stays & requests`) persists
+  across refreshes via `localStorage`, while `Rooms`, `Transient rooms`, and
+  `Settings` are direct links to `/rooms`, `/transients/rooms`, and `/settings`.
   `SidebarNavDisclosure` renders a full-row clickable collapsible trigger over a
   `44 px` touch target with a `2 px` Rausch active rail and indented sub-links.
   The `64 px` sticky opaque `Topbar` pairs section breadcrumbs
-  (`Settings > [module]`, `Rooms > [subpage]`, `Tenants > [tenant]`,
+  (`Settings > Trusted devices`, `Rooms > [subpage]`, `Tenants > [tenant]`,
   `Transients > [subpage]`, `Billing > [invoice]`, `Payments > [payment]`,
   `Maintenance > [request]`) with the `OfflineStatusBar` button (opening a
   flat, non-nested `OfflineSyncDialog` modal for CSPRNG auto-generated offline
   password setup compatible with browser/iOS password managers, unlock,
   manual `Update now`, and `ConfirmDialog`-gated `Needs attention` review
   without navigating away to `/offline`), live workspace notifications, and the
-  account profile menu (`Property Manager` fallback, Settings shortcuts, and
-  sign-out).
+  account profile menu (`Property Manager` fallback, Property settings &
+  Trusted devices shortcuts, and sign-out).
 - **Notifications (Topbar popover & `/notifications`):** notification cards keep
   90–95% neutral surfaces (`bg-surface` with `--control-border` hairline and
   dark charcoal `Unread` pill when unread; recessed `bg-background/65` stone

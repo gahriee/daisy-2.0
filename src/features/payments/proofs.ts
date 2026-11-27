@@ -6,6 +6,7 @@ import {
   RateLimitedError,
   ValidationError,
 } from "@/lib/errors";
+import { getServerOperationalLimits } from "@/config/business-config";
 import { getDatabase } from "@/server/db/client";
 import { ensureOwnerRecord } from "@/server/db/owner-record";
 import { isPgConstraintError } from "@/server/db/pg-errors";
@@ -21,8 +22,6 @@ import {
   type ProofUploadIntentDto,
 } from "./schemas";
 
-const DEFAULT_PROOF_MAX_BYTES = 5 * 1024 * 1024;
-const DEFAULT_PROOF_MAX_FILES_PER_RECORD = 5;
 const PROOF_INTENT_TTL_SECONDS = 300;
 const PROOF_UPLOAD_RATE_LIMIT = { maximum: 30, seconds: 600 } as const;
 
@@ -73,18 +72,14 @@ export async function consumeProofUploadLimit(
   return row.count > maximum ? row.retry : 0;
 }
 
-async function readOwnerProofLimits(ownerUserId: string): Promise<{
+function readOwnerProofLimits(): {
   proofMaxBytes: number;
   proofMaxFilesPerRecord: number;
-}> {
-  const settings = await getDatabase().businessSettings.findUnique({
-    where: { ownerUserId },
-    select: { proofMaxBytes: true, proofMaxFilesPerRecord: true },
-  });
+} {
+  const limits = getServerOperationalLimits();
   return {
-    proofMaxBytes: settings?.proofMaxBytes ?? DEFAULT_PROOF_MAX_BYTES,
-    proofMaxFilesPerRecord:
-      settings?.proofMaxFilesPerRecord ?? DEFAULT_PROOF_MAX_FILES_PER_RECORD,
+    proofMaxBytes: limits.proofMaxBytes,
+    proofMaxFilesPerRecord: limits.proofMaxFilesPerRecord,
   };
 }
 
@@ -111,7 +106,7 @@ export async function createProofUploadIntent(params: {
     );
   }
 
-  const limits = await readOwnerProofLimits(params.ownerUserId);
+  const limits = readOwnerProofLimits();
   if (input.byteSize > limits.proofMaxBytes) {
     const maxMb = Math.max(1, Math.round(limits.proofMaxBytes / (1024 * 1024)));
     throw new ValidationError(
@@ -326,7 +321,7 @@ export async function uploadProofIntentContent(params: {
     throw new ValidationError("Uploaded content type does not match intent.");
   }
 
-  const limits = await readOwnerProofLimits(params.ownerUserId);
+  const limits = readOwnerProofLimits();
   if (
     params.bodyBytes.byteLength === 0 ||
     params.bodyBytes.byteLength > limits.proofMaxBytes ||
@@ -374,7 +369,7 @@ export async function verifyProofIntentsOutsideTx(
   }
 
   const uniqueIds = Array.from(new Set(proofIntentIds));
-  const limits = await readOwnerProofLimits(ownerUserId);
+  const limits = readOwnerProofLimits();
   if (uniqueIds.length > limits.proofMaxFilesPerRecord) {
     throw new ValidationError(
       `Attach at most ${limits.proofMaxFilesPerRecord} proof files per payment.`,

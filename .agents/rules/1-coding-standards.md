@@ -36,7 +36,7 @@
 - Allocation intervals are half-open `[start, end)`. Do not implement availability by comparing dates in application code alone, because the database constraint is the final guard.
 - Use transactions for operations that must commit together. Unique constraints and idempotency are required wherever retries, scheduled jobs or sync replays could create duplicates.
 - Preserve history. Payments are immutable and corrections are linked reversals. Issued invoices are adjusted or voided through audited workflows, and tenants, rooms and beds are archived, never hard-deleted.
-- Do not invent billing, proration, deposit, utility or overpayment rules. Use the Owner-configured policy fields, and surface an unconfigured policy as an explicit state.
+- Do not invent ad-hoc billing, proration, deposit, utility or overpayment rules inside feature handlers. Read authoritative policy values through `src/config/business-config.ts`.
 
 ## 1.5 Authority and user feedback
 

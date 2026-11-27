@@ -1,10 +1,10 @@
 # Reports shared template & multi-format exports
 
 - Status: PASS
-- Last run: 2026-11-18 19:57:22 (UTC+8)
+- Last run: 2026-11-27 20:29:14 (UTC+8)
 - Runtime: Windows, Node 26.13.1, pnpm 12.18.0, Vitest 5.1.0
-- Command: `pnpm exec vitest run tests/unit/features/reports/schemas.test.ts tests/unit/features/reports/csv.test.ts tests/unit/features/reports/exports.test.ts tests/unit/features/reports/calculations.test.ts`
-- Result: 3 passed here (884 ms); targeted report suite 13 passed, 0 failed, 0 skipped across 4 files, 1.76 s.
+- Command: `pnpm test:unit`
+- Result: 3 passed here (1.90 s); suite 219 passed, 0 failed, 0 skipped across 51 files, 3.83 s.
 - Target file: [tests/unit/features/reports/exports.test.ts](../../../../tests/unit/features/reports/exports.test.ts) -> [src/features/reports/template.ts](../../../../src/features/reports/template.ts), [src/features/reports/export-excel.ts](../../../../src/features/reports/export-excel.ts), [src/features/reports/export-word.ts](../../../../src/features/reports/export-word.ts), [src/features/reports/export-pdf.ts](../../../../src/features/reports/export-pdf.ts)
 
 ## Verified criteria
@@ -20,4 +20,5 @@
 | 2026-11-18 19:54:03 | `vitest run` (all unit files) | 2 passed, 1 failed (`PDFDocument.load` check needed for compressed xref streams) | 1.60 s |
 | 2026-11-18 19:54:24 | `pnpm exec vitest run tests/unit/features/reports/...` | 3 passed here; 13/13 across 4 report files | 850 ms (1.59 s) |
 | 2026-11-18 19:57:22 | `pnpm exec vitest run tests/unit/features/reports/...` | 3 passed here; 13/13 across 4 report files | 884 ms (1.76 s) |
+| 2026-11-27 20:29:14 | `pnpm test:unit` | 3 passed (suite: 219/219 across 51 files) | 1.90 s (3.83 s suite) |
 

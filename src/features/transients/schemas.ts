@@ -555,7 +555,6 @@ export type TransientReservationDto = {
   guestEmail: string | null;
   roomId: string;
   roomNumber: string;
-  roomTypeName: string;
   bedId: string | null;
   bedNumber: string | null;
   scope: AllocationScopeValue;
@@ -589,7 +588,6 @@ export type BookingRequestDto = {
   referenceCode: string;
   roomId: string;
   roomNumber: string;
-  roomTypeName: string;
   scope: AllocationScopeValue;
   guestName: string;
   guestAge: number | null;
@@ -630,7 +628,6 @@ export type TransientRoomOptionDto = {
   version: number;
   number: string;
   floor: string | null;
-  roomTypeName: string;
   capacity: number;
   resolvedDailyRate: string | null;
   isTransientPublished: boolean;
@@ -674,7 +671,6 @@ export type PublicPublishedRoomDto = {
   roomId: string;
   title: string;
   description: string | null;
-  roomTypeName: string;
   scope: AllocationScopeValue;
   capacity: number;
   availableUnitsForRange: number;
@@ -733,7 +729,6 @@ export type PublicBookingStatusDto = {
   status: BookingRequestStatusValue;
   reservationStatus: TransientReservationStatusValue | null;
   roomTitle: string;
-  roomTypeName: string;
   scope: AllocationScopeValue;
   checkInDateManila: string;
   checkOutDateManila: string;

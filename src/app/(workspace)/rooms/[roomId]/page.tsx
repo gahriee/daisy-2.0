@@ -31,16 +31,16 @@ export default async function RoomDetailPage({
     notFound();
   }
 
-  const detail = await getRoomDetail(ownerUserId, roomId, "BOARDING");
+  const room = await getRoomDetail(ownerUserId, roomId, "BOARDING");
 
-  if (!detail) {
+  if (!room) {
     notFound();
   }
 
   return (
     <>
-      <WorkspacePageTitle title={`Room ${detail.room.number}`} />
-      <RoomForm mode="edit" roomTypes={detail.roomTypes} room={detail.room} />
+      <WorkspacePageTitle title={`Room ${room.number}`} />
+      <RoomForm mode="edit" room={room} />
     </>
   );
 }

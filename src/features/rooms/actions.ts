@@ -6,30 +6,23 @@ import { requireOwnerUserId } from "@/server/auth/owner";
 import {
   ArchiveRestoreBedSchema,
   ArchiveRestoreRoomSchema,
-  ArchiveRestoreRoomTypeSchema,
   CreateBedSchema,
   CreateRoomSchema,
-  CreateRoomTypeSchema,
   parseRoomPhotosManifestJsonField,
   UpdateBedSchema,
   UpdateRoomSchema,
-  UpdateRoomTypeSchema,
   type RoomPhotoManifestInput,
 } from "./schemas";
 import {
   archiveBed,
   archiveRoom,
-  archiveRoomType,
   createBed,
   createRoom,
-  createRoomType,
   restoreBed,
   restoreRoom,
-  restoreRoomType,
   syncRoomUnitBed,
   updateBed,
   updateRoom,
-  updateRoomType,
 } from "./service";
 
 export type InventoryActionResult =
@@ -78,8 +71,6 @@ function revalidateInventoryPaths(roomId?: string) {
     revalidatePath(`/rooms/${roomId}`);
     revalidatePath(`/transients/rooms/${roomId}`);
   }
-  revalidatePath("/rooms/types");
-  revalidatePath("/transients/rooms/types");
   revalidatePath("/transients");
   revalidatePath("/transients", "layout");
   revalidatePath("/transients/stays");
@@ -89,121 +80,6 @@ function revalidateInventoryPaths(roomId?: string) {
   revalidatePath("/notifications");
   revalidatePath("/audit");
   revalidatePath("/");
-}
-
-export async function createRoomTypeAction(
-  _prev: InventoryActionResult,
-  formData: FormData,
-): Promise<InventoryActionResult> {
-  try {
-    const ownerUserId = await requireOwnerUserId();
-    const parsed = CreateRoomTypeSchema.safeParse({
-      building: readStr(formData, "building") || "BOARDING",
-      name: readStr(formData, "name"),
-      monthlyRate: readStr(formData, "monthlyRate"),
-      dailyRate: readStr(formData, "dailyRate"),
-      description: readStr(formData, "description"),
-    });
-    if (!parsed.success) {
-      return {
-        status: "error",
-        message: "Review the highlighted fields before saving.",
-        fieldErrors: mapZodErrors(parsed.error.issues),
-      };
-    }
-
-    await createRoomType(ownerUserId, parsed.data);
-    revalidateInventoryPaths();
-    return { status: "saved", message: "Room type added." };
-  } catch (error) {
-    return handleActionError(
-      error,
-      "Could not add room type right now. Try again.",
-    );
-  }
-}
-
-export async function updateRoomTypeAction(
-  _prev: InventoryActionResult,
-  formData: FormData,
-): Promise<InventoryActionResult> {
-  try {
-    const ownerUserId = await requireOwnerUserId();
-    const hasBuilding = formData.has("building");
-    const parsed = UpdateRoomTypeSchema.safeParse({
-      roomTypeId: readStr(formData, "roomTypeId"),
-      expectedVersion: readStr(formData, "expectedVersion"),
-      ...(hasBuilding ? { building: readStr(formData, "building") } : {}),
-      name: readStr(formData, "name"),
-      monthlyRate: readStr(formData, "monthlyRate"),
-      dailyRate: readStr(formData, "dailyRate"),
-      description: readStr(formData, "description"),
-    });
-    if (!parsed.success) {
-      return {
-        status: "error",
-        message: "Review the highlighted fields before saving.",
-        fieldErrors: mapZodErrors(parsed.error.issues),
-      };
-    }
-
-    await updateRoomType(ownerUserId, parsed.data);
-    revalidateInventoryPaths();
-    return { status: "saved", message: "Room type updated." };
-  } catch (error) {
-    return handleActionError(
-      error,
-      "Could not update room type right now. Try again.",
-    );
-  }
-}
-
-export async function archiveRoomTypeAction(rawInput: {
-  roomTypeId: string;
-  expectedVersion: number;
-}): Promise<InventoryActionResult> {
-  try {
-    const ownerUserId = await requireOwnerUserId();
-    const parsed = ArchiveRestoreRoomTypeSchema.safeParse(rawInput);
-    if (!parsed.success) {
-      return {
-        status: "error",
-        message:
-          parsed.error.issues[0]?.message ??
-          "Invalid room type archive request.",
-        fieldErrors: {},
-      };
-    }
-    await archiveRoomType(ownerUserId, parsed.data);
-    revalidateInventoryPaths();
-    return { status: "saved", message: "Room type archived." };
-  } catch (error) {
-    return handleActionError(error, "Could not archive room type right now.");
-  }
-}
-
-export async function restoreRoomTypeAction(rawInput: {
-  roomTypeId: string;
-  expectedVersion: number;
-}): Promise<InventoryActionResult> {
-  try {
-    const ownerUserId = await requireOwnerUserId();
-    const parsed = ArchiveRestoreRoomTypeSchema.safeParse(rawInput);
-    if (!parsed.success) {
-      return {
-        status: "error",
-        message:
-          parsed.error.issues[0]?.message ??
-          "Invalid room type restore request.",
-        fieldErrors: {},
-      };
-    }
-    await restoreRoomType(ownerUserId, parsed.data);
-    revalidateInventoryPaths();
-    return { status: "saved", message: "Room type restored." };
-  } catch (error) {
-    return handleActionError(error, "Could not restore room type right now.");
-  }
 }
 
 function readRoomPhotosSafe(
@@ -233,7 +109,6 @@ export async function createRoomAction(
       building: readStr(formData, "building") || "BOARDING",
       number: readStr(formData, "number"),
       floor: readStr(formData, "floor"),
-      roomTypeId: readStr(formData, "roomTypeId"),
       capacity: readStr(formData, "capacity") || "1",
       ...(hasBaseMonthly
         ? { baseMonthlyRate: readStr(formData, "baseMonthlyRate") }
@@ -281,7 +156,6 @@ export async function updateRoomAction(
       ...(hasBuilding ? { building: readStr(formData, "building") } : {}),
       number: readStr(formData, "number"),
       floor: readStr(formData, "floor"),
-      roomTypeId: readStr(formData, "roomTypeId"),
       capacity: readStr(formData, "capacity") || "1",
       ...(hasBaseMonthly
         ? { baseMonthlyRate: readStr(formData, "baseMonthlyRate") }

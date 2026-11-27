@@ -12,6 +12,7 @@ import {
   PreconditionError,
   ValidationError,
 } from "@/lib/errors";
+import { getServerOperationalLimits } from "@/config/business-config";
 import { getDatabase } from "@/server/db/client";
 import {
   ensureOwnerRecord,
@@ -50,9 +51,6 @@ import {
   type PlaceMaintenanceHoldInput,
   type ReleaseMaintenanceHoldInput,
 } from "./schemas";
-
-const DEFAULT_PROOF_MAX_BYTES = 5 * 1024 * 1024;
-const DEFAULT_PROOF_MAX_FILES_PER_RECORD = 5;
 
 const maintenanceRequestSelect = {
   id: true,
@@ -374,16 +372,11 @@ async function releaseHoldAllocationsInTx(
   return activeHolds.length;
 }
 
-async function readProofLimitsInTx(tx: DatabaseExecutor, ownerUserId: string) {
-  const settings = await tx.businessSettings.findUnique({
-    where: { ownerUserId },
-    select: { proofMaxBytes: true, proofMaxFilesPerRecord: true },
-  });
-  const proofMaxBytes = settings?.proofMaxBytes ?? DEFAULT_PROOF_MAX_BYTES;
+function readProofLimitsInTx() {
+  const limits = getServerOperationalLimits();
   return {
-    proofMaxMb: Math.max(1, Math.round(proofMaxBytes / (1024 * 1024))),
-    proofMaxFilesPerRecord:
-      settings?.proofMaxFilesPerRecord ?? DEFAULT_PROOF_MAX_FILES_PER_RECORD,
+    proofMaxMb: limits.proofMaxMb,
+    proofMaxFilesPerRecord: limits.proofMaxFilesPerRecord,
   };
 }
 
@@ -419,7 +412,7 @@ export async function getMaintenanceCreateContext(
   return db.$transaction(
     async (tx) => {
       const [limits, rooms] = await Promise.all([
-        readProofLimitsInTx(tx, ownerUserId),
+        readProofLimitsInTx(),
         listMaintenanceRoomOptionsInTx(tx, ownerUserId),
       ]);
       return {
@@ -443,7 +436,7 @@ export async function getMaintenanceRequestDetail(
   const [limits, row] = await db.$transaction(
     async (tx) =>
       Promise.all([
-        readProofLimitsInTx(tx, ownerUserId),
+        readProofLimitsInTx(),
         tx.maintenanceRequest.findFirst({
           where: { id: requestId, ownerUserId },
           select: maintenanceRequestSelect,
@@ -473,7 +466,7 @@ export async function getMaintenanceOverview(
   const [limits, rows, rooms] = await db.$transaction(
     async (tx) =>
       Promise.all([
-        readProofLimitsInTx(tx, ownerUserId),
+        readProofLimitsInTx(),
         tx.maintenanceRequest.findMany({
           where: { ownerUserId },
           orderBy: [{ createdAt: "desc" }],

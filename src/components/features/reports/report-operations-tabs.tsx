@@ -9,9 +9,6 @@ import {
   ApexChart,
   ChartCard,
   DAISY_CHART_COLORS,
-  formatChartPhp,
-  formatCompactPhpAxis,
-  toChartPhpNumber,
 } from "@/components/ui/chart";
 import { TableEmptyState } from "@/components/ui/empty-state";
 import { MetricCard } from "@/components/ui/metric-card";
@@ -32,43 +29,10 @@ import {
 import type {
   MaintenanceCategorySummaryDto,
   ReportsOverviewDto,
-  TransientRoomTypeSummaryDto,
 } from "@/features/reports/schemas";
 import { useTableSort } from "@/hooks/use-table-sort";
 import { formatPhpCurrency } from "@/lib/money";
 import type { SortColumnDef } from "@/lib/table-sort";
-
-const TRANSIENT_RT_SORT_COLUMNS: Record<
-  "roomType" | "stays" | "nights" | "gross" | "invoiced" | "collected",
-  SortColumnDef<TransientRoomTypeSummaryDto>
-> = {
-  roomType: { getValue: (row) => row.roomTypeName },
-  stays: {
-    getValue: (row) => row.staysCount,
-    kind: "number",
-    defaultDirection: "desc",
-  },
-  nights: {
-    getValue: (row) => row.totalNights,
-    kind: "number",
-    defaultDirection: "desc",
-  },
-  gross: {
-    getValue: (row) => row.grossStayRevenue,
-    kind: "money",
-    defaultDirection: "desc",
-  },
-  invoiced: {
-    getValue: (row) => row.invoicedAmount,
-    kind: "money",
-    defaultDirection: "desc",
-  },
-  collected: {
-    getValue: (row) => row.collectedAmount,
-    kind: "money",
-    defaultDirection: "desc",
-  },
-};
 
 const MAINT_CATEGORY_SORT_COLUMNS: Record<
   "category" | "total" | "open" | "holds" | "resolved",
@@ -155,67 +119,7 @@ export function TransientRevenueReportPanel({
   overview: ReportsOverviewDto;
   periodLabel: string;
 }) {
-  const { summary, byStatus, byRoomType } = overview.transientRevenue;
-
-  const { sortedRows: sortedRoomTypes, sortHeaderProps } = useTableSort(
-    byRoomType,
-    TRANSIENT_RT_SORT_COLUMNS,
-    { key: "gross", direction: "desc" },
-  );
-
-  const funnelSeries = useMemo(
-    () => [
-      {
-        name: "Stay total",
-        data: byRoomType.map((rt) => toChartPhpNumber(rt.grossStayRevenue)),
-      },
-      {
-        name: "Invoiced",
-        data: byRoomType.map((rt) => toChartPhpNumber(rt.invoicedAmount)),
-      },
-      {
-        name: "Collected",
-        data: byRoomType.map((rt) => toChartPhpNumber(rt.collectedAmount)),
-      },
-    ],
-    [byRoomType],
-  );
-
-  const funnelOptions = useMemo<Omit<ApexOptions, "series">>(
-    () => ({
-      colors: [
-        DAISY_CHART_COLORS.info,
-        DAISY_CHART_COLORS.warning,
-        DAISY_CHART_COLORS.success,
-      ],
-      plotOptions: {
-        bar: {
-          columnWidth: "56%",
-          borderRadius: 4,
-          borderRadiusApplication: "end",
-        },
-      },
-      dataLabels: { enabled: false },
-      xaxis: {
-        categories: byRoomType.map((rt) => rt.roomTypeName),
-      },
-      yaxis: {
-        labels: {
-          formatter: (val: number) => formatCompactPhpAxis(val),
-        },
-      },
-      legend: {
-        position: "top",
-        horizontalAlign: "left",
-      },
-      tooltip: {
-        y: {
-          formatter: (val: number) => formatChartPhp(val),
-        },
-      },
-    }),
-    [byRoomType],
-  );
+  const { summary, byStatus } = overview.transientRevenue;
 
   const activeStatuses = useMemo(
     () => byStatus.filter((s) => s.staysCount > 0),
@@ -327,58 +231,33 @@ export function TransientRevenueReportPanel({
         />
       </div>
 
-      <div className="grid grid-cols-1 gap-5 xl:grid-cols-2">
-        <ChartCard
-          title="Revenue realization by room type"
-          description="Booked stay value compared against invoiced and collected amounts."
-          summary={`${byRoomType.length} ${byRoomType.length === 1 ? "tier" : "tiers"}`}
-        >
-          {byRoomType.length === 0 ? (
-            <TableEmptyState
-              illustration="document-search"
-              illustrationSize="xs"
-              title="No short stays in period"
-              description="Adjust the check-in period or building filter to review short-stay income."
-            />
-          ) : (
-            <ApexChart
-              type="bar"
-              height={265}
-              series={funnelSeries}
-              options={funnelOptions}
-              ariaLabel="Grouped bar chart comparing gross stay revenue, invoiced amount, and collected amount by room type"
-            />
-          )}
-        </ChartCard>
-
-        <ChartCard
-          title="Booking outcome distribution"
-          description="Share of stays checked in, checked out, pending, or cancelled."
-          summary={`${summary.staysCount} total stays`}
-        >
-          {activeStatuses.length === 0 ? (
-            <TableEmptyState
-              illustration="document-search"
-              illustrationSize="xs"
-              title="No stay status mix"
-              description="Short-stay bookings matching this date range will appear here."
-            />
-          ) : (
-            <ApexChart
-              type="donut"
-              height={265}
-              series={statusSeries}
-              options={statusOptions}
-              ariaLabel="Donut chart showing short-stay bookings by status"
-            />
-          )}
-        </ChartCard>
-      </div>
+      <ChartCard
+        title="Booking outcome distribution"
+        description="Share of stays checked in, checked out, pending, or cancelled."
+        summary={`${summary.staysCount} total stays`}
+      >
+        {activeStatuses.length === 0 ? (
+          <TableEmptyState
+            illustration="document-search"
+            illustrationSize="xs"
+            title="No stay status mix"
+            description="Short-stay bookings matching this date range will appear here."
+          />
+        ) : (
+          <ApexChart
+            type="donut"
+            height={265}
+            series={statusSeries}
+            options={statusOptions}
+            ariaLabel="Donut chart showing short-stay bookings by status"
+          />
+        )}
+      </ChartCard>
 
       <Card className="overflow-hidden p-0 sm:p-0">
         <TableCardHeader
-          title="Short-stay income by room type"
-          count={`${sortedRoomTypes.length} ${sortedRoomTypes.length === 1 ? "tier" : "tiers"}`}
+          title="Short-stay income by status"
+          count={`${activeStatuses.length} ${activeStatuses.length === 1 ? "status" : "statuses"}`}
           description={`Total nights, billed amounts, and collections across ${periodLabel}.`}
           actions={
             <Link
@@ -389,28 +268,30 @@ export function TransientRevenueReportPanel({
             </Link>
           }
         />
-        {sortedRoomTypes.length === 0 ? (
+        {activeStatuses.length === 0 ? (
           <TableEmptyState
             illustration="document-search"
             title="No short stays in this period"
-            description="Adjust the check-in period or building filter to compare room performance."
+            description="Adjust the check-in period or building filter to review short-stay income."
           />
         ) : (
           <>
             <div className="grid divide-y divide-border md:hidden">
-              {sortedRoomTypes.map((row) => (
-                <div key={row.roomTypeId} className="grid gap-2 p-4">
+              {activeStatuses.map((row) => (
+                <div key={row.status} className="grid gap-2 p-4">
                   <div className="flex items-start justify-between gap-2">
                     <div className="grid gap-0.5">
                       <span className="text-sm font-semibold text-foreground">
-                        {row.roomTypeName}
+                        {row.statusLabel}
                       </span>
                       <span className="text-xs text-muted-foreground tabular-nums">
-                        {row.staysCount} stays ({row.totalNights} nights)
+                        {row.staysCount}{" "}
+                        {row.staysCount === 1 ? "stay" : "stays"} (
+                        {row.totalNights} nights)
                       </span>
                     </div>
                     <span className="text-sm font-semibold text-foreground tabular-nums">
-                      {formatPhpCurrency(row.grossStayRevenue)}
+                      {formatPhpCurrency(row.stayAmount)}
                     </span>
                   </div>
                   <div className="flex items-center justify-between gap-2 text-xs text-muted-foreground tabular-nums">
@@ -428,37 +309,25 @@ export function TransientRevenueReportPanel({
               <Table containerClassName="rounded-none border-0">
                 <TableHeader>
                   <TableRow>
-                    <TableHead {...sortHeaderProps("roomType")}>
-                      Room type
-                    </TableHead>
-                    <TableHead numeric {...sortHeaderProps("stays")}>
-                      Stays
-                    </TableHead>
-                    <TableHead numeric {...sortHeaderProps("nights")}>
-                      Booked nights
-                    </TableHead>
-                    <TableHead numeric {...sortHeaderProps("gross")}>
-                      Stay revenue
-                    </TableHead>
-                    <TableHead numeric {...sortHeaderProps("invoiced")}>
-                      Invoiced
-                    </TableHead>
-                    <TableHead numeric {...sortHeaderProps("collected")}>
-                      Collected
-                    </TableHead>
+                    <TableHead>Status</TableHead>
+                    <TableHead numeric>Stays</TableHead>
+                    <TableHead numeric>Booked nights</TableHead>
+                    <TableHead numeric>Stay total</TableHead>
+                    <TableHead numeric>Invoiced</TableHead>
+                    <TableHead numeric>Collected</TableHead>
                     <TableHead numeric>Collection %</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
-                  {sortedRoomTypes.map((row) => {
+                  {activeStatuses.map((row) => {
                     const rate = computeMoneyRatioPercent(
                       row.collectedAmount,
-                      row.grossStayRevenue,
+                      row.stayAmount,
                     );
                     return (
-                      <TableRow key={row.roomTypeId}>
+                      <TableRow key={row.status}>
                         <TableCell className="font-medium text-foreground">
-                          {row.roomTypeName}
+                          {row.statusLabel}
                         </TableCell>
                         <TableCell numeric>{row.staysCount}</TableCell>
                         <TableCell numeric>{row.totalNights}</TableCell>
@@ -466,7 +335,7 @@ export function TransientRevenueReportPanel({
                           numeric
                           className="font-medium text-foreground"
                         >
-                          {formatPhpCurrency(row.grossStayRevenue)}
+                          {formatPhpCurrency(row.stayAmount)}
                         </TableCell>
                         <TableCell numeric>
                           {formatPhpCurrency(row.invoicedAmount)}

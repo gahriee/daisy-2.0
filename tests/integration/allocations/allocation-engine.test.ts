@@ -33,11 +33,7 @@ import {
   completeAllocationInTx,
   createAllocationInTx,
 } from "../../../src/features/allocations/service";
-import {
-  createBed,
-  createRoom,
-  createRoomType,
-} from "../../../src/features/rooms/service";
+import { createBed, createRoom } from "../../../src/features/rooms/service";
 import { isPgConstraintError } from "../../../src/server/db/pg-errors";
 
 const prefix = `alloc-test-${randomUUID()}`;
@@ -77,9 +73,6 @@ afterAll(async () => {
     await db.room.deleteMany({
       where: { ownerUserId: { startsWith: prefix } },
     });
-    await db.roomType.deleteMany({
-      where: { ownerUserId: { startsWith: prefix } },
-    });
     await db.owner.deleteMany({
       where: { id: { startsWith: prefix } },
     });
@@ -100,13 +93,9 @@ afterAll(async () => {
 describe("unified allocation engine & btree_gist exclusion integration", () => {
   it("allows abutting [startDate, endDate) intervals and rejects overlaps at both service and DB constraint levels", async () => {
     const db = state.db!;
-    const singleType = await createRoomType(state.ownerId, {
-      name: "Single",
-      monthlyRate: "4500.00",
-    });
     const room = await createRoom(state.ownerId, {
       number: "101",
-      roomTypeId: singleType.id,
+      baseMonthlyRate: "4500.00",
       capacity: 1,
     });
     const bed = await createBed(state.ownerId, {
@@ -230,13 +219,9 @@ describe("unified allocation engine & btree_gist exclusion integration", () => {
 
   it("claims all beds on WHOLE_ROOM allocation, blocks overlapping bed additions, and prevents concurrent double-booking", async () => {
     const db = state.db!;
-    const dormType = await createRoomType(state.ownerId, {
-      name: "Dormitory",
-      monthlyRate: "3000.00",
-    });
     const room = await createRoom(state.ownerId, {
       number: "DORM-1",
-      roomTypeId: dormType.id,
+      baseMonthlyRate: "3000.00",
       capacity: 3,
     });
     const bedA = await createBed(state.ownerId, {

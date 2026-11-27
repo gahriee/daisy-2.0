@@ -207,6 +207,7 @@ describe("booking approval mailer (Nodemailer SMTP)", () => {
       secure: true,
       user: "host@gmail.com",
       pass: "app-pass",
+      fromName: null,
       fromEmail: "host@gmail.com",
     });
   });

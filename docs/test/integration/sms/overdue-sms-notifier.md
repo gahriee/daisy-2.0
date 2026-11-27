@@ -1,7 +1,7 @@
 # Boarding house overdue SMS notifier (Semaphore) integration
 
 - Status: BLOCKED
-- Last run: 2026-11-22 02:22:25 (UTC+8)
+- Last run: 2026-11-27 18:27:57 (UTC+8)
 - Runtime: Windows, Node 26.13.1, pnpm 12.18.0, Vitest 5.1.0, Neon PostgreSQL (`test-integration`)
 - Command: `pnpm test:integration tests/integration/sms/overdue-sms-notifier.test.ts`
 - Result: 0 passed, 1 failed (1.17 s) — blocked by `TEST_DATABASE_URL` authentication failure (`Authentication failed against the database server`).
@@ -23,4 +23,5 @@
 | Run (UTC+8) | Command | Result | Duration |
 | --- | --- | --- | --- |
 | 2026-11-22 02:22:25 | `pnpm test:integration tests/integration/sms/overdue-sms-notifier.test.ts` | 0 passed, 1 failed (DB auth error on `TEST_DATABASE_URL`) | 1.17 s |
+| 2026-11-27 18:27:57 | `pnpm test:integration tests/integration/settings/settings-and-devices.test.ts ...` (6 files) | 0 passed, 1 failed — blocked: `TEST_DATABASE_URL` authentication failed; no database substituted | 765 ms (13.89 s batch) |
 

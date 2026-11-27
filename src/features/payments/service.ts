@@ -1,4 +1,8 @@
 import "server-only";
+import {
+  getServerBillingPolicies,
+  getServerOperationalLimits,
+} from "@/config/business-config";
 import { randomUUID } from "node:crypto";
 import { manilaDateTimeToUtc, toManilaDate } from "@/lib/dates";
 import {
@@ -77,44 +81,19 @@ export function getMissingPaymentPolicyLabels(settings: {
   return missing;
 }
 
-async function requirePaymentPoliciesInTx(
-  tx: DatabaseExecutor,
-  ownerUserId: string,
-): Promise<{
+function requirePaymentPoliciesInTx(): {
   overpaymentPolicy: OverpaymentPolicyValue;
   receiptPrefix: string;
   proofMaxBytes: number;
   proofMaxFilesPerRecord: number;
-}> {
-  const settings = await tx.businessSettings.findUnique({
-    where: { ownerUserId },
-    select: {
-      overpaymentPolicy: true,
-      receiptPrefix: true,
-      proofMaxBytes: true,
-      proofMaxFilesPerRecord: true,
-    },
-  });
-
-  const missing = getMissingPaymentPolicyLabels({
-    overpaymentPolicy: settings?.overpaymentPolicy ?? null,
-    receiptPrefix: settings?.receiptPrefix ?? null,
-  });
-  if (
-    missing.length > 0 ||
-    !settings?.overpaymentPolicy ||
-    !settings.receiptPrefix
-  ) {
-    throw new PreconditionError(
-      `Configure billing and receipt policies in Settings (${missing.join(", ")}) before recording payments.`,
-    );
-  }
-
+} {
+  const policies = getServerBillingPolicies();
+  const limits = getServerOperationalLimits();
   return {
-    overpaymentPolicy: settings.overpaymentPolicy,
-    receiptPrefix: settings.receiptPrefix,
-    proofMaxBytes: settings.proofMaxBytes,
-    proofMaxFilesPerRecord: settings.proofMaxFilesPerRecord,
+    overpaymentPolicy: policies.overpaymentPolicy,
+    receiptPrefix: policies.receiptPrefix,
+    proofMaxBytes: limits.proofMaxBytes,
+    proofMaxFilesPerRecord: limits.proofMaxFilesPerRecord,
   };
 }
 
@@ -167,7 +146,7 @@ export async function recordPaymentInTx(
   const nowUtc = new Date();
 
   await lockSyncHeadForBatch(tx, ownerUserId);
-  const policies = await requirePaymentPoliciesInTx(tx, ownerUserId);
+  const policies = requirePaymentPoliciesInTx();
 
   if (input.proofIntentIds.length > policies.proofMaxFilesPerRecord) {
     throw new ValidationError(
@@ -802,35 +781,27 @@ export async function applyTenantCredit(
  */
 async function loadPaymentFormOptions(ownerUserId: string): Promise<{
   settings: {
-    overpaymentPolicy: OverpaymentPolicyValue | null;
-    receiptPrefix: string | null;
+    overpaymentPolicy: OverpaymentPolicyValue;
+    receiptPrefix: string;
     proofMaxBytes: number;
     proofMaxFilesPerRecord: number;
-  } | null;
+  };
   tenants: PaymentTenantOptionDto[];
   transientGuests: PaymentTransientOptionDto[];
   openInvoices: PaymentOpenInvoiceOptionDto[];
 }> {
   const db = getDatabase();
   const nowUtc = new Date();
+  const policies = getServerBillingPolicies();
+  const limits = getServerOperationalLimits();
 
   const [
-    settings,
     tenantRows,
     transientGuestRows,
     openInvoiceRows,
     creditsMap,
     transientCreditsMap,
   ] = await Promise.all([
-    db.businessSettings.findUnique({
-      where: { ownerUserId },
-      select: {
-        overpaymentPolicy: true,
-        receiptPrefix: true,
-        proofMaxBytes: true,
-        proofMaxFilesPerRecord: true,
-      },
-    }),
     db.tenant.findMany({
       where: { ownerUserId },
       orderBy: [{ archivedAt: "asc" }, { fullName: "asc" }],
@@ -964,7 +935,12 @@ async function loadPaymentFormOptions(ownerUserId: string): Promise<{
   );
 
   return {
-    settings,
+    settings: {
+      overpaymentPolicy: policies.overpaymentPolicy,
+      receiptPrefix: policies.receiptPrefix,
+      proofMaxBytes: limits.proofMaxBytes,
+      proofMaxFilesPerRecord: limits.proofMaxFilesPerRecord,
+    },
     tenants,
     transientGuests,
     openInvoices,

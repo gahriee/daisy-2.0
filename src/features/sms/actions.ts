@@ -3,11 +3,7 @@
 import { revalidatePath } from "next/cache";
 import { AppError } from "@/lib/errors";
 import { requireOwnerUserId } from "@/server/auth/owner";
-import {
-  sendOverdueSmsBatch,
-  sendOverdueSmsForInvoice,
-  sendTestOverdueSms,
-} from "./service";
+import { sendOverdueSmsBatch, sendOverdueSmsForInvoice } from "./service";
 
 export type OverdueSmsActionResult =
   | { status: "idle" }
@@ -87,7 +83,7 @@ export async function sendOverdueSmsBatchAction(): Promise<OverdueSmsActionResul
     if (summary.sentCount === 0 && summary.failedCount > 0) {
       return {
         status: "error",
-        message: `Overdue SMS delivery failed for ${summary.failedCount} invoice(s). Check your Semaphore API key and credits in Settings -> Overdue SMS.`,
+        message: `Overdue SMS delivery failed for ${summary.failedCount} invoice(s). Ask your setup contact to check SMS delivery credits.`,
       };
     }
 
@@ -102,38 +98,6 @@ export async function sendOverdueSmsBatchAction(): Promise<OverdueSmsActionResul
     return {
       status: "error",
       message: "Could not send overdue SMS reminders right now. Try again.",
-    };
-  }
-}
-
-export async function sendTestOverdueSmsAction(input: {
-  phone: string;
-  messageTemplate?: string | null;
-  senderName?: string | null;
-}): Promise<OverdueSmsActionResult> {
-  try {
-    const ownerUserId = await requireOwnerUserId();
-    await sendTestOverdueSms(ownerUserId, {
-      phone: input.phone,
-      ...(input.messageTemplate !== undefined
-        ? { messageTemplate: input.messageTemplate }
-        : {}),
-      ...(input.senderName !== undefined
-        ? { senderName: input.senderName }
-        : {}),
-    });
-    revalidatePath("/audit");
-    return {
-      status: "saved",
-      message: "Sample reminder sent. Check your phone shortly.",
-    };
-  } catch (error) {
-    if (error instanceof AppError) {
-      return { status: "error", message: error.message };
-    }
-    return {
-      status: "error",
-      message: "Could not send the sample text right now. Try again.",
     };
   }
 }

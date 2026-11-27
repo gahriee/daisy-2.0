@@ -1,7 +1,6 @@
 "use client";
 
 import { useState, useTransition } from "react";
-import Link from "next/link";
 import { Alert } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { Dialog } from "@/components/ui/dialog";
@@ -301,15 +300,9 @@ export function NoticeFormDialog({
 
         {!isEditing &&
           (!smsConfigured ? (
-            <Alert tone="warning">
-              Connect your Semaphore account in{" "}
-              <Link
-                href="/settings/sms"
-                className="font-medium underline underline-offset-2"
-              >
-                Overdue SMS settings
-              </Link>{" "}
-              before sending or scheduling text notices.
+            <Alert tone="info">
+              Texting is not connected yet. You can still save this notice and
+              copy it for Messenger or Viber.
             </Alert>
           ) : (
             <div className="grid gap-1.5 rounded-control border border-border bg-surface-muted/50 p-3 text-xs">

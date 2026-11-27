@@ -92,18 +92,13 @@ import {
 import {
   archiveBed,
   archiveRoom,
-  archiveRoomType,
   createBed,
   createRoom,
-  createRoomType,
-  getRoomCreateContext,
   getRoomDetail,
   listInventoryOverview,
   restoreBed,
   restoreRoom,
-  restoreRoomType,
   updateRoom,
-  updateRoomType,
 } from "../../../src/features/rooms/service";
 import { getPublicPublishedAvailability } from "../../../src/features/transients/public-service";
 import { updateRoomTransientPublish } from "../../../src/features/transients/service";
@@ -160,9 +155,6 @@ afterAll(async () => {
     await db.room.deleteMany({
       where: { ownerUserId: { startsWith: prefix } },
     });
-    await db.roomType.deleteMany({
-      where: { ownerUserId: { startsWith: prefix } },
-    });
     await db.businessSettings.deleteMany({
       where: { ownerUserId: { startsWith: prefix } },
     });
@@ -184,11 +176,6 @@ afterAll(async () => {
       await db.room.count({ where: { ownerUserId: { startsWith: prefix } } }),
     ).toBe(0);
     expect(
-      await db.roomType.count({
-        where: { ownerUserId: { startsWith: prefix } },
-      }),
-    ).toBe(0);
-    expect(
       await db.owner.count({ where: { id: { startsWith: prefix } } }),
     ).toBe(0);
   } finally {
@@ -197,8 +184,7 @@ afterAll(async () => {
 });
 
 describe("rooms, beds, soft archival, and Owner isolation integration", () => {
-  it("manages building-separated room type pricing inheritance, soft archival, restore, and Owner isolation", async () => {
-    const db = state.db!;
+  it("manages building-separated direct room pricing, filtered listing, and Owner isolation", async () => {
     state.authenticated = false;
     const unauthRes = await getRoomsRoute(
       new NextRequest("http://localhost:3000/api/rooms"),
@@ -206,119 +192,36 @@ describe("rooms, beds, soft archival, and Owner isolation integration", () => {
     expect(unauthRes.status).toBe(401);
     state.authenticated = true;
 
-    const singleType = await createRoomType(state.ownerId, {
-      building: "BOARDING",
-      name: "Single AC",
-      monthlyRate: "5000",
-      description: "Air-conditioned private room",
-    });
-    expect(singleType.building).toBe("BOARDING");
-    expect(singleType.monthlyRate).toBe("5000.00");
-    expect(singleType.dailyRate).toBeNull();
-
-    // Transient Building room type uses daily rate only and supports same name across buildings.
-    const transientSuiteType = await createRoomType(state.ownerId, {
-      building: "TRANSIENT",
-      name: "Single AC",
-      dailyRate: "750",
-    });
-    expect(transientSuiteType.building).toBe("TRANSIENT");
-    expect(transientSuiteType.monthlyRate).toBeNull();
-    expect(transientSuiteType.dailyRate).toBe("750.00");
-
-    // Duplicate active room type name in same building (case-insensitive) fails with ConflictError.
-    await expect(
-      createRoomType(state.ownerId, {
-        building: "BOARDING",
-        name: "single ac",
-        monthlyRate: "5100",
-      }),
-    ).rejects.toBeInstanceOf(ConflictError);
-
-    const doubleType = await createRoomType(state.ownerId, {
-      building: "BOARDING",
-      name: "Double Fan",
-      monthlyRate: "5200",
-    });
-
-    // Creating a room without explicit rates inherits the selected room type's pricing.
     const room = await createRoom(state.ownerId, {
       building: "BOARDING",
       number: "201",
       floor: "2nd",
-      roomTypeId: singleType.id,
+      baseMonthlyRate: "5000",
       capacity: 1,
     });
     expect(room.baseMonthlyRate).toBe("5000.00");
     expect(room.transientDailyRate).toBeNull();
-    expect(room.roomTypeName).toBe("Single AC");
 
     // Identical room number is allowed in the separate Transient Building.
     const transientRoom = await createRoom(state.ownerId, {
       building: "TRANSIENT",
       number: "201",
       floor: "2nd",
-      roomTypeId: transientSuiteType.id,
+      transientDailyRate: "750",
       capacity: 1,
     });
     expect(transientRoom.building).toBe("TRANSIENT");
     expect(transientRoom.transientDailyRate).toBe("750.00");
     expect(transientRoom.baseMonthlyRate).toBeNull();
 
-    // Cross-building roomTypeId on createRoom is rejected cleanly.
+    // Missing required rate per building is rejected cleanly.
     await expect(
       createRoom(state.ownerId, {
         building: "BOARDING",
         number: "299",
-        roomTypeId: transientSuiteType.id,
         capacity: 1,
       }),
-    ).rejects.toBeInstanceOf(PreconditionError);
-
-    // RoomType update, soft archival blocking new rooms, and restore.
-    const updatedSingleType = await updateRoomType(state.ownerId, {
-      roomTypeId: singleType.id,
-      expectedVersion: singleType.version,
-      building: "BOARDING",
-      name: "Single AC+",
-      monthlyRate: "5500",
-    });
-    expect(updatedSingleType.version).toBe(2);
-
-    const archivedSingleType = await archiveRoomType(
-      state.ownerId,
-      {
-        roomTypeId: updatedSingleType.id,
-        expectedVersion: updatedSingleType.version,
-      },
-      new Date("2026-12-01T00:00:00.000Z"),
-    );
-    expect(archivedSingleType.archivedAt).not.toBeNull();
-
-    await expect(
-      createRoom(state.ownerId, {
-        building: "BOARDING",
-        number: "202",
-        roomTypeId: archivedSingleType.id,
-        capacity: 1,
-      }),
-    ).rejects.toBeInstanceOf(PreconditionError);
-
-    const restoredSingleType = await restoreRoomType(state.ownerId, {
-      roomTypeId: archivedSingleType.id,
-      expectedVersion: archivedSingleType.version,
-    });
-    expect(restoredSingleType.archivedAt).toBeNull();
-
-    // Cross-Owner isolation and authenticated filtered read routes.
-    await expect(
-      updateRoomType(`${prefix}-foreign`, {
-        roomTypeId: restoredSingleType.id,
-        expectedVersion: restoredSingleType.version,
-        name: "Hacked",
-        monthlyRate: "100",
-      }),
-    ).rejects.toBeInstanceOf(NotFoundError);
+    ).rejects.toBeInstanceOf(ValidationError);
 
     const authRes = await getRoomsRoute(
       new NextRequest("http://localhost:3000/api/rooms?building=TRANSIENT"),
@@ -333,33 +236,17 @@ describe("rooms, beds, soft archival, and Owner isolation integration", () => {
     const overview = await listInventoryOverview(state.ownerId, {
       building: "BOARDING",
     });
-    expect(overview.roomTypes.length).toBe(2);
-    expect(doubleType.monthlyRate).toBe("5200.00");
-
-    const tombstones = await db.changeFeed.findMany({
-      where: { ownerUserId: state.ownerId, operation: "tombstone" },
-      select: { entityType: true },
-    });
-    expect(tombstones.map((t) => t.entityType)).toContain("room_type");
+    expect(overview.rooms).toHaveLength(1);
+    expect(overview.rooms[0]?.baseMonthlyRate).toBe("5000.00");
   });
 
   it("enforces room/bed capacity, duplicate active numbers, version preconditions, and archival blockers", async () => {
     const db = state.db!;
-    const singleType = await createRoomType(state.ownerId, {
-      building: "BOARDING",
-      name: "Single AC",
-      monthlyRate: "5000",
-    });
-    const doubleType = await createRoomType(state.ownerId, {
-      building: "BOARDING",
-      name: "Double Fan",
-      monthlyRate: "5200",
-    });
 
     const room = await createRoom(state.ownerId, {
       number: "201",
       floor: "2nd",
-      roomTypeId: singleType.id,
+      baseMonthlyRate: "5000",
       capacity: 1,
     });
 
@@ -367,7 +254,7 @@ describe("rooms, beds, soft archival, and Owner isolation integration", () => {
     await expect(
       createRoom(state.ownerId, {
         number: "201",
-        roomTypeId: singleType.id,
+        baseMonthlyRate: "5000",
         capacity: 1,
       }),
     ).rejects.toBeInstanceOf(ConflictError);
@@ -393,19 +280,17 @@ describe("rooms, beds, soft archival, and Owner isolation integration", () => {
       expectedVersion: room.version,
       number: "201",
       floor: "2nd",
-      roomTypeId: doubleType.id,
       capacity: 2,
       baseMonthlyRate: "5200",
     });
     expect(bumped.version).toBe(2);
-    expect(bumped.roomTypeName).toBe("Double Fan");
+    expect(bumped.baseMonthlyRate).toBe("5200.00");
 
     await expect(
       updateRoom(state.ownerId, {
         roomId: room.id,
         expectedVersion: 1,
         number: "201",
-        roomTypeId: doubleType.id,
         capacity: 2,
         baseMonthlyRate: "5300",
       }),
@@ -488,7 +373,6 @@ describe("rooms, beds, soft archival, and Owner isolation integration", () => {
         roomId: room.id,
         expectedVersion: restoredRoom.version,
         number: "999",
-        roomTypeId: singleType.id,
         capacity: 1,
         baseMonthlyRate: "100",
       }),
@@ -509,7 +393,7 @@ describe("rooms, beds, soft archival, and Owner isolation integration", () => {
     );
   });
 
-  it("uploads preview + captioned gallery photos, enforces Owner & public visibility, and inherits omitted update rates", async () => {
+  it("uploads preview + captioned gallery photos, enforces Owner & public visibility, and updates direct room rates", async () => {
     const db = state.db!;
     await db.owner.upsert({
       where: { id: state.ownerId },
@@ -529,17 +413,6 @@ describe("rooms, beds, soft archival, and Owner isolation integration", () => {
         checkInTimeManila: "14:00",
         checkOutTimeManila: "12:00",
       },
-    });
-
-    const singleType = await createRoomType(state.ownerId, {
-      building: "TRANSIENT",
-      name: "Standard Single",
-      dailyRate: "550",
-    });
-    const studioType = await createRoomType(state.ownerId, {
-      building: "TRANSIENT",
-      name: "Deluxe Studio",
-      dailyRate: "900",
     });
 
     // Reject forged content pretending to be PNG.
@@ -598,15 +471,10 @@ describe("rooms, beds, soft archival, and Owner isolation integration", () => {
     }
 
     // Boarding House rooms reject photo upload intents and photo manifest attachments.
-    const boardingType = await createRoomType(state.ownerId, {
-      building: "BOARDING",
-      name: "Boarding Solo",
-      monthlyRate: "4500",
-    });
     const boardingRoom = await createRoom(state.ownerId, {
       building: "BOARDING",
       number: "B-101",
-      roomTypeId: boardingType.id,
+      baseMonthlyRate: "4500",
       capacity: 1,
     });
     const samplePngBytes = new Uint8Array([
@@ -631,7 +499,7 @@ describe("rooms, beds, soft archival, and Owner isolation integration", () => {
         roomId: boardingRoom.id,
         expectedVersion: boardingRoom.version,
         number: "B-101",
-        roomTypeId: boardingType.id,
+        baseMonthlyRate: "4500",
         capacity: 1,
         photos: {
           preview: {
@@ -655,7 +523,7 @@ describe("rooms, beds, soft archival, and Owner isolation integration", () => {
       building: "TRANSIENT",
       number: "301",
       floor: "3rd Floor",
-      roomTypeId: singleType.id,
+      transientDailyRate: "550",
       capacity: 1,
       photos: {
         preview: {
@@ -726,7 +594,7 @@ describe("rooms, beds, soft archival, and Owner isolation integration", () => {
     expect(foreignRes.status).toBe(404);
     state.ownerId = savedOwnerId;
 
-    // Replacing preview, reordering gallery, editing caption, AND omitting rate fields inherits studioType rates.
+    // Replacing preview, reordering gallery, editing caption, and updating daily rate directly.
     const preview2 = await uploadSamplePng("preview-2.png", 40);
     const updated = await updateRoom(state.ownerId, {
       roomId: created.id,
@@ -734,7 +602,7 @@ describe("rooms, beds, soft archival, and Owner isolation integration", () => {
       building: "TRANSIENT",
       number: "301",
       floor: "3rd Floor",
-      roomTypeId: studioType.id,
+      transientDailyRate: "900",
       capacity: 1,
       photos: {
         preview: {
@@ -816,31 +684,19 @@ describe("rooms, beds, soft archival, and Owner isolation integration", () => {
     );
   }, 45_000);
 
-  it("loads room create-context and owner-scoped room detail cleanly", async () => {
-    const roomType = await createRoomType(state.ownerId, {
-      building: "BOARDING",
-      name: "Standard Solo",
-      monthlyRate: "5000.00",
-      description: null,
-    });
+  it("loads owner-scoped room detail cleanly", async () => {
     const room = await createRoom(state.ownerId, {
       building: "BOARDING",
       number: "209",
       floor: "2nd Floor",
-      roomTypeId: roomType.id,
       capacity: 1,
       baseMonthlyRate: "5000.00",
       notes: null,
     });
 
-    const createContext = await getRoomCreateContext(state.ownerId);
-    expect(
-      createContext.activeRoomTypes.some((rt) => rt.id === roomType.id),
-    ).toBe(true);
-
     const detail = await getRoomDetail(state.ownerId, room.id);
-    expect(detail?.room.id).toBe(room.id);
-    expect(detail?.roomTypes.some((rt) => rt.id === roomType.id)).toBe(true);
+    expect(detail?.id).toBe(room.id);
+    expect(detail?.baseMonthlyRate).toBe("5000.00");
 
     expect(await getRoomDetail(`${state.ownerId}-other`, room.id)).toBeNull();
     expect(await getRoomDetail(state.ownerId, randomUUID())).toBeNull();

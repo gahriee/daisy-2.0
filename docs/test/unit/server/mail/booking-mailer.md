@@ -1,10 +1,10 @@
 # Booking approval & pending-request mailer
 
 - Status: PASS
-- Last run: 2026-11-23 21:29:03 (UTC+8)
+- Last run: 2026-11-27 18:26:18 (UTC+8)
 - Runtime: Windows, Vitest 5.1.0
-- Command: `pnpm exec vitest run tests/unit/server/mail/booking-mailer.test.ts`
-- Result: 7 passed, 0 failed, 0 skipped across 1 file, 505 ms (12 ms test time).
+- Command: `pnpm test:unit tests/unit/config/business-config.test.ts tests/unit/features/settings/schemas.test.ts tests/unit/features/sms/schemas.test.ts tests/unit/server/mail/booking-mailer.test.ts`
+- Result: 7 passed here (16 ms); suite 220 passed, 0 failed, 0 skipped across 51 files, 3.44 s.
 - Target file: [tests/unit/server/mail/booking-mailer.test.ts](../../../../tests/unit/server/mail/booking-mailer.test.ts) -> [src/server/mail/booking-mailer.ts](../../../../src/server/mail/booking-mailer.ts)
 
 ## Verified criteria
@@ -13,7 +13,7 @@
 - Builds branded HTML and plain-text pending-request email content (`Pending review` badge, amber `Request reference` callout with `not a confirmed booking yet`, `Track booking status` CTA, compact `Requested stay` card with 12-hour AM/PM times and `Estimated total`, `What happens next` 2-step guide, inline CID Daisy brand icon) without `Confirmed total`, `Getting here`, or `Book Grab`.
 - Skips cleanly without creating a transport when SMTP settings are not configured for both approved and pending-request mailers.
 - Sends via Nodemailer SMTP transport and handles transport/auth failures without throwing, always closing the transport, for both approved and pending-request mailers.
-- Resolves fallback SMTP configuration from environment variables (`SMTP_HOST`, `SMTP_PORT`, `SMTP_SECURE`, `SMTP_USER`, `SMTP_PASS`, `MAIL_FROM`).
+- Resolves SMTP configuration strictly from environment variables (`SMTP_HOST`, `SMTP_PORT`, `SMTP_SECURE`, `SMTP_USER`, `SMTP_PASS`, `MAIL_FROM`, `MAIL_FROM_NAME`) via `src/config/business-config.ts`.
 - Sends verification test emails cleanly via `sendTestSmtpEmailSafe` for both `"approved"` (default) and `"pending"` templates.
 
 ## Run History
@@ -32,3 +32,4 @@
 | 2026-11-23 21:19:47 | `pnpm exec vitest run tests/unit/server/mail/booking-mailer.test.ts` | 7 passed, 0 failed, 0 skipped (1 file) | 593 ms (16 ms tests) |
 | 2026-11-23 21:24:56 | `pnpm exec vitest run tests/unit/server/mail/booking-mailer.test.ts` | 7 passed, 0 failed, 0 skipped (1 file) | 513 ms (12 ms tests) |
 | 2026-11-23 21:29:03 | `pnpm exec vitest run tests/unit/server/mail/booking-mailer.test.ts` | 7 passed, 0 failed, 0 skipped (1 file) | 505 ms (12 ms tests) |
+| 2026-11-27 18:26:18 | `pnpm test:unit tests/unit/config/business-config.test.ts tests/unit/features/settings/schemas.test.ts tests/unit/features/sms/schemas.test.ts tests/unit/server/mail/booking-mailer.test.ts` | 7 passed (suite: 220/220 across 51 files) | 16 ms (3.44 s suite) |

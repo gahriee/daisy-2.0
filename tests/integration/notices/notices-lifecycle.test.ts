@@ -47,10 +47,7 @@ vi.mock("@/server/auth/owner", async (original) => {
 import { ConflictError, NotFoundError } from "../../../src/lib/errors";
 import { isPgConstraintError } from "../../../src/server/db/pg-errors";
 import { listAuditLogs } from "../../../src/features/audit/service";
-import {
-  createRoom,
-  createRoomType,
-} from "../../../src/features/rooms/service";
+import { createRoom } from "../../../src/features/rooms/service";
 import { createTenant } from "../../../src/features/tenants/service";
 import {
   archiveNotice,
@@ -116,9 +113,6 @@ afterAll(async () => {
     await db.room.deleteMany({
       where: { ownerUserId: { startsWith: prefix } },
     });
-    await db.roomType.deleteMany({
-      where: { ownerUserId: { startsWith: prefix } },
-    });
     await db.owner.deleteMany({
       where: { id: { startsWith: prefix } },
     });
@@ -143,13 +137,9 @@ describe("notices CRUD, audience targeting, ChangeFeed snapshots & constraints i
     expect(unauthRes.status).toBe(401);
 
     state.authenticated = true;
-    const rt = await createRoomType(state.ownerId, {
-      name: "Shared Dorm",
-      monthlyRate: "3500.00",
-    });
     const room = await createRoom(state.ownerId, {
       number: "305",
-      roomTypeId: rt.id,
+      baseMonthlyRate: "3500.00",
       capacity: 4,
     });
     const tenant = await createTenant(state.ownerId, {
