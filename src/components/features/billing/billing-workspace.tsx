@@ -13,6 +13,7 @@ import { Alert } from "@/components/ui/alert";
 import { Badge, CountPill } from "@/components/ui/badge";
 import { Button, buttonClasses } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
+import { DatePicker } from "@/components/ui/date-picker";
 import {
   EmptyState,
   EmptyStateActions,
@@ -20,6 +21,7 @@ import {
   EmptyStateTitle,
 } from "@/components/ui/empty-state";
 import { Field } from "@/components/ui/field";
+import { Input } from "@/components/ui/input";
 import { MetricCard } from "@/components/ui/metric-card";
 import {
   SearchFilterBar,
@@ -39,6 +41,11 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
+import {
+  FilterToggleButton,
+  TableColumnPicker,
+  type TableColumnOption,
+} from "@/components/ui/table-column-picker";
 import { TablePagination } from "@/components/ui/table-pagination";
 import { toast } from "@/components/ui/toaster";
 import { issueDraftInvoiceAction } from "@/features/billing/actions";
@@ -55,7 +62,7 @@ import {
 import { useTablePagination } from "@/hooks/use-table-pagination";
 import { useTableSort } from "@/hooks/use-table-sort";
 import { formatManilaDate } from "@/lib/dates";
-import { formatPhpCurrency } from "@/lib/money";
+import { formatPhpCurrency, parseMoneyDecimal } from "@/lib/money";
 import type { SortColumnDef } from "@/lib/table-sort";
 import { loadBillingOverviewFromVault } from "@/offline/snapshot-selectors-extra";
 import {
@@ -192,6 +199,46 @@ function PeriodTotalIcon() {
   );
 }
 
+type BillingPayerFilter = "all" | "boarder" | "transient";
+
+type BillingColumnKey =
+  | "payer"
+  | "dueDate"
+  | "balance"
+  | "status"
+  | "period"
+  | "total"
+  | "paid"
+  | "items";
+
+const BILLING_COLUMN_OPTIONS: readonly TableColumnOption<BillingColumnKey>[] = [
+  { key: "payer", label: "Boarder / Guest", group: "Browse records" },
+  { key: "dueDate", label: "Due date", group: "Browse records" },
+  { key: "balance", label: "Balance", group: "Browse records" },
+  { key: "status", label: "Status", group: "Browse records" },
+  { key: "period", label: "Period", group: "More details" },
+  { key: "total", label: "Total", group: "More details" },
+  { key: "paid", label: "Paid", group: "More details" },
+  { key: "items", label: "Line items", group: "More details" },
+];
+
+const DEFAULT_BILLING_COLUMNS: readonly BillingColumnKey[] = [
+  "payer",
+  "dueDate",
+  "balance",
+  "status",
+];
+
+function parseOptionalMoneyFilter(raw: string): bigint | null {
+  const trimmed = raw.trim();
+  if (!trimmed) return null;
+  try {
+    return parseMoneyDecimal(trimmed);
+  } catch {
+    return null;
+  }
+}
+
 export function BillingWorkspace({
   initialOverview,
   offlineMode = false,
@@ -226,8 +273,17 @@ export function BillingWorkspace({
     },
   });
   const [searchQuery, setSearchQuery] = useState("");
+  const [filtersOpen, setFiltersOpen] = useState(false);
   const [viewFilter, setViewFilter] = useState<BillingViewFilter>("all");
+  const [payerFilter, setPayerFilter] = useState<BillingPayerFilter>("all");
   const [periodFilter, setPeriodFilter] = useState<string>("ALL");
+  const [dueDateFrom, setDueDateFrom] = useState("");
+  const [dueDateTo, setDueDateTo] = useState("");
+  const [minBalance, setMinBalance] = useState("");
+  const [maxBalance, setMaxBalance] = useState("");
+  const [visibleColumns, setVisibleColumns] = useState<BillingColumnKey[]>([
+    ...DEFAULT_BILLING_COLUMNS,
+  ]);
   const [generateOpen, setGenerateOpen] = useState(false);
   const [adjustingInvoice, setAdjustingInvoice] = useState<InvoiceDto | null>(
     null,
@@ -339,6 +395,8 @@ export function BillingWorkspace({
   ).sort((a, b) => b.localeCompare(a));
 
   const normalizedQuery = searchQuery.trim().toLowerCase();
+  const minBalanceCentavos = parseOptionalMoneyFilter(minBalance);
+  const maxBalanceCentavos = parseOptionalMoneyFilter(maxBalance);
   const filteredInvoices = overview.invoices.filter((invoice) => {
     if (
       viewFilter === "open" &&
@@ -352,8 +410,27 @@ export function BillingWorkspace({
     if (viewFilter === "paid" && invoice.status !== "PAID") return false;
     if (viewFilter === "void" && invoice.status !== "VOID") return false;
 
-    if (periodFilter !== "ALL" && invoice.billingPeriod !== periodFilter) {
+    if (payerFilter === "boarder" && !invoice.tenantId) return false;
+    if (payerFilter === "transient" && !invoice.transientGuestId) return false;
+
+    if (periodFilter === "AD_HOC" && invoice.billingPeriod !== null) {
       return false;
+    }
+    if (
+      periodFilter !== "ALL" &&
+      periodFilter !== "AD_HOC" &&
+      invoice.billingPeriod !== periodFilter
+    ) {
+      return false;
+    }
+
+    if (dueDateFrom && invoice.dueDateManila < dueDateFrom) return false;
+    if (dueDateTo && invoice.dueDateManila > dueDateTo) return false;
+
+    if (minBalanceCentavos !== null || maxBalanceCentavos !== null) {
+      const bal = parseMoneyDecimal(invoice.balanceAmount);
+      if (minBalanceCentavos !== null && bal < minBalanceCentavos) return false;
+      if (maxBalanceCentavos !== null && bal > maxBalanceCentavos) return false;
     }
 
     if (!normalizedQuery) return true;
@@ -361,15 +438,35 @@ export function BillingWorkspace({
       invoice.invoiceNumber ?? "draft",
       invoice.snapshotTenantName ?? "",
       invoice.snapshotRoomNumber ?? "",
-      invoice.billingPeriod ?? "",
     ]
       .join(" ")
       .toLowerCase();
     return haystack.includes(normalizedQuery);
   });
 
+  const extraFilterCount =
+    (payerFilter !== "all" ? 1 : 0) +
+    (periodFilter !== "ALL" ? 1 : 0) +
+    (dueDateFrom !== "" ? 1 : 0) +
+    (dueDateTo !== "" ? 1 : 0) +
+    (minBalance.trim() !== "" ? 1 : 0) +
+    (maxBalance.trim() !== "" ? 1 : 0);
+
   const hasActiveFilter =
-    normalizedQuery !== "" || viewFilter !== "all" || periodFilter !== "ALL";
+    normalizedQuery !== "" || viewFilter !== "all" || extraFilterCount > 0;
+
+  function clearAllBillingFilters() {
+    setSearchQuery("");
+    setViewFilter("all");
+    setPayerFilter("all");
+    setPeriodFilter("ALL");
+    setDueDateFrom("");
+    setDueDateTo("");
+    setMinBalance("");
+    setMaxBalance("");
+  }
+
+  const showCol = (key: BillingColumnKey) => visibleColumns.includes(key);
 
   const {
     sortedRows: sortedInvoices,
@@ -382,7 +479,7 @@ export function BillingWorkspace({
 
   const { paginatedRows: paginatedInvoices, paginationProps } =
     useTablePagination(sortedInvoices, {
-      resetKey: `${normalizedQuery}|${viewFilter}|${periodFilter}|${sort?.key ?? ""}|${sort?.direction ?? ""}`,
+      resetKey: `${normalizedQuery}|${viewFilter}|${payerFilter}|${periodFilter}|${dueDateFrom}|${dueDateTo}|${minBalance}|${maxBalance}|${sort?.key ?? ""}|${sort?.direction ?? ""}`,
     });
 
   function getInvoiceRowActions(
@@ -560,67 +657,151 @@ export function BillingWorkspace({
       <SearchFilterBar
         aria-label="Find invoices"
         hasActiveFilters={hasActiveFilter}
-        onClearAll={() => {
-          setSearchQuery("");
-          setViewFilter("all");
-          setPeriodFilter("ALL");
-        }}
+        onClearAll={clearAllBillingFilters}
       >
-        <div className="grid grid-cols-1 gap-3 md:grid-cols-2 lg:grid-cols-12 lg:items-end">
-          <div className="md:col-span-2 lg:col-span-6">
-            <Field id="billing-search" label="Find an invoice">
-              {(fieldProps) => (
-                <SearchFilterInput
-                  {...fieldProps}
-                  placeholder="Invoice number, tenant, room, or YYYY-MM"
-                  value={searchQuery}
-                  onValueChange={setSearchQuery}
-                />
-              )}
-            </Field>
+        <div className="grid gap-3">
+          <div className="flex flex-col gap-2.5 sm:flex-row sm:items-end">
+            <div className="min-w-0 flex-1">
+              <Field id="billing-search" label="Find an invoice">
+                {(fieldProps) => (
+                  <SearchFilterInput
+                    {...fieldProps}
+                    placeholder="Invoice #, name, or room"
+                    value={searchQuery}
+                    onValueChange={setSearchQuery}
+                  />
+                )}
+              </Field>
+            </div>
+            <div className="w-full sm:w-44">
+              <Field id="billing-status-filter" label="Status">
+                {(fieldProps) => (
+                  <Select
+                    {...fieldProps}
+                    variant="filter"
+                    value={viewFilter}
+                    onChange={(event) =>
+                      setViewFilter(event.target.value as BillingViewFilter)
+                    }
+                  >
+                    <option value="all">All statuses</option>
+                    <option value="open">Open</option>
+                    <option value="overdue">Overdue</option>
+                    <option value="draft">Drafts</option>
+                    <option value="paid">Paid</option>
+                    <option value="void">Void</option>
+                  </Select>
+                )}
+              </Field>
+            </div>
+            <div className="flex flex-wrap items-center gap-2">
+              <FilterToggleButton
+                open={filtersOpen}
+                activeCount={extraFilterCount}
+                onToggle={() => setFiltersOpen((prev) => !prev)}
+                controlsId="billing-filters-panel"
+              />
+              <TableColumnPicker
+                options={BILLING_COLUMN_OPTIONS}
+                visibleKeys={visibleColumns}
+                defaultKeys={DEFAULT_BILLING_COLUMNS}
+                onChange={setVisibleColumns}
+              />
+            </div>
           </div>
 
-          <div className="lg:col-span-3">
-            <Field id="billing-period-filter" label="Period">
-              {(fieldProps) => (
-                <Select
-                  {...fieldProps}
-                  variant="filter"
-                  value={periodFilter}
-                  onChange={(event) => setPeriodFilter(event.target.value)}
-                >
-                  <option value="ALL">All periods</option>
-                  {periodOptions.map((period) => (
-                    <option key={period} value={period}>
-                      {formatBillingPeriodLabel(period)}
-                    </option>
-                  ))}
-                </Select>
-              )}
-            </Field>
-          </div>
+          {filtersOpen && (
+            <div
+              id="billing-filters-panel"
+              className="grid grid-cols-1 gap-3 border-t border-border pt-3 sm:grid-cols-2 lg:grid-cols-4"
+            >
+              <Field id="billing-payer-filter" label="Payer type">
+                {(fieldProps) => (
+                  <Select
+                    {...fieldProps}
+                    variant="filter"
+                    value={payerFilter}
+                    onChange={(event) =>
+                      setPayerFilter(event.target.value as BillingPayerFilter)
+                    }
+                  >
+                    <option value="all">All payers</option>
+                    <option value="boarder">Boarders</option>
+                    <option value="transient">Transient guests</option>
+                  </Select>
+                )}
+              </Field>
 
-          <div className="lg:col-span-3">
-            <Field id="billing-status-filter" label="Status">
-              {(fieldProps) => (
-                <Select
-                  {...fieldProps}
-                  variant="filter"
-                  value={viewFilter}
-                  onChange={(event) =>
-                    setViewFilter(event.target.value as BillingViewFilter)
-                  }
-                >
-                  <option value="all">All statuses</option>
-                  <option value="open">Open</option>
-                  <option value="overdue">Overdue</option>
-                  <option value="draft">Drafts</option>
-                  <option value="paid">Paid</option>
-                  <option value="void">Void</option>
-                </Select>
-              )}
-            </Field>
-          </div>
+              <Field id="billing-period-filter" label="Period">
+                {(fieldProps) => (
+                  <Select
+                    {...fieldProps}
+                    variant="filter"
+                    value={periodFilter}
+                    onChange={(event) => setPeriodFilter(event.target.value)}
+                  >
+                    <option value="ALL">All periods</option>
+                    <option value="AD_HOC">Ad-hoc</option>
+                    {periodOptions.map((period) => (
+                      <option key={period} value={period}>
+                        {formatBillingPeriodLabel(period)}
+                      </option>
+                    ))}
+                  </Select>
+                )}
+              </Field>
+
+              <Field id="billing-due-from" label="Due date from">
+                {(fieldProps) => (
+                  <DatePicker
+                    {...fieldProps}
+                    value={dueDateFrom}
+                    onValueChange={setDueDateFrom}
+                  />
+                )}
+              </Field>
+
+              <Field id="billing-due-to" label="Due date to">
+                {(fieldProps) => (
+                  <DatePicker
+                    {...fieldProps}
+                    value={dueDateTo}
+                    onValueChange={setDueDateTo}
+                  />
+                )}
+              </Field>
+
+              <Field id="billing-min-balance" label="Min balance (PHP)">
+                {(fieldProps) => (
+                  <Input
+                    {...fieldProps}
+                    type="number"
+                    inputMode="decimal"
+                    min={0}
+                    step="0.01"
+                    placeholder="0.00"
+                    value={minBalance}
+                    onChange={(event) => setMinBalance(event.target.value)}
+                  />
+                )}
+              </Field>
+
+              <Field id="billing-max-balance" label="Max balance (PHP)">
+                {(fieldProps) => (
+                  <Input
+                    {...fieldProps}
+                    type="number"
+                    inputMode="decimal"
+                    min={0}
+                    step="0.01"
+                    placeholder="0.00"
+                    value={maxBalance}
+                    onChange={(event) => setMaxBalance(event.target.value)}
+                  />
+                )}
+              </Field>
+            </div>
+          )}
         </div>
       </SearchFilterBar>
 
@@ -650,11 +831,7 @@ export function BillingWorkspace({
               <Button
                 variant="secondary"
                 size="md"
-                onClick={() => {
-                  setSearchQuery("");
-                  setViewFilter("all");
-                  setPeriodFilter("ALL");
-                }}
+                onClick={clearAllBillingFilters}
               >
                 Clear
               </Button>
@@ -690,9 +867,10 @@ export function BillingWorkspace({
                         {invoice.invoiceNumber ?? "Draft"}
                       </Link>
                       <span className="text-sm font-medium text-foreground">
-                        {invoice.snapshotTenantName ?? "Tenant"}
+                        {invoice.snapshotTenantName ?? "Guest"}
                       </span>
                       <span className="text-xs text-muted-foreground">
+                        {invoice.transientGuestId ? "Transient · " : ""}
                         {invoice.snapshotRoomNumber
                           ? `Room ${invoice.snapshotRoomNumber}`
                           : "Unassigned"}
@@ -733,82 +911,148 @@ export function BillingWorkspace({
           </div>
 
           {/* Desktop ledger table */}
-          <div className="hidden md:block">
+          <div className="hidden overflow-x-auto md:block">
             <Table containerClassName="rounded-none border-0">
               <TableHeader>
                 <TableRow>
                   <TableHead {...sortHeaderProps("invoice")}>Invoice</TableHead>
-                  <TableHead {...sortHeaderProps("tenant")}>Tenant</TableHead>
-                  <TableHead {...sortHeaderProps("period")}>Period</TableHead>
-                  <TableHead {...sortHeaderProps("dueDate")}>
-                    Due date
-                  </TableHead>
-                  <TableHead numeric {...sortHeaderProps("total")}>
-                    Total
-                  </TableHead>
-                  <TableHead numeric {...sortHeaderProps("balance")}>
-                    Open balance
-                  </TableHead>
-                  <TableHead {...sortHeaderProps("status")}>Status</TableHead>
+                  {showCol("payer") && (
+                    <TableHead {...sortHeaderProps("tenant")}>
+                      Boarder / Guest
+                    </TableHead>
+                  )}
+                  {showCol("period") && (
+                    <TableHead {...sortHeaderProps("period")}>Period</TableHead>
+                  )}
+                  {showCol("dueDate") && (
+                    <TableHead {...sortHeaderProps("dueDate")}>
+                      Due date
+                    </TableHead>
+                  )}
+                  {showCol("items") && <TableHead>Line items</TableHead>}
+                  {showCol("total") && (
+                    <TableHead numeric {...sortHeaderProps("total")}>
+                      Total
+                    </TableHead>
+                  )}
+                  {showCol("paid") && <TableHead numeric>Paid</TableHead>}
+                  {showCol("balance") && (
+                    <TableHead numeric {...sortHeaderProps("balance")}>
+                      Balance
+                    </TableHead>
+                  )}
+                  {showCol("status") && (
+                    <TableHead {...sortHeaderProps("status")}>Status</TableHead>
+                  )}
                   <TableHead className="text-right">Actions</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
                 {paginatedInvoices.map((invoice) => {
                   const isRowBusy = rowPendingId === invoice.id;
+                  const showTotalSubline =
+                    !showCol("total") &&
+                    invoice.balanceAmount !== invoice.totalAmount;
                   return (
                     <TableRow key={invoice.id}>
-                      <TableCell className="font-mono text-xs font-semibold tabular-nums">
-                        <Link
-                          href={`/billing/${invoice.id}`}
-                          className="text-foreground hover:text-primary"
-                        >
-                          {invoice.invoiceNumber ?? "Draft"}
-                        </Link>
-                      </TableCell>
-                      <TableCell>
+                      <TableCell className="tabular-nums">
                         <div className="grid gap-0.5">
                           <Link
-                            href={
-                              invoice.tenantId
-                                ? `/tenants/${invoice.tenantId}`
-                                : "/transients/stays"
-                            }
-                            className="font-medium text-foreground hover:text-primary"
+                            href={`/billing/${invoice.id}`}
+                            className="font-mono text-xs font-semibold text-foreground hover:text-primary"
                           >
-                            {invoice.snapshotTenantName ?? "Guest"}
+                            {invoice.invoiceNumber ?? "Draft"}
                           </Link>
-                          {invoice.snapshotRoomNumber && (
-                            <span className="text-xs text-muted-foreground tabular-nums">
-                              Room {invoice.snapshotRoomNumber}
+                          {!showCol("period") && (
+                            <span className="text-xs text-muted-foreground">
+                              {invoice.billingPeriod
+                                ? formatBillingPeriodLabel(
+                                    invoice.billingPeriod,
+                                  )
+                                : "Ad-hoc"}
                             </span>
                           )}
                         </div>
                       </TableCell>
-                      <TableCell className="tabular-nums">
-                        {invoice.billingPeriod
-                          ? formatBillingPeriodLabel(invoice.billingPeriod)
-                          : "Ad-hoc"}
-                      </TableCell>
-                      <TableCell className="tabular-nums">
-                        {formatManilaDate(invoice.dueDateManila)}
-                      </TableCell>
-                      <TableCell numeric>
-                        {formatPhpCurrency(invoice.totalAmount)}
-                      </TableCell>
-                      <TableCell numeric className="font-semibold">
-                        {formatPhpCurrency(invoice.balanceAmount)}
-                      </TableCell>
-                      <TableCell>
-                        <div className="flex flex-wrap items-center gap-1.5">
-                          <Badge tone={INVOICE_BADGE_TONE[invoice.status]}>
-                            {INVOICE_STATUS_LABELS[invoice.status]}
-                          </Badge>
-                          {invoice.isOverdue && (
-                            <Badge tone="danger">Overdue</Badge>
-                          )}
-                        </div>
-                      </TableCell>
+                      {showCol("payer") && (
+                        <TableCell>
+                          <div className="grid gap-0.5">
+                            <Link
+                              href={
+                                invoice.tenantId
+                                  ? `/tenants/${invoice.tenantId}`
+                                  : "/transients/stays"
+                              }
+                              className="font-medium text-foreground hover:text-primary"
+                            >
+                              {invoice.snapshotTenantName ?? "Guest"}
+                            </Link>
+                            {invoice.snapshotRoomNumber && (
+                              <span className="text-xs text-muted-foreground tabular-nums">
+                                {invoice.transientGuestId ? "Transient · " : ""}
+                                Room {invoice.snapshotRoomNumber}
+                              </span>
+                            )}
+                          </div>
+                        </TableCell>
+                      )}
+                      {showCol("period") && (
+                        <TableCell className="tabular-nums">
+                          {invoice.billingPeriod
+                            ? formatBillingPeriodLabel(invoice.billingPeriod)
+                            : "Ad-hoc"}
+                        </TableCell>
+                      )}
+                      {showCol("dueDate") && (
+                        <TableCell className="tabular-nums">
+                          {formatManilaDate(invoice.dueDateManila)}
+                        </TableCell>
+                      )}
+                      {showCol("items") && (
+                        <TableCell className="max-w-56 text-xs text-muted-foreground">
+                          {invoice.items.length > 0
+                            ? invoice.items
+                                .map((item) => item.description)
+                                .join(", ")
+                            : "—"}
+                        </TableCell>
+                      )}
+                      {showCol("total") && (
+                        <TableCell numeric>
+                          {formatPhpCurrency(invoice.totalAmount)}
+                        </TableCell>
+                      )}
+                      {showCol("paid") && (
+                        <TableCell numeric className="text-muted-foreground">
+                          {formatPhpCurrency(invoice.paidAmount)}
+                        </TableCell>
+                      )}
+                      {showCol("balance") && (
+                        <TableCell numeric>
+                          <div className="grid gap-0.5">
+                            <span className="font-semibold text-foreground">
+                              {formatPhpCurrency(invoice.balanceAmount)}
+                            </span>
+                            {showTotalSubline && (
+                              <span className="text-xs text-muted-foreground">
+                                of {formatPhpCurrency(invoice.totalAmount)}
+                              </span>
+                            )}
+                          </div>
+                        </TableCell>
+                      )}
+                      {showCol("status") && (
+                        <TableCell>
+                          <div className="flex flex-wrap items-center gap-1.5">
+                            <Badge tone={INVOICE_BADGE_TONE[invoice.status]}>
+                              {INVOICE_STATUS_LABELS[invoice.status]}
+                            </Badge>
+                            {invoice.isOverdue && (
+                              <Badge tone="danger">Overdue</Badge>
+                            )}
+                          </div>
+                        </TableCell>
+                      )}
                       <TableCell className="text-right">
                         <RowActionMenu
                           label={`Actions for invoice ${invoice.invoiceNumber ?? "Draft"}`}

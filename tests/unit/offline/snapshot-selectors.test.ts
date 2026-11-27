@@ -608,14 +608,14 @@ describe("Offline snapshot selectors & projection overlays", () => {
           title: "Roof leak",
           category: "STRUCTURAL",
           priority: "URGENT",
-          status: "WAITING_PARTS",
+          status: "IN_PROGRESS",
           archivedAt: null,
           activeHolds: [{ id: randomUUID(), status: "ACTIVE" }],
         }),
       ],
       outbox: [],
     });
-    expect(maintRes.overview.totals.waitingPartsCount).toBe(1);
+    expect(maintRes.overview.totals.inProgressCount).toBe(1);
     expect(maintRes.overview.totals.urgentOpenCount).toBe(1);
     expect(maintRes.overview.totals.activeHoldsCount).toBe(1);
   });
@@ -678,7 +678,7 @@ describe("Offline snapshot selectors & projection overlays", () => {
         partySize: 2,
         dailyRate: "1250.00",
         totalAmount: "2500.00",
-        status: "TENTATIVE",
+        status: "CONFIRMED",
       }),
       makeView("invoice", invId, {
         id: invId,
@@ -722,7 +722,7 @@ describe("Offline snapshot selectors & projection overlays", () => {
         }),
       ],
     });
-    expect(transRes.overview.totals.tentativeReservations).toBe(1);
+    expect(transRes.overview.totals.confirmedReservations).toBe(1);
     expect(transRes.overview.totals.publishedRooms).toBe(1);
     expect(transRes.syncBadges[stayId]?.status).toBe("pending");
 
@@ -757,7 +757,7 @@ describe("Offline snapshot selectors & projection overlays", () => {
       projections,
       todayManila: "2026-11-16",
     });
-    expect(noticesRes.totals.activeCount).toBe(1);
+    expect(noticesRes.totals.sentCount).toBe(1);
 
     const dash = buildDashboardSnapshotFromRecords({
       projections,

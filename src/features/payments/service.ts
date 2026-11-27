@@ -840,6 +840,13 @@ async function loadPaymentFormOptions(ownerUserId: string): Promise<{
         snapshotTenantName: true,
         tenant: { select: { fullName: true } },
         transientGuest: { select: { fullName: true } },
+        items: {
+          orderBy: { sortOrder: "asc" },
+          select: {
+            description: true,
+            lineTotal: true,
+          },
+        },
       },
     }),
     getTenantUnallocatedCreditsMap(db, ownerUserId),
@@ -908,6 +915,10 @@ async function loadPaymentFormOptions(ownerUserId: string): Promise<{
           balanceCentavos > ZERO ? balanceCentavos : ZERO,
         ),
         isOverdue: dueDateManila < todayManila,
+        items: inv.items.map((item) => ({
+          description: item.description,
+          lineTotal: decimalToString(item.lineTotal),
+        })),
       };
     },
   );
@@ -972,8 +983,12 @@ export async function getPaymentCreateContext(ownerUserId: string): Promise<{
     proofMaxBytes: settings?.proofMaxBytes ?? DEFAULT_PROOF_MAX_BYTES,
     proofMaxFilesPerRecord:
       settings?.proofMaxFilesPerRecord ?? DEFAULT_PROOF_MAX_FILES,
-    tenants,
-    transientGuests,
+    tenants: tenants.filter(
+      (t) => t.archivedAt === null || t.openInvoiceCount > 0,
+    ),
+    transientGuests: transientGuests.filter(
+      (g) => g.archivedAt === null || g.openInvoiceCount > 0,
+    ),
     openInvoices,
   };
 }

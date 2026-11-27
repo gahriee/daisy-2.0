@@ -42,7 +42,6 @@ export const OFFLINE_NAVIGABLE_PREFIXES = [
 export const ONLINE_ONLY_WORKSPACE_PREFIXES = [
   "/settings",
   "/audit",
-  "/reports",
   "/notifications",
 ] as const;
 

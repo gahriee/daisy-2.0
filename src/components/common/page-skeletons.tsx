@@ -313,59 +313,6 @@ export function SplitCreateListSkeleton() {
 }
 
 /**
- * Inner content skeleton for Reports (also reused during client-side report
- * tab/date updates).
- */
-export function ReportsContentSkeleton() {
-  return (
-    <div
-      className="grid gap-5"
-      role="status"
-      aria-busy="true"
-      aria-label="Loading report"
-    >
-      <span className="sr-only">Loading report…</span>
-      <MetricCardsSkeleton count={4} />
-      <Card className="grid gap-4 p-5">
-        <div className="flex flex-wrap items-center justify-between gap-3">
-          <div className="grid gap-1.5">
-            <Skeleton className="h-5 w-48" />
-            <Skeleton className="h-3.5 w-64" />
-          </div>
-          <Skeleton className="h-8 w-28" />
-        </div>
-        <Skeleton className="h-72 w-full rounded-panel" />
-      </Card>
-      <TableCardSkeleton rows={5} />
-    </div>
-  );
-}
-
-/**
- * Full Reports page skeleton including header and tab/date filter bar.
- */
-export function ReportsPageSkeleton() {
-  return (
-    <div className="grid gap-5">
-      <PageHeaderSkeleton actions={2} />
-      <Card className="grid gap-4 p-4">
-        <div className="flex flex-wrap gap-2">
-          {Array.from({ length: 6 }).map((_, idx) => (
-            <Skeleton key={idx} className="h-9 w-28" />
-          ))}
-        </div>
-        <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
-          <Skeleton className="h-10 w-full" />
-          <Skeleton className="h-10 w-full" />
-          <Skeleton className="h-10 w-36" />
-        </div>
-      </Card>
-      <ReportsContentSkeleton />
-    </div>
-  );
-}
-
-/**
  * Detail page skeleton for individual Room, Tenant, Contract, Invoice,
  * Payment, Booking Request, and Maintenance detail routes.
  */

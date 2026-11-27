@@ -167,7 +167,7 @@ describe("notices CRUD, audience targeting, ChangeFeed snapshots & constraints i
       startDateManila: today,
       endDateManila: nextWeek,
     });
-    expect(propertyNotice.lifecycleStatus).toBe("ACTIVE");
+    expect(propertyNotice.lifecycleStatus).toBe("SENT");
 
     const roomNotice = await createNotice(state.ownerId, {
       audience: "ROOM",
@@ -190,7 +190,7 @@ describe("notices CRUD, audience targeting, ChangeFeed snapshots & constraints i
       startDateManila: pastStart,
       endDateManila: pastEnd,
     });
-    expect(tenantNotice.lifecycleStatus).toBe("EXPIRED");
+    expect(tenantNotice.lifecycleStatus).toBe("SENT");
     expect(tenantNotice.tenantName).toBe("Elena Cruz");
 
     // Optimistic locking prevents stale edits.
@@ -238,9 +238,8 @@ describe("notices CRUD, audience targeting, ChangeFeed snapshots & constraints i
     expect(overviewRes.status).toBe(200);
     const overview = await getNoticesOverview(state.ownerId);
     expect(overview.totals).toEqual({
-      activeCount: 1,
+      sentCount: 2,
       scheduledCount: 1,
-      expiredCount: 1,
       archivedCount: 0,
     });
 

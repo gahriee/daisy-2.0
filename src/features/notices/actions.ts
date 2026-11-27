@@ -253,3 +253,81 @@ export async function restoreNoticeAction(input: {
     return handleNoticeActionError(error, "Unable to restore notice.");
   }
 }
+
+export async function bulkArchiveNoticesAction(
+  items: Array<{ noticeId: string; expectedVersion: number }>,
+  mode: "archive" | "restore",
+): Promise<NoticeActionResult> {
+  try {
+    const ownerUserId = await requireOwnerUserId();
+    if (!Array.isArray(items) || items.length === 0) {
+      return {
+        status: "error",
+        message: "Select at least one notice first.",
+        fieldErrors: {},
+      };
+    }
+
+    let successCount = 0;
+    let failedCount = 0;
+    let firstError: string | null = null;
+
+    for (const item of items) {
+      try {
+        if (mode === "archive") {
+          await archiveNotice(ownerUserId, item);
+        } else {
+          await restoreNotice(ownerUserId, item);
+        }
+        successCount += 1;
+      } catch (error) {
+        failedCount += 1;
+        if (!firstError) {
+          const mapped = handleNoticeActionError(
+            error,
+            mode === "archive"
+              ? "Could not archive selected notice."
+              : "Could not restore selected notice.",
+          );
+          if (mapped.status === "error") {
+            firstError = mapped.message;
+          }
+        }
+      }
+    }
+
+    if (successCount > 0) {
+      revalidateNoticePaths();
+    }
+
+    if (successCount === 0) {
+      return {
+        status: "error",
+        message:
+          firstError ??
+          (mode === "archive"
+            ? "Could not archive the selected notices."
+            : "Could not restore the selected notices."),
+        fieldErrors: {},
+      };
+    }
+
+    const verb = mode === "archive" ? "Archived" : "Restored";
+    const noun = successCount === 1 ? "notice" : "notices";
+    const suffix =
+      failedCount > 0
+        ? ` (${failedCount} skipped${firstError ? `: ${firstError}` : ""}).`
+        : ".";
+    return {
+      status: "saved",
+      message: `${verb} ${successCount} ${noun}${suffix}`,
+    };
+  } catch (error) {
+    return handleNoticeActionError(
+      error,
+      mode === "archive"
+        ? "Could not archive selected notices right now."
+        : "Could not restore selected notices right now.",
+    );
+  }
+}

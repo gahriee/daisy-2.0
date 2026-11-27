@@ -48,6 +48,7 @@ import {
 } from "@/components/ui/toaster";
 import {
   archiveTenantAction,
+  bulkArchiveTenantsAction,
   restoreTenantAction,
 } from "@/features/tenants/actions";
 import type {
@@ -89,8 +90,7 @@ import {
   TenantNotesDialog,
 } from "./tenant-dialogs";
 
-type TenantViewFilter =
-  "active" | "occupied" | "unassigned" | "archived" | "all";
+type TenantViewFilter = "all" | "occupied" | "unassigned" | "archived";
 
 type TenantSortKey = "tenant" | "room" | "stayDates" | "monthlyRate" | "status";
 
@@ -170,7 +170,11 @@ export function TenantsWorkspace({
   const [needsAttentionCount, setNeedsAttentionCount] = useState(0);
   const [unlockPromptOpen, setUnlockPromptOpen] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
-  const [viewFilter, setViewFilter] = useState<TenantViewFilter>("active");
+  const [viewFilter, setViewFilter] = useState<TenantViewFilter>("all");
+  const [selectedTenantIds, setSelectedTenantIds] = useState<string[]>([]);
+  const [bulkArchiveOpen, setBulkArchiveOpen] = useState(false);
+  const [bulkArchivePending, setBulkArchivePending] = useState(false);
+  const [bulkArchiveError, setBulkArchiveError] = useState<string | null>(null);
   const [createOpen, setCreateOpen] = useState(false);
   const [editingTenant, setEditingTenant] = useState<TenantDto | null>(null);
   const [notesTenantId, setNotesTenantId] = useState<string | null>(null);
@@ -419,7 +423,7 @@ export function TenantsWorkspace({
   const normalizedQuery = searchQuery.trim().toLowerCase();
   const filteredTenants = overview.tenants.filter((tenant) => {
     const isArchived = tenant.archivedAt !== null;
-    if (viewFilter === "active" && isArchived) return false;
+    if (viewFilter === "all" && isArchived) return false;
     if (viewFilter === "archived" && !isArchived) return false;
     if (viewFilter === "occupied" && (isArchived || !tenant.activeAssignment)) {
       return false;
@@ -455,7 +459,7 @@ export function TenantsWorkspace({
   const unassignedCount = activeCount - assignedCount;
   const archivedCount = overview.tenants.length - activeCount;
 
-  const hasFilters = normalizedQuery !== "" || viewFilter !== "active";
+  const hasFilters = normalizedQuery !== "" || viewFilter !== "all";
 
   const {
     sortedRows: sortedTenants,
@@ -470,6 +474,68 @@ export function TenantsWorkspace({
     useTablePagination(sortedTenants, {
       resetKey: `${normalizedQuery}|${viewFilter}|${sort?.key ?? ""}|${sort?.direction ?? ""}`,
     });
+
+  const viewingArchived = viewFilter === "archived";
+  const isTenantBulkEligible = (tenant: TenantListItemDto) =>
+    viewingArchived
+      ? tenant.archivedAt !== null
+      : tenant.archivedAt === null && tenant.activeAssignment === null;
+  const eligibleTenants = filteredTenants.filter(isTenantBulkEligible);
+  const selectedEligibleTenants = eligibleTenants.filter((tenant) =>
+    selectedTenantIds.includes(tenant.id),
+  );
+  const pageEligibleTenants = paginatedTenants.filter(isTenantBulkEligible);
+  const allPageTenantsSelected =
+    pageEligibleTenants.length > 0 &&
+    pageEligibleTenants.every((tenant) =>
+      selectedTenantIds.includes(tenant.id),
+    );
+
+  function toggleTenantSelection(tenantId: string) {
+    setSelectedTenantIds((prev) =>
+      prev.includes(tenantId)
+        ? prev.filter((id) => id !== tenantId)
+        : [...prev, tenantId],
+    );
+  }
+
+  function toggleAllPageTenants() {
+    if (allPageTenantsSelected) {
+      const pageIds = new Set(pageEligibleTenants.map((tenant) => tenant.id));
+      setSelectedTenantIds((prev) => prev.filter((id) => !pageIds.has(id)));
+    } else {
+      const merged = new Set([
+        ...selectedTenantIds,
+        ...pageEligibleTenants.map((tenant) => tenant.id),
+      ]);
+      setSelectedTenantIds(Array.from(merged));
+    }
+  }
+
+  async function executeBulkArchiveTenants() {
+    if (selectedEligibleTenants.length === 0 || bulkArchivePending) return;
+    setBulkArchivePending(true);
+    setBulkArchiveError(null);
+    try {
+      const res = await bulkArchiveTenantsAction(
+        selectedEligibleTenants.map((tenant) => ({
+          tenantId: tenant.id,
+          expectedVersion: tenant.version,
+        })),
+        viewingArchived ? "restore" : "archive",
+      );
+      if (res.status === "saved") {
+        setBulkArchiveOpen(false);
+        setSelectedTenantIds([]);
+        toast.success(res.message);
+        await reloadTenants();
+      } else if (res.status === "error") {
+        setBulkArchiveError(res.message);
+      }
+    } finally {
+      setBulkArchivePending(false);
+    }
+  }
 
   function getTenantRowActions(
     tenant: TenantListItemDto,
@@ -698,7 +764,8 @@ export function TenantsWorkspace({
         hasActiveFilters={hasFilters}
         onClearAll={() => {
           setSearchQuery("");
-          setViewFilter("active");
+          setViewFilter("all");
+          setSelectedTenantIds([]);
         }}
       >
         <div className="grid grid-cols-1 gap-3 md:grid-cols-3">
@@ -712,7 +779,7 @@ export function TenantsWorkspace({
                 id={id}
                 value={searchQuery}
                 onValueChange={setSearchQuery}
-                placeholder="Name, phone, email, or room number"
+                placeholder="Name, phone, email, or room title"
               />
             )}
           </Field>
@@ -723,15 +790,15 @@ export function TenantsWorkspace({
                 {...fieldProps}
                 variant="filter"
                 value={viewFilter}
-                onChange={(e) =>
-                  setViewFilter(e.target.value as TenantViewFilter)
-                }
+                onChange={(e) => {
+                  setViewFilter(e.target.value as TenantViewFilter);
+                  setSelectedTenantIds([]);
+                }}
               >
-                <option value="active">Active tenants</option>
+                <option value="all">All records</option>
                 <option value="occupied">Assigned a room</option>
                 <option value="unassigned">Unassigned only</option>
                 <option value="archived">Archived tenants</option>
-                <option value="all">All records</option>
               </Select>
             )}
           </Field>
@@ -760,7 +827,7 @@ export function TenantsWorkspace({
             <EmptyStateDescription>
               {overview.tenants.length === 0
                 ? "Add a boarder profile to assign a room, track move-in dates, and calculate balances."
-                : "Try changing the status view or finding a different name or room number."}
+                : "Try changing the status view or finding a different name or room title."}
             </EmptyStateDescription>
           </div>
           <EmptyStateActions>
@@ -771,7 +838,8 @@ export function TenantsWorkspace({
                 variant="secondary"
                 onClick={() => {
                   setSearchQuery("");
-                  setViewFilter("active");
+                  setViewFilter("all");
+                  setSelectedTenantIds([]);
                 }}
               >
                 Clear
@@ -791,28 +859,87 @@ export function TenantsWorkspace({
             </span>
           </div>
 
+          {selectedEligibleTenants.length > 0 && (
+            <div className="flex flex-wrap items-center justify-between gap-2 border-b border-border bg-accent/40 px-4 py-2.5 sm:px-6">
+              <span className="text-sm font-medium text-foreground">
+                {selectedEligibleTenants.length}{" "}
+                {selectedEligibleTenants.length === 1 ? "tenant" : "tenants"}{" "}
+                selected
+              </span>
+              <div className="flex flex-wrap items-center gap-2">
+                <Button
+                  type="button"
+                  size="sm"
+                  variant="ghost"
+                  onClick={() => setSelectedTenantIds([])}
+                  disabled={bulkArchivePending}
+                >
+                  Clear
+                </Button>
+                <Button
+                  type="button"
+                  size="sm"
+                  variant={viewingArchived ? "primary" : "danger"}
+                  disabled={isOfflineView || bulkArchivePending}
+                  onClick={() => {
+                    setBulkArchiveError(null);
+                    setBulkArchiveOpen(true);
+                  }}
+                >
+                  {viewingArchived
+                    ? isOfflineView
+                      ? "Restore selected (online only)"
+                      : "Restore selected"
+                    : isOfflineView
+                      ? "Archive selected (online only)"
+                      : "Archive selected"}
+                </Button>
+              </div>
+            </div>
+          )}
+
           {/* Mobile card layout (360 px baseline) */}
           <div className="grid divide-y divide-border md:hidden">
             {paginatedTenants.map((tenant) => {
               const assignment = tenant.activeAssignment;
               const isArchived = tenant.archivedAt !== null;
               const busy = rowPendingId === tenant.id;
+              const eligible = isTenantBulkEligible(tenant);
               return (
                 <div key={tenant.id} className="grid gap-3 p-4">
                   <div className="flex items-start justify-between gap-2">
-                    <div className="grid gap-0.5">
-                      <Link
-                        href={`/tenants/${tenant.id}`}
-                        className="text-sm font-semibold text-foreground underline-offset-4 hover:text-primary hover:underline"
-                      >
-                        {tenant.fullName}
-                      </Link>
-                      {(tenant.phone || tenant.email) && (
-                        <div className="grid gap-0.5 text-xs text-muted-foreground">
-                          {tenant.phone && <span>{tenant.phone}</span>}
-                          {tenant.email && <span>{tenant.email}</span>}
-                        </div>
-                      )}
+                    <div className="flex items-start gap-2.5">
+                      <input
+                        type="checkbox"
+                        aria-label={`Select ${tenant.fullName}`}
+                        checked={
+                          eligible && selectedTenantIds.includes(tenant.id)
+                        }
+                        disabled={
+                          !eligible || isOfflineView || bulkArchivePending
+                        }
+                        title={
+                          !eligible && !viewingArchived
+                            ? "Move out tenant before archiving."
+                            : undefined
+                        }
+                        onChange={() => toggleTenantSelection(tenant.id)}
+                        className="mt-1 size-4 cursor-pointer rounded border-control-border accent-primary disabled:cursor-not-allowed disabled:opacity-40"
+                      />
+                      <div className="grid gap-0.5">
+                        <Link
+                          href={`/tenants/${tenant.id}`}
+                          className="text-sm font-semibold text-foreground underline-offset-4 hover:text-primary hover:underline"
+                        >
+                          {tenant.fullName}
+                        </Link>
+                        {(tenant.phone || tenant.email) && (
+                          <div className="grid gap-0.5 text-xs text-muted-foreground">
+                            {tenant.phone && <span>{tenant.phone}</span>}
+                            {tenant.email && <span>{tenant.email}</span>}
+                          </div>
+                        )}
+                      </div>
                     </div>
                     <div className="flex flex-wrap items-center justify-end gap-1.5">
                       <OfflineSyncBadge badge={syncBadges[tenant.id]} />
@@ -857,6 +984,24 @@ export function TenantsWorkspace({
             <Table containerClassName="rounded-none border-0">
               <TableHeader>
                 <TableRow>
+                  <TableHead className="w-10">
+                    <input
+                      type="checkbox"
+                      aria-label={
+                        viewingArchived
+                          ? "Select all archived tenants on this page"
+                          : "Select all unassigned tenants on this page"
+                      }
+                      checked={allPageTenantsSelected}
+                      disabled={
+                        isOfflineView ||
+                        bulkArchivePending ||
+                        pageEligibleTenants.length === 0
+                      }
+                      onChange={toggleAllPageTenants}
+                      className="size-4 cursor-pointer rounded border-control-border accent-primary disabled:cursor-not-allowed disabled:opacity-40"
+                    />
+                  </TableHead>
                   <TableHead {...sortHeaderProps("tenant")}>Tenant</TableHead>
                   <TableHead {...sortHeaderProps("room")}>Room</TableHead>
                   <TableHead {...sortHeaderProps("stayDates")}>
@@ -874,8 +1019,28 @@ export function TenantsWorkspace({
                   const assignment = tenant.activeAssignment;
                   const isArchived = tenant.archivedAt !== null;
                   const busy = rowPendingId === tenant.id;
+                  const eligible = isTenantBulkEligible(tenant);
                   return (
                     <TableRow key={tenant.id}>
+                      <TableCell>
+                        <input
+                          type="checkbox"
+                          aria-label={`Select ${tenant.fullName}`}
+                          checked={
+                            eligible && selectedTenantIds.includes(tenant.id)
+                          }
+                          disabled={
+                            !eligible || isOfflineView || bulkArchivePending
+                          }
+                          title={
+                            !eligible && !viewingArchived
+                              ? "Move out tenant before archiving."
+                              : undefined
+                          }
+                          onChange={() => toggleTenantSelection(tenant.id)}
+                          className="size-4 cursor-pointer rounded border-control-border accent-primary disabled:cursor-not-allowed disabled:opacity-40"
+                        />
+                      </TableCell>
                       <TableCell>
                         <Link
                           href={`/tenants/${tenant.id}`}
@@ -1009,6 +1174,32 @@ export function TenantsWorkspace({
         loading={
           confirmingTenant !== null && rowPendingId === confirmingTenant.id
         }
+      />
+
+      <ConfirmDialog
+        open={bulkArchiveOpen}
+        onClose={() => {
+          if (bulkArchivePending) return;
+          setBulkArchiveError(null);
+          setBulkArchiveOpen(false);
+        }}
+        onConfirm={() => {
+          void executeBulkArchiveTenants();
+        }}
+        title={
+          viewingArchived
+            ? `Restore ${selectedEligibleTenants.length} ${selectedEligibleTenants.length === 1 ? "tenant" : "tenants"}?`
+            : `Archive ${selectedEligibleTenants.length} ${selectedEligibleTenants.length === 1 ? "tenant" : "tenants"}?`
+        }
+        description={
+          viewingArchived
+            ? "Restoring returns the selected tenant profiles to active boarder lists."
+            : "Archiving moves the selected unassigned tenants out of active boarder lists. You can restore them anytime."
+        }
+        errorMessage={bulkArchiveError}
+        confirmLabel={viewingArchived ? "Restore" : "Archive"}
+        confirmVariant={viewingArchived ? "primary" : "danger"}
+        loading={bulkArchivePending}
       />
 
       <OfflineVaultUnlockDialog

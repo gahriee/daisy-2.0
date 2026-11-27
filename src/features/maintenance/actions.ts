@@ -50,7 +50,6 @@ function revalidateMaintenancePaths(requestId?: string) {
   revalidatePath("/transients", "layout");
   revalidatePath("/transients/stays");
   revalidatePath("/transients/rooms");
-  revalidatePath("/reports");
   revalidatePath("/notifications");
   revalidatePath("/audit");
   revalidatePath("/book");
@@ -169,5 +168,83 @@ export async function restoreMaintenanceRequestAction(rawInput: {
     };
   } catch (error) {
     return handleActionError(error, "Could not restore maintenance request.");
+  }
+}
+
+export async function bulkArchiveMaintenanceRequestsAction(
+  items: Array<{ requestId: string; expectedVersion: number }>,
+  mode: "archive" | "restore",
+): Promise<MaintenanceActionResult> {
+  try {
+    const ownerUserId = await requireOwnerUserId();
+    if (!Array.isArray(items) || items.length === 0) {
+      return {
+        status: "error",
+        message: "Select at least one maintenance request first.",
+        fieldErrors: {},
+      };
+    }
+
+    let successCount = 0;
+    let failedCount = 0;
+    let firstError: string | null = null;
+
+    for (const item of items) {
+      try {
+        if (mode === "archive") {
+          await archiveMaintenanceRequest(ownerUserId, item);
+        } else {
+          await restoreMaintenanceRequest(ownerUserId, item);
+        }
+        successCount += 1;
+      } catch (error) {
+        failedCount += 1;
+        if (!firstError) {
+          const mapped = handleActionError(
+            error,
+            mode === "archive"
+              ? "Could not archive selected maintenance request."
+              : "Could not restore selected maintenance request.",
+          );
+          if (mapped.status === "error") {
+            firstError = mapped.message;
+          }
+        }
+      }
+    }
+
+    if (successCount > 0) {
+      revalidateMaintenancePaths();
+    }
+
+    if (successCount === 0) {
+      return {
+        status: "error",
+        message:
+          firstError ??
+          (mode === "archive"
+            ? "Could not archive the selected maintenance requests."
+            : "Could not restore the selected maintenance requests."),
+        fieldErrors: {},
+      };
+    }
+
+    const verb = mode === "archive" ? "Archived" : "Restored";
+    const noun = successCount === 1 ? "request" : "requests";
+    const suffix =
+      failedCount > 0
+        ? ` (${failedCount} skipped${firstError ? `: ${firstError}` : ""}).`
+        : ".";
+    return {
+      status: "saved",
+      message: `${verb} ${successCount} ${noun}${suffix}`,
+    };
+  } catch (error) {
+    return handleActionError(
+      error,
+      mode === "archive"
+        ? "Could not archive selected maintenance requests right now."
+        : "Could not restore selected maintenance requests right now.",
+    );
   }
 }

@@ -20,26 +20,20 @@ import {
   recordPaymentAction,
   type PaymentActionResult,
 } from "@/features/payments/actions";
-import {
-  autoDistributePaymentCentavos,
-  computePaymentDistribution,
-} from "@/features/payments/calculations";
+import { computePaymentDistribution } from "@/features/payments/calculations";
 import {
   PAYMENT_METHOD_LABELS,
-  PAYMENT_METHODS,
   PROOF_ALLOWED_ACCEPT_ATTR,
   PROOF_ALLOWED_MIME_TYPES,
   RecordPaymentSyncPayloadSchema,
+  SELECTABLE_PAYMENT_METHODS,
   type PaymentMethodValue,
   type PaymentOpenInvoiceOptionDto,
   type PaymentTenantOptionDto,
   type PaymentTransientOptionDto,
   type ProofMimeType,
 } from "@/features/payments/schemas";
-import {
-  OVERPAYMENT_POLICY_LABELS,
-  type OverpaymentPolicyValue,
-} from "@/features/settings/schemas";
+import type { OverpaymentPolicyValue } from "@/features/settings/schemas";
 import { formatManilaDate, toManilaDate } from "@/lib/dates";
 import {
   formatMoneyDecimal,
@@ -157,6 +151,12 @@ export function PaymentCreateForm({
     proofMaxBytes,
     proofMaxFilesPerRecord,
   ]);
+  const eligibleTenants = tenants.filter(
+    (t) => t.archivedAt === null || t.openInvoiceCount > 0,
+  );
+  const eligibleTransientGuests = transientGuests.filter(
+    (g) => g.archivedAt === null || g.openInvoiceCount > 0,
+  );
   const initialInvoice = initialInvoiceId
     ? (openInvoices.find((inv) => inv.id === initialInvoiceId) ?? null)
     : null;
@@ -164,12 +164,12 @@ export function PaymentCreateForm({
     ? `transient:${initialInvoice.transientGuestId}`
     : initialInvoice?.tenantId
       ? `tenant:${initialInvoice.tenantId}`
-      : initialTenantId
+      : initialTenantId && eligibleTenants.some((t) => t.id === initialTenantId)
         ? `tenant:${initialTenantId}`
-        : tenants[0]
-          ? `tenant:${tenants[0].id}`
-          : transientGuests[0]
-            ? `transient:${transientGuests[0].id}`
+        : eligibleTenants[0]
+          ? `tenant:${eligibleTenants[0].id}`
+          : eligibleTransientGuests[0]
+            ? `transient:${eligibleTransientGuests[0].id}`
             : "";
 
   const [payerKey, setPayerKey] = useState(resolvedDefaultKey);
@@ -184,12 +184,10 @@ export function PaymentCreateForm({
   const [paidDateManila, setPaidDateManila] = useState(() =>
     toManilaDate(new Date()),
   );
-  const [amountInput, setAmountInput] = useState(
-    initialInvoice ? initialInvoice.balanceAmount : "",
-  );
   const [allocMap, setAllocMap] = useState<Record<string, string>>(() =>
     initialInvoice ? { [initialInvoice.id]: initialInvoice.balanceAmount } : {},
   );
+  const [unallocatedAmountInput, setUnallocatedAmountInput] = useState("");
   const [proofs, setProofs] = useState<UploadedProofItem[]>([]);
   const [uploadNotice, setUploadNotice] = useState<string | null>(null);
 
@@ -199,8 +197,8 @@ export function PaymentCreateForm({
       : inv.tenantId === selectedTenantId,
   );
   const selectedPayer =
-    tenants.find((t) => t.id === selectedTenantId) ??
-    transientGuests.find((g) => g.id === selectedTransientGuestId) ??
+    eligibleTenants.find((t) => t.id === selectedTenantId) ??
+    eligibleTransientGuests.find((g) => g.id === selectedTransientGuestId) ??
     null;
 
   const [state, submitAction, pending] = useActionState(
@@ -237,7 +235,7 @@ export function PaymentCreateForm({
         const parsed = RecordPaymentSyncPayloadSchema.safeParse({
           tenantId: selectedTenantId || null,
           transientGuestId: selectedTransientGuestId || null,
-          amount: String(formData.get("amount") ?? amountInput),
+          amount: String(formData.get("amount") ?? computedAmountStr),
           method,
           paidDateManila,
           referenceNo: String(formData.get("referenceNo") ?? ""),
@@ -394,6 +392,7 @@ export function PaymentCreateForm({
 
   function handlePayerChange(nextKey: string) {
     setPayerKey(nextKey);
+    setUnallocatedAmountInput("");
     const nextIsTransient = nextKey.startsWith("transient:");
     const nextId = nextKey.includes(":")
       ? nextKey.slice(nextKey.indexOf(":") + 1)
@@ -403,51 +402,15 @@ export function PaymentCreateForm({
         ? inv.transientGuestId === nextId
         : inv.tenantId === nextId,
     );
-    const totalOpen = nextInvoices.reduce(
-      (acc, inv) => acc + parseMoneyDecimal(inv.balanceAmount),
-      BigInt(0),
-    );
-    const nextAmountStr =
-      totalOpen > BigInt(0) ? formatMoneyDecimal(totalOpen) : "";
-    setAmountInput(nextAmountStr);
-    if (totalOpen > BigInt(0)) {
-      const distributed = autoDistributePaymentCentavos({
-        paymentAmountCentavos: totalOpen,
-        openInvoices: nextInvoices.map((inv) => ({
-          invoiceId: inv.id,
-          openBalanceCentavos: parseMoneyDecimal(inv.balanceAmount),
-        })),
-      });
+    if (nextInvoices.length > 0) {
       setAllocMap(
         Object.fromEntries(
-          distributed.allocations.map((item) => [item.invoiceId, item.amount]),
+          nextInvoices.map((inv) => [inv.id, inv.balanceAmount]),
         ),
       );
     } else {
       setAllocMap({});
     }
-  }
-
-  function handleAutoAllocate() {
-    let amountCentavos = BigInt(0);
-    try {
-      amountCentavos = parseMoneyDecimal(amountInput);
-    } catch {
-      return;
-    }
-    if (amountCentavos <= BigInt(0)) return;
-    const distributed = autoDistributePaymentCentavos({
-      paymentAmountCentavos: amountCentavos,
-      openInvoices: tenantInvoices.map((inv) => ({
-        invoiceId: inv.id,
-        openBalanceCentavos: parseMoneyDecimal(inv.balanceAmount),
-      })),
-    });
-    setAllocMap(
-      Object.fromEntries(
-        distributed.allocations.map((item) => [item.invoiceId, item.amount]),
-      ),
-    );
   }
 
   function toggleInvoiceSelection(
@@ -630,6 +593,8 @@ export function PaymentCreateForm({
   }
 
   const activeAllocations: Array<{ invoiceId: string; amount: string }> = [];
+  let totalAllocatedCentavos = BigInt(0);
+  let hasInvalidAllocationInput = false;
   for (const inv of tenantInvoices) {
     const raw = allocMap[inv.id]?.trim();
     if (!raw) continue;
@@ -640,11 +605,36 @@ export function PaymentCreateForm({
           invoiceId: inv.id,
           amount: formatMoneyDecimal(centavos),
         });
+        totalAllocatedCentavos += centavos;
+      } else {
+        hasInvalidAllocationInput = true;
       }
     } catch {
-      // Wait for user to fix typed decimal
+      hasInvalidAllocationInput = true;
     }
   }
+
+  let unallocatedCentavos = BigInt(0);
+  let hasInvalidUnallocatedInput = false;
+  if (activeAllocations.length === 0 && unallocatedAmountInput.trim()) {
+    try {
+      const parsedUnalloc = parseMoneyDecimal(unallocatedAmountInput.trim());
+      if (parsedUnalloc > BigInt(0)) {
+        unallocatedCentavos = parsedUnalloc;
+      } else {
+        hasInvalidUnallocatedInput = true;
+      }
+    } catch {
+      hasInvalidUnallocatedInput = true;
+    }
+  }
+
+  const totalPaymentCentavos =
+    activeAllocations.length > 0 ? totalAllocatedCentavos : unallocatedCentavos;
+  const computedAmountStr =
+    totalPaymentCentavos > BigInt(0)
+      ? formatMoneyDecimal(totalPaymentCentavos)
+      : "";
 
   const readyProofCount = proofs.filter(
     (p) =>
@@ -659,35 +649,31 @@ export function PaymentCreateForm({
     | ReturnType<typeof computePaymentDistribution>
     | { ok: false; kind: "invalid_amount"; message: string }
     | null = null;
-  if (amountInput.trim() && overpaymentPolicy) {
-    try {
-      const paymentCentavos = parseMoneyDecimal(amountInput);
-      if (paymentCentavos > BigInt(0)) {
-        previewDistribution = computePaymentDistribution({
-          paymentAmountCentavos: paymentCentavos,
-          allocations: activeAllocations.map((item) => {
-            const match = tenantInvoices.find((i) => i.id === item.invoiceId);
-            return {
-              invoiceId: item.invoiceId,
-              amountCentavos: parseMoneyDecimal(item.amount),
-              openBalanceCentavos: match
-                ? parseMoneyDecimal(match.balanceAmount)
-                : BigInt(0),
-            };
-          }),
-          overpaymentPolicy,
-        });
-      }
-    } catch {
-      previewDistribution = {
-        ok: false,
-        kind: "invalid_amount",
-        message: "Enter a valid positive peso amount.",
-      };
-    }
+  if (hasInvalidAllocationInput || hasInvalidUnallocatedInput) {
+    previewDistribution = {
+      ok: false,
+      kind: "invalid_amount",
+      message: "Enter a valid positive peso amount.",
+    };
+  } else if (totalPaymentCentavos > BigInt(0) && overpaymentPolicy) {
+    previewDistribution = computePaymentDistribution({
+      paymentAmountCentavos: totalPaymentCentavos,
+      allocations: activeAllocations.map((item) => {
+        const match = tenantInvoices.find((i) => i.id === item.invoiceId);
+        return {
+          invoiceId: item.invoiceId,
+          amountCentavos: parseMoneyDecimal(item.amount),
+          openBalanceCentavos: match
+            ? parseMoneyDecimal(match.balanceAmount)
+            : BigInt(0),
+        };
+      }),
+      overpaymentPolicy,
+    });
   }
 
-  const hasAnyPayers = tenants.length > 0 || transientGuests.length > 0;
+  const hasAnyPayers =
+    eligibleTenants.length > 0 || eligibleTransientGuests.length > 0;
 
   return (
     <div className="grid gap-5">
@@ -703,6 +689,23 @@ export function PaymentCreateForm({
           </p>
         </header>
       </div>
+
+      {!hasAnyPayers && (
+        <Alert tone="warning" role="status">
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <span>
+              Add an active boarder or transient guest before recording a
+              payment.
+            </span>
+            <Link
+              href="/tenants"
+              className={buttonClasses({ variant: "secondary", size: "sm" })}
+            >
+              Go to tenants
+            </Link>
+          </div>
+        </Alert>
+      )}
 
       {!policiesComplete && (
         <Alert tone="warning" role="status">
@@ -728,6 +731,7 @@ export function PaymentCreateForm({
           className="grid items-start gap-5 lg:grid-cols-12"
           noValidate
         >
+          <input type="hidden" name="amount" value={computedAmountStr} />
           <input
             type="hidden"
             name="allocationsJson"
@@ -746,8 +750,7 @@ export function PaymentCreateForm({
                   Collection details
                 </h2>
                 <p className="text-xs text-muted-foreground">
-                  Choose the payer, tender method, collection date, and amount
-                  received.
+                  Choose the payer, tender method, and collection date.
                 </p>
               </div>
 
@@ -781,31 +784,34 @@ export function PaymentCreateForm({
                           handlePayerChange(event.target.value)
                         }
                       >
-                        {tenants.length > 0 && (
+                        <option value="" disabled>
+                          Select boarder or guest
+                        </option>
+                        {eligibleTenants.length > 0 && (
                           <optgroup label="Boarders">
-                            {tenants.map((tenant) => (
+                            {eligibleTenants.map((tenant) => (
                               <option
                                 key={tenant.id}
                                 value={`tenant:${tenant.id}`}
                               >
                                 {tenant.fullName}
                                 {tenant.openInvoiceCount > 0
-                                  ? ` (${formatPhpCurrency(tenant.openBalance)} open)`
+                                  ? ` - ${formatPhpCurrency(tenant.openBalance)} open`
                                   : ""}
                               </option>
                             ))}
                           </optgroup>
                         )}
-                        {transientGuests.length > 0 && (
+                        {eligibleTransientGuests.length > 0 && (
                           <optgroup label="Transient guests">
-                            {transientGuests.map((guest) => (
+                            {eligibleTransientGuests.map((guest) => (
                               <option
                                 key={guest.id}
                                 value={`transient:${guest.id}`}
                               >
                                 {guest.fullName}
                                 {guest.openInvoiceCount > 0
-                                  ? ` (${formatPhpCurrency(guest.openBalance)} open)`
+                                  ? ` - ${formatPhpCurrency(guest.openBalance)} open`
                                   : ""}
                               </option>
                             ))}
@@ -835,7 +841,7 @@ export function PaymentCreateForm({
                         setMethod(event.target.value as PaymentMethodValue)
                       }
                     >
-                      {PAYMENT_METHODS.map((item) => (
+                      {SELECTABLE_PAYMENT_METHODS.map((item) => (
                         <option key={item} value={item}>
                           {PAYMENT_METHOD_LABELS[item]}
                         </option>
@@ -846,28 +852,6 @@ export function PaymentCreateForm({
               </div>
 
               <div className="grid gap-4 sm:grid-cols-2">
-                <Field
-                  id="payment-amount"
-                  label="Amount received (PHP)"
-                  required
-                  error={
-                    state.status === "error"
-                      ? state.fieldErrors.amount
-                      : undefined
-                  }
-                >
-                  {(fieldProps) => (
-                    <Input
-                      {...fieldProps}
-                      name="amount"
-                      inputMode="decimal"
-                      placeholder="0.00"
-                      value={amountInput}
-                      onChange={(event) => setAmountInput(event.target.value)}
-                    />
-                  )}
-                </Field>
-
                 <Field
                   id="payment-date"
                   label="Collection date"
@@ -888,13 +872,11 @@ export function PaymentCreateForm({
                     />
                   )}
                 </Field>
-              </div>
 
-              <div className="grid gap-4 sm:grid-cols-2">
                 <Field
                   id="payment-reference"
                   label="Reference number"
-                  description="Optional GCash/bank transfer ref or check #"
+                  description="Optional GCash, Maya, or bank transfer ref"
                   error={
                     state.status === "error"
                       ? state.fieldErrors.referenceNo
@@ -910,26 +892,24 @@ export function PaymentCreateForm({
                     />
                   )}
                 </Field>
-
-                <Field
-                  id="payment-notes"
-                  label="Notes"
-                  error={
-                    state.status === "error"
-                      ? state.fieldErrors.notes
-                      : undefined
-                  }
-                >
-                  {(fieldProps) => (
-                    <Input
-                      {...fieldProps}
-                      name="notes"
-                      maxLength={500}
-                      placeholder="Optional collection notes"
-                    />
-                  )}
-                </Field>
               </div>
+
+              <Field
+                id="payment-notes"
+                label="Notes"
+                error={
+                  state.status === "error" ? state.fieldErrors.notes : undefined
+                }
+              >
+                {(fieldProps) => (
+                  <Input
+                    {...fieldProps}
+                    name="notes"
+                    maxLength={500}
+                    placeholder="Optional collection notes"
+                  />
+                )}
+              </Field>
             </Card>
 
             <Card className="grid gap-3">
@@ -939,62 +919,34 @@ export function PaymentCreateForm({
                     Invoice allocations
                   </h2>
                   <p className="text-xs text-muted-foreground">
-                    {overpaymentPolicy
-                      ? `Policy: ${OVERPAYMENT_POLICY_LABELS[overpaymentPolicy]}`
-                      : "Overpayment policy not configured."}
+                    Select the invoices being paid and enter the amount for
+                    each.
                   </p>
                 </div>
                 {tenantInvoices.length > 0 && (
-                  <div className="flex flex-wrap gap-2">
-                    {selectedPayer &&
-                      parseMoneyDecimal(selectedPayer.openBalance) >
-                        BigInt(0) && (
-                        <Button
-                          size="sm"
-                          variant="ghost"
-                          onClick={() => {
-                            setAmountInput(selectedPayer.openBalance);
-                            const dist = autoDistributePaymentCentavos({
-                              paymentAmountCentavos: parseMoneyDecimal(
-                                selectedPayer.openBalance,
-                              ),
-                              openInvoices: tenantInvoices.map((inv) => ({
-                                invoiceId: inv.id,
-                                openBalanceCentavos: parseMoneyDecimal(
-                                  inv.balanceAmount,
-                                ),
-                              })),
-                            });
-                            setAllocMap(
-                              Object.fromEntries(
-                                dist.allocations.map((a) => [
-                                  a.invoiceId,
-                                  a.amount,
-                                ]),
-                              ),
-                            );
-                          }}
-                        >
-                          Fill open balance
-                        </Button>
-                      )}
-                    <Button
-                      size="sm"
-                      variant="secondary"
-                      onClick={handleAutoAllocate}
-                    >
-                      Auto-allocate FIFO
-                    </Button>
-                  </div>
+                  <Button
+                    size="sm"
+                    variant="secondary"
+                    onClick={() => {
+                      setAllocMap(
+                        Object.fromEntries(
+                          tenantInvoices.map((inv) => [
+                            inv.id,
+                            inv.balanceAmount,
+                          ]),
+                        ),
+                      );
+                    }}
+                  >
+                    Fill open balance
+                  </Button>
                 )}
               </div>
 
               {tenantInvoices.length === 0 ? (
                 <p className="border-t border-border pt-3 text-xs leading-5 text-muted-foreground">
-                  No open issued invoices for this payer.
-                  {overpaymentPolicy === "CREDIT_NEXT_INVOICE"
-                    ? " The full payment will be held as unallocated credit for future invoices."
-                    : " Issue an invoice first or change your overpayment policy in Settings."}
+                  No open issued invoices for this payer. You can still record
+                  an advance or unallocated payment below.
                 </p>
               ) : (
                 <div className="divide-y divide-border border-t border-border">
@@ -1004,7 +956,7 @@ export function PaymentCreateForm({
                     return (
                       <div
                         key={inv.id}
-                        className="grid gap-2 py-3 last:pb-0 sm:grid-cols-[1fr_9rem] sm:items-center"
+                        className="grid gap-2.5 py-3 last:pb-0 sm:grid-cols-[1fr_9rem] sm:items-start"
                       >
                         <Checkbox
                           aria-label={`Apply payment to ${inv.invoiceNumber ?? inv.id}`}
@@ -1013,7 +965,7 @@ export function PaymentCreateForm({
                             toggleInvoiceSelection(inv, event.target.checked)
                           }
                           label={
-                            <div className="grid gap-0.5 text-xs">
+                            <div className="grid gap-1 text-xs">
                               <div className="flex flex-wrap items-center gap-1.5">
                                 <span className="font-mono font-semibold text-foreground tabular-nums">
                                   {inv.invoiceNumber ?? "Issued"}
@@ -1022,7 +974,7 @@ export function PaymentCreateForm({
                                   <Badge tone="danger">Overdue</Badge>
                                 )}
                               </div>
-                              <div className="grid gap-0.5 text-muted-foreground tabular-nums">
+                              <div className="flex flex-wrap items-center gap-x-3 gap-y-0.5 text-muted-foreground tabular-nums">
                                 <span>
                                   Due {formatManilaDate(inv.dueDateManila)}
                                 </span>
@@ -1033,15 +985,38 @@ export function PaymentCreateForm({
                                   </strong>
                                 </span>
                               </div>
+                              {inv.items.length > 0 && (
+                                <ul className="mt-1 grid gap-0.5 border-l-2 border-border pl-2.5 text-muted-foreground">
+                                  {inv.items.map((line, index) => (
+                                    <li
+                                      key={`${inv.id}-item-${index}`}
+                                      className="flex flex-wrap items-baseline justify-between gap-x-2"
+                                    >
+                                      <span>{line.description}</span>
+                                      <span className="tabular-nums">
+                                        {formatPhpCurrency(line.lineTotal)}
+                                      </span>
+                                    </li>
+                                  ))}
+                                </ul>
+                              )}
                             </div>
                           }
                         />
 
                         <Input
                           aria-label={`Amount applied to ${inv.invoiceNumber ?? inv.id}`}
+                          type="number"
                           inputMode="decimal"
+                          min={0}
+                          step="0.01"
                           placeholder="0.00"
                           value={allocatedVal}
+                          onKeyDown={(event) => {
+                            if (["e", "E", "+", "-"].includes(event.key)) {
+                              event.preventDefault();
+                            }
+                          }}
                           onChange={(event) =>
                             setAllocMap((prev) => ({
                               ...prev,
@@ -1052,6 +1027,41 @@ export function PaymentCreateForm({
                       </div>
                     );
                   })}
+                </div>
+              )}
+
+              {activeAllocations.length === 0 && (
+                <div className="border-t border-border pt-3">
+                  <Field
+                    id="payment-unallocated-amount"
+                    label="Amount without invoice (PHP)"
+                    description="Enter an amount if recording a payment without selecting an invoice."
+                    error={
+                      state.status === "error"
+                        ? state.fieldErrors.amount
+                        : undefined
+                    }
+                  >
+                    {(fieldProps) => (
+                      <Input
+                        {...fieldProps}
+                        type="number"
+                        inputMode="decimal"
+                        min={0}
+                        step="0.01"
+                        placeholder="0.00"
+                        value={unallocatedAmountInput}
+                        onKeyDown={(event) => {
+                          if (["e", "E", "+", "-"].includes(event.key)) {
+                            event.preventDefault();
+                          }
+                        }}
+                        onChange={(event) =>
+                          setUnallocatedAmountInput(event.target.value)
+                        }
+                      />
+                    )}
+                  </Field>
                 </div>
               )}
 
@@ -1193,6 +1203,14 @@ export function PaymentCreateForm({
                   {readyProofCount}
                 </dd>
               </div>
+              <div className="flex items-baseline justify-between gap-3 border-t border-border pt-3">
+                <dt className="font-medium text-muted-foreground">
+                  Total payment
+                </dt>
+                <dd className="text-lg font-semibold text-foreground tabular-nums">
+                  {formatPhpCurrency(totalPaymentCentavos)}
+                </dd>
+              </div>
             </dl>
 
             <div className="hidden gap-2.5 border-t border-border pt-3 lg:grid">
@@ -1203,6 +1221,7 @@ export function PaymentCreateForm({
                 disabled={
                   !policiesComplete ||
                   !hasAnyPayers ||
+                  totalPaymentCentavos <= BigInt(0) ||
                   hasUploadingProofs ||
                   (previewDistribution !== null && !previewDistribution.ok)
                 }
@@ -1226,6 +1245,7 @@ export function PaymentCreateForm({
               disabled={
                 !policiesComplete ||
                 !hasAnyPayers ||
+                totalPaymentCentavos <= BigInt(0) ||
                 hasUploadingProofs ||
                 (previewDistribution !== null && !previewDistribution.ok)
               }

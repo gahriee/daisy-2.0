@@ -13,6 +13,7 @@ import { Alert } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
 import { Button, buttonClasses } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
+import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import {
   EmptyState,
   EmptyStateActions,
@@ -25,6 +26,10 @@ import {
   SearchFilterBar,
   SearchFilterInput,
 } from "@/components/ui/search-filter";
+import {
+  RowActionMenu,
+  type RowActionItem,
+} from "@/components/ui/row-action-menu";
 import { Select } from "@/components/ui/select";
 import {
   Table,
@@ -37,6 +42,12 @@ import {
 } from "@/components/ui/table";
 import { TablePagination } from "@/components/ui/table-pagination";
 import { toast } from "@/components/ui/toaster";
+import {
+  addMaintenanceUpdateAction,
+  archiveMaintenanceRequestAction,
+  bulkArchiveMaintenanceRequestsAction,
+  restoreMaintenanceRequestAction,
+} from "@/features/maintenance/actions";
 import {
   MAINTENANCE_CATEGORY_LABELS,
   MAINTENANCE_PRIORITIES,
@@ -213,6 +224,7 @@ export function MaintenanceWorkspace({
   initialSyncBadges?: Record<string, OfflineEntitySyncBadge>;
 }) {
   const online = useBrowserOnline();
+  const isOfflineView = offlineMode || !online;
   const [prevInitialOverview, setPrevInitialOverview] =
     useState(initialOverview);
   const [serverOverview, setServerOverview] = useState(initialOverview);
@@ -231,8 +243,18 @@ export function MaintenanceWorkspace({
   const [needsAttentionCount, setNeedsAttentionCount] = useState(0);
   const [unlockPromptOpen, setUnlockPromptOpen] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
-  const [statusFilter, setStatusFilter] = useState("ACTIVE");
+  const [statusFilter, setStatusFilter] = useState("ALL");
   const [priorityFilter, setPriorityFilter] = useState("ALL");
+  const [selectedRequestIds, setSelectedRequestIds] = useState<string[]>([]);
+  const [bulkArchiveOpen, setBulkArchiveOpen] = useState(false);
+  const [bulkArchivePending, setBulkArchivePending] = useState(false);
+  const [bulkArchiveError, setBulkArchiveError] = useState<string | null>(null);
+  const [rowPendingId, setRowPendingId] = useState<string | null>(null);
+  const [confirmRowAction, setConfirmRowAction] = useState<{
+    req: MaintenanceRequestDto;
+    kind: "resolve" | "archive" | "restore";
+  } | null>(null);
+  const [confirmRowError, setConfirmRowError] = useState<string | null>(null);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [refreshing, startRefresh] = useTransition();
 
@@ -363,19 +385,19 @@ export function MaintenanceWorkspace({
 
   const normalizedQuery = searchQuery.trim().toLowerCase();
   const filteredRequests = overview.requests.filter((req) => {
-    if (statusFilter === "ACTIVE") {
+    if (statusFilter === "ALL") {
       if (
         req.archivedAt !== null ||
         (req.status !== "OPEN" &&
           req.status !== "IN_PROGRESS" &&
-          req.status !== "WAITING_PARTS")
+          req.status !== "RESOLVED")
       ) {
         return false;
       }
     } else if (statusFilter === "ARCHIVED") {
       if (req.archivedAt === null) return false;
-    } else if (statusFilter !== "ALL") {
-      if (req.archivedAt !== null || req.status !== statusFilter) return false;
+    } else if (req.archivedAt !== null || req.status !== statusFilter) {
+      return false;
     }
 
     if (priorityFilter !== "ALL" && req.priority !== priorityFilter) {
@@ -397,7 +419,7 @@ export function MaintenanceWorkspace({
 
   const hasActiveFilters =
     normalizedQuery !== "" ||
-    statusFilter !== "ACTIVE" ||
+    statusFilter !== "ALL" ||
     priorityFilter !== "ALL";
 
   const {
@@ -417,9 +439,221 @@ export function MaintenanceWorkspace({
   });
 
   const activeQueueCount =
-    overview.totals.openCount +
-    overview.totals.inProgressCount +
-    overview.totals.waitingPartsCount;
+    overview.totals.openCount + overview.totals.inProgressCount;
+  const resolvedCount = overview.requests.filter(
+    (req) => req.archivedAt === null && req.status === "RESOLVED",
+  ).length;
+
+  const viewingArchived = statusFilter === "ARCHIVED";
+  const isRequestBulkEligible = (req: MaintenanceRequestDto) =>
+    viewingArchived
+      ? req.archivedAt !== null
+      : req.archivedAt === null && req.activeHolds.length === 0;
+  const eligibleRequests = filteredRequests.filter(isRequestBulkEligible);
+  const selectedEligibleRequests = eligibleRequests.filter((req) =>
+    selectedRequestIds.includes(req.id),
+  );
+  const pageEligibleRequests = paginatedRequests.filter(isRequestBulkEligible);
+  const allPageRequestsSelected =
+    pageEligibleRequests.length > 0 &&
+    pageEligibleRequests.every((req) => selectedRequestIds.includes(req.id));
+
+  function toggleRequestSelection(requestId: string) {
+    setSelectedRequestIds((prev) =>
+      prev.includes(requestId)
+        ? prev.filter((id) => id !== requestId)
+        : [...prev, requestId],
+    );
+  }
+
+  function toggleAllPageRequests() {
+    if (allPageRequestsSelected) {
+      const pageIds = new Set(pageEligibleRequests.map((req) => req.id));
+      setSelectedRequestIds((prev) => prev.filter((id) => !pageIds.has(id)));
+    } else {
+      const merged = new Set([
+        ...selectedRequestIds,
+        ...pageEligibleRequests.map((req) => req.id),
+      ]);
+      setSelectedRequestIds(Array.from(merged));
+    }
+  }
+
+  async function executeBulkArchiveRequests() {
+    if (selectedEligibleRequests.length === 0 || bulkArchivePending) return;
+    setBulkArchivePending(true);
+    setBulkArchiveError(null);
+    try {
+      const res = await bulkArchiveMaintenanceRequestsAction(
+        selectedEligibleRequests.map((req) => ({
+          requestId: req.id,
+          expectedVersion: req.version,
+        })),
+        viewingArchived ? "restore" : "archive",
+      );
+      if (res.status === "saved") {
+        setBulkArchiveOpen(false);
+        setSelectedRequestIds([]);
+        toast.success(res.message);
+        await reloadMaintenance();
+      } else if (res.status === "error") {
+        setBulkArchiveError(res.message);
+      }
+    } finally {
+      setBulkArchivePending(false);
+    }
+  }
+
+  async function executeQuickInProgress(req: MaintenanceRequestDto) {
+    if (rowPendingId) return;
+    setErrorMessage(null);
+    setRowPendingId(req.id);
+    try {
+      const res = await addMaintenanceUpdateAction({
+        requestId: req.id,
+        expectedVersion: req.version,
+        statusTo: "IN_PROGRESS",
+        note: "",
+        attachmentIntentIds: [],
+      });
+      if (res.status === "saved") {
+        toast.success("Marked request as in progress.");
+        await reloadMaintenance();
+      } else if (res.status === "error") {
+        setErrorMessage(res.message);
+      }
+    } finally {
+      setRowPendingId(null);
+    }
+  }
+
+  async function executeConfirmRowAction() {
+    if (!confirmRowAction || rowPendingId) return;
+    const { req, kind } = confirmRowAction;
+    setConfirmRowError(null);
+    setRowPendingId(req.id);
+    try {
+      const res =
+        kind === "resolve"
+          ? await addMaintenanceUpdateAction({
+              requestId: req.id,
+              expectedVersion: req.version,
+              statusTo: "RESOLVED",
+              note: "",
+              attachmentIntentIds: [],
+            })
+          : kind === "archive"
+            ? await archiveMaintenanceRequestAction({
+                requestId: req.id,
+                expectedVersion: req.version,
+              })
+            : await restoreMaintenanceRequestAction({
+                requestId: req.id,
+                expectedVersion: req.version,
+              });
+      if (res.status === "saved") {
+        setConfirmRowAction(null);
+        toast.success(
+          kind === "resolve" ? "Marked request as resolved." : res.message,
+        );
+        await reloadMaintenance();
+      } else if (res.status === "error") {
+        setConfirmRowError(res.message);
+      }
+    } finally {
+      setRowPendingId(null);
+    }
+  }
+
+  function formatRoomLabel(roomTitle: string) {
+    return /^room\s/i.test(roomTitle) ? roomTitle : `Room ${roomTitle}`;
+  }
+
+  function getMaintenanceRowActions(
+    req: MaintenanceRequestDto,
+  ): RowActionItem[] {
+    const isArchived = req.archivedAt !== null;
+    const busy = rowPendingId === req.id;
+    const badge = syncBadges[req.id];
+    const hasNeedsAttention = badge && badge.status !== "pending";
+
+    return [
+      ...(hasNeedsAttention
+        ? [
+            {
+              id: "keep-draft",
+              label: "Keep draft",
+              onSelect: () => handleResolveAttention(badge, "keep_mine"),
+            },
+            {
+              id: "discard-draft",
+              label: "Discard draft",
+              tone: "danger" as const,
+              onSelect: () => handleResolveAttention(badge, "discard"),
+            },
+          ]
+        : []),
+      {
+        id: "manage",
+        label: "Manage",
+        href: `/maintenance/${req.id}`,
+      },
+      ...(!isArchived && req.status === "OPEN"
+        ? [
+            {
+              id: "in-progress",
+              label: isOfflineView
+                ? "Mark in progress (online only)"
+                : "Mark in progress",
+              busy,
+              disabled: isOfflineView || Boolean(rowPendingId),
+              onSelect: () => {
+                void executeQuickInProgress(req);
+              },
+            },
+          ]
+        : []),
+      ...(!isArchived && req.status === "IN_PROGRESS"
+        ? [
+            {
+              id: "resolve",
+              label: isOfflineView
+                ? "Mark resolved (online only)"
+                : "Mark resolved",
+              busy,
+              disabled: isOfflineView || Boolean(rowPendingId),
+              onSelect: () => {
+                setConfirmRowError(null);
+                setConfirmRowAction({ req, kind: "resolve" });
+              },
+            },
+          ]
+        : []),
+      {
+        id: isArchived ? "restore" : "archive",
+        label: isArchived
+          ? isOfflineView
+            ? "Restore (online only)"
+            : "Restore"
+          : isOfflineView
+            ? "Archive (online only)"
+            : "Archive",
+        tone: isArchived ? ("default" as const) : ("danger" as const),
+        busy,
+        disabled:
+          isOfflineView ||
+          Boolean(rowPendingId) ||
+          (!isArchived && req.activeHolds.length > 0),
+        onSelect: () => {
+          setConfirmRowError(null);
+          setConfirmRowAction({
+            req,
+            kind: isArchived ? "restore" : "archive",
+          });
+        },
+      },
+    ];
+  }
 
   return (
     <div className="grid gap-5">
@@ -479,7 +713,7 @@ export function MaintenanceWorkspace({
         <MetricCard
           label="Active repairs"
           value={activeQueueCount}
-          description="Open, in progress, or waiting parts"
+          description="Open or in progress"
           icon={<WrenchIcon />}
           tone={activeQueueCount > 0 ? "info" : "neutral"}
         />
@@ -491,9 +725,9 @@ export function MaintenanceWorkspace({
           tone={overview.totals.urgentOpenCount > 0 ? "warning" : "neutral"}
         />
         <MetricCard
-          label="Waiting parts"
-          value={overview.totals.waitingPartsCount}
-          description="Awaiting contractor or materials"
+          label="Resolved"
+          value={resolvedCount}
+          description="Completed repairs"
           icon={<PartsIcon />}
         />
         <MetricCard
@@ -511,8 +745,9 @@ export function MaintenanceWorkspace({
         hasActiveFilters={hasActiveFilters}
         onClearAll={() => {
           setSearchQuery("");
-          setStatusFilter("ACTIVE");
+          setStatusFilter("ALL");
           setPriorityFilter("ALL");
+          setSelectedRequestIds([]);
         }}
       >
         <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
@@ -521,7 +756,7 @@ export function MaintenanceWorkspace({
               {({ id }) => (
                 <SearchFilterInput
                   id={id}
-                  placeholder="Issue, room number, or category"
+                  placeholder="Issue, room title, or category"
                   value={searchQuery}
                   onValueChange={setSearchQuery}
                 />
@@ -535,16 +770,18 @@ export function MaintenanceWorkspace({
                 {...fieldProps}
                 variant="filter"
                 value={statusFilter}
-                onChange={(e) => setStatusFilter(e.target.value)}
+                onChange={(e) => {
+                  setStatusFilter(e.target.value);
+                  setSelectedRequestIds([]);
+                }}
               >
-                <option value="ACTIVE">Active</option>
+                <option value="ALL">All requests</option>
                 {MAINTENANCE_STATUSES.map((status) => (
                   <option key={status} value={status}>
                     {MAINTENANCE_STATUS_LABELS[status]}
                   </option>
                 ))}
                 <option value="ARCHIVED">Archived</option>
-                <option value="ALL">All requests</option>
               </Select>
             )}
           </Field>
@@ -594,7 +831,7 @@ export function MaintenanceWorkspace({
                 variant="secondary"
                 onClick={() => {
                   setSearchQuery("");
-                  setStatusFilter("ACTIVE");
+                  setStatusFilter("ALL");
                   setPriorityFilter("ALL");
                 }}
               >
@@ -618,96 +855,120 @@ export function MaintenanceWorkspace({
             title="Maintenance requests"
             count={`${filteredRequests.length} ${filteredRequests.length === 1 ? "record" : "records"}`}
           />
+          {selectedEligibleRequests.length > 0 && (
+            <div className="flex flex-wrap items-center justify-between gap-2 border-b border-border bg-accent/40 px-4 py-2.5 sm:px-6">
+              <span className="text-sm font-medium text-foreground">
+                {selectedEligibleRequests.length}{" "}
+                {selectedEligibleRequests.length === 1 ? "request" : "requests"}{" "}
+                selected
+              </span>
+              <div className="flex flex-wrap items-center gap-2">
+                <Button
+                  type="button"
+                  size="sm"
+                  variant="ghost"
+                  onClick={() => setSelectedRequestIds([])}
+                  disabled={bulkArchivePending}
+                >
+                  Clear
+                </Button>
+                <Button
+                  type="button"
+                  size="sm"
+                  variant={viewingArchived ? "primary" : "danger"}
+                  disabled={isOfflineView || bulkArchivePending}
+                  onClick={() => {
+                    setBulkArchiveError(null);
+                    setBulkArchiveOpen(true);
+                  }}
+                >
+                  {viewingArchived
+                    ? isOfflineView
+                      ? "Restore selected (online only)"
+                      : "Restore selected"
+                    : isOfflineView
+                      ? "Archive selected (online only)"
+                      : "Archive selected"}
+                </Button>
+              </div>
+            </div>
+          )}
           {/* 360px Mobile stacked cards */}
           <div className="grid divide-y divide-border md:hidden">
-            {paginatedRequests.map((req) => (
-              <div key={req.id} className="grid gap-3 p-4">
-                <div className="flex flex-wrap items-start justify-between gap-2">
-                  <div className="grid min-w-0 gap-0.5">
-                    <Link
-                      href={`/maintenance/${req.id}`}
-                      className="text-sm font-semibold text-foreground hover:text-primary"
-                    >
-                      {req.title}
-                    </Link>
-                    <p className="text-xs text-muted-foreground">
-                      Room {req.roomNumber}
-                    </p>
-                    <p className="text-xs text-muted-foreground">
-                      {MAINTENANCE_CATEGORY_LABELS[req.category]}
-                    </p>
+            {paginatedRequests.map((req) => {
+              const eligible = isRequestBulkEligible(req);
+              return (
+                <div key={req.id} className="grid gap-3 p-4">
+                  <div className="flex flex-wrap items-start justify-between gap-2">
+                    <div className="flex min-w-0 items-start gap-2.5">
+                      <input
+                        type="checkbox"
+                        aria-label={`Select ${req.title}`}
+                        checked={
+                          eligible && selectedRequestIds.includes(req.id)
+                        }
+                        disabled={
+                          !eligible || isOfflineView || bulkArchivePending
+                        }
+                        title={
+                          !eligible && !viewingArchived
+                            ? "Release active maintenance holds before archiving."
+                            : undefined
+                        }
+                        onChange={() => toggleRequestSelection(req.id)}
+                        className="mt-1 size-4 cursor-pointer rounded border-control-border accent-primary disabled:cursor-not-allowed disabled:opacity-40"
+                      />
+                      <div className="grid min-w-0 gap-0.5">
+                        <Link
+                          href={`/maintenance/${req.id}`}
+                          className="text-sm font-semibold text-foreground hover:text-primary"
+                        >
+                          {req.title}
+                        </Link>
+                        <p className="text-xs text-muted-foreground">
+                          {formatRoomLabel(req.roomNumber)}
+                        </p>
+                        <p className="text-xs text-muted-foreground">
+                          {MAINTENANCE_CATEGORY_LABELS[req.category]}
+                        </p>
+                      </div>
+                    </div>
+                    <div className="flex flex-wrap items-center justify-end gap-1.5">
+                      <OfflineSyncBadge badge={syncBadges[req.id]} />
+                      <Badge tone={MAINTENANCE_STATUS_TONE[req.status]}>
+                        {MAINTENANCE_STATUS_LABELS[req.status]}
+                      </Badge>
+                    </div>
                   </div>
-                  <div className="flex flex-wrap items-center justify-end gap-1.5">
-                    <OfflineSyncBadge badge={syncBadges[req.id]} />
-                    <Badge tone={MAINTENANCE_STATUS_TONE[req.status]}>
-                      {MAINTENANCE_STATUS_LABELS[req.status]}
-                    </Badge>
-                  </div>
-                </div>
 
-                <div className="flex flex-wrap items-center gap-2 text-xs">
-                  <Badge tone={MAINTENANCE_PRIORITY_TONE[req.priority]}>
-                    {MAINTENANCE_PRIORITY_LABELS[req.priority]}
-                  </Badge>
-                  {req.activeHolds.length > 0 && (
-                    <Badge tone="warning">
-                      {req.activeHolds.length} hold(s)
+                  <div className="flex flex-wrap items-center gap-2 text-xs">
+                    <Badge tone={MAINTENANCE_PRIORITY_TONE[req.priority]}>
+                      {MAINTENANCE_PRIORITY_LABELS[req.priority]}
                     </Badge>
-                  )}
-                  {req.attachments.length > 0 && (
-                    <Badge tone="neutral">
-                      {req.attachments.length} file(s)
-                    </Badge>
-                  )}
-                </div>
+                    {req.activeHolds.length > 0 && (
+                      <Badge tone="warning">
+                        {req.activeHolds.length} hold(s)
+                      </Badge>
+                    )}
+                    {req.attachments.length > 0 && (
+                      <Badge tone="neutral">
+                        {req.attachments.length} file(s)
+                      </Badge>
+                    )}
+                  </div>
 
-                <div className="flex items-center justify-between gap-2 border-t border-border pt-2.5 text-xs">
-                  <span className="text-muted-foreground tabular-nums">
-                    {formatManilaDate(toManilaDate(new Date(req.createdAt)))}
-                  </span>
-                  <div className="flex flex-wrap gap-1.5">
-                    {syncBadges[req.id] &&
-                      syncBadges[req.id]!.status !== "pending" && (
-                        <>
-                          <Button
-                            size="sm"
-                            variant="secondary"
-                            onClick={() =>
-                              handleResolveAttention(
-                                syncBadges[req.id]!,
-                                "keep_mine",
-                              )
-                            }
-                          >
-                            Keep draft
-                          </Button>
-                          <Button
-                            size="sm"
-                            variant="danger"
-                            onClick={() =>
-                              handleResolveAttention(
-                                syncBadges[req.id]!,
-                                "discard",
-                              )
-                            }
-                          >
-                            Discard
-                          </Button>
-                        </>
-                      )}
-                    <Link
-                      href={`/maintenance/${req.id}`}
-                      className={buttonClasses({
-                        variant: "secondary",
-                        size: "sm",
-                      })}
-                    >
-                      Manage
-                    </Link>
+                  <div className="flex items-center justify-between gap-2 border-t border-border pt-2.5 text-xs">
+                    <span className="text-muted-foreground tabular-nums">
+                      {formatManilaDate(toManilaDate(new Date(req.createdAt)))}
+                    </span>
+                    <RowActionMenu
+                      label={`Actions for ${req.title}`}
+                      items={getMaintenanceRowActions(req)}
+                    />
                   </div>
                 </div>
-              </div>
-            ))}
+              );
+            })}
           </div>
 
           {/* Desktop table */}
@@ -715,7 +976,25 @@ export function MaintenanceWorkspace({
             <Table containerClassName="rounded-none border-0">
               <TableHeader>
                 <TableRow>
-                  <TableHead {...sortHeaderProps("issue")}>Issue</TableHead>
+                  <TableHead className="w-10">
+                    <input
+                      type="checkbox"
+                      aria-label={
+                        viewingArchived
+                          ? "Select all archived requests on this page"
+                          : "Select all eligible requests on this page"
+                      }
+                      checked={allPageRequestsSelected}
+                      disabled={
+                        isOfflineView ||
+                        bulkArchivePending ||
+                        pageEligibleRequests.length === 0
+                      }
+                      onChange={toggleAllPageRequests}
+                      className="size-4 cursor-pointer rounded border-control-border accent-primary disabled:cursor-not-allowed disabled:opacity-40"
+                    />
+                  </TableHead>
+                  <TableHead {...sortHeaderProps("logged")}>Issue</TableHead>
                   <TableHead {...sortHeaderProps("location")}>
                     Location
                   </TableHead>
@@ -723,105 +1002,92 @@ export function MaintenanceWorkspace({
                     Priority
                   </TableHead>
                   <TableHead {...sortHeaderProps("status")}>Status</TableHead>
-                  <TableHead {...sortHeaderProps("holdsFiles")}>
-                    Holds &amp; files
-                  </TableHead>
-                  <TableHead {...sortHeaderProps("logged")}>Logged</TableHead>
-                  <TableHead className="text-right">Action</TableHead>
+                  <TableHead className="text-right">Actions</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {paginatedRequests.map((req) => (
-                  <TableRow key={req.id}>
-                    <TableCell>
-                      <div className="grid gap-0.5">
-                        <Link
-                          href={`/maintenance/${req.id}`}
-                          className="font-medium text-foreground hover:text-primary"
-                        >
-                          {req.title}
-                        </Link>
-                        <span className="text-xs text-muted-foreground">
-                          {MAINTENANCE_CATEGORY_LABELS[req.category]}
-                        </span>
-                      </div>
-                    </TableCell>
-                    <TableCell>Room {req.roomNumber}</TableCell>
-                    <TableCell>
-                      <Badge tone={MAINTENANCE_PRIORITY_TONE[req.priority]}>
-                        {MAINTENANCE_PRIORITY_LABELS[req.priority]}
-                      </Badge>
-                    </TableCell>
-                    <TableCell>
-                      <div className="flex flex-wrap gap-1.5">
-                        <Badge tone={MAINTENANCE_STATUS_TONE[req.status]}>
-                          {MAINTENANCE_STATUS_LABELS[req.status]}
-                        </Badge>
-                        {req.archivedAt && (
-                          <Badge tone="neutral">Archived</Badge>
-                        )}
-                        <OfflineSyncBadge badge={syncBadges[req.id]} />
-                      </div>
-                    </TableCell>
-                    <TableCell className="text-xs text-muted-foreground tabular-nums">
-                      <div className="grid gap-0.5">
-                        <span>
-                          {req.activeHolds.length > 0
-                            ? `${req.activeHolds.length} active hold`
-                            : "No hold"}
-                        </span>
-                        {req.attachments.length > 0 && (
-                          <span>{req.attachments.length} attachment(s)</span>
-                        )}
-                      </div>
-                    </TableCell>
-                    <TableCell className="text-xs text-muted-foreground tabular-nums">
-                      {formatManilaDate(toManilaDate(new Date(req.createdAt)))}
-                    </TableCell>
-                    <TableCell className="text-right">
-                      <div className="flex flex-wrap justify-end gap-1.5">
-                        {syncBadges[req.id] &&
-                          syncBadges[req.id]!.status !== "pending" && (
-                            <>
-                              <Button
-                                size="sm"
-                                variant="secondary"
-                                onClick={() =>
-                                  handleResolveAttention(
-                                    syncBadges[req.id]!,
-                                    "keep_mine",
-                                  )
-                                }
-                              >
-                                Keep draft
-                              </Button>
-                              <Button
-                                size="sm"
-                                variant="danger"
-                                onClick={() =>
-                                  handleResolveAttention(
-                                    syncBadges[req.id]!,
-                                    "discard",
-                                  )
-                                }
-                              >
-                                Discard
-                              </Button>
-                            </>
+                {paginatedRequests.map((req) => {
+                  const eligible = isRequestBulkEligible(req);
+                  const roomDetails = [
+                    req.activeHolds.length > 0
+                      ? `${req.activeHolds.length} active hold`
+                      : null,
+                    req.attachments.length > 0
+                      ? `${req.attachments.length} ${req.attachments.length === 1 ? "file" : "files"}`
+                      : null,
+                  ].filter(Boolean);
+                  return (
+                    <TableRow key={req.id}>
+                      <TableCell>
+                        <input
+                          type="checkbox"
+                          aria-label={`Select ${req.title}`}
+                          checked={
+                            eligible && selectedRequestIds.includes(req.id)
+                          }
+                          disabled={
+                            !eligible || isOfflineView || bulkArchivePending
+                          }
+                          title={
+                            !eligible && !viewingArchived
+                              ? "Release active maintenance holds before archiving."
+                              : undefined
+                          }
+                          onChange={() => toggleRequestSelection(req.id)}
+                          className="size-4 cursor-pointer rounded border-control-border accent-primary disabled:cursor-not-allowed disabled:opacity-40"
+                        />
+                      </TableCell>
+                      <TableCell>
+                        <div className="grid gap-0.5">
+                          <Link
+                            href={`/maintenance/${req.id}`}
+                            className="font-medium text-foreground hover:text-primary"
+                          >
+                            {req.title}
+                          </Link>
+                          <span className="text-xs text-muted-foreground tabular-nums">
+                            {MAINTENANCE_CATEGORY_LABELS[req.category]} ·{" "}
+                            {formatManilaDate(
+                              toManilaDate(new Date(req.createdAt)),
+                            )}
+                          </span>
+                        </div>
+                      </TableCell>
+                      <TableCell>
+                        <div className="grid gap-0.5">
+                          <span>{formatRoomLabel(req.roomNumber)}</span>
+                          {roomDetails.length > 0 && (
+                            <span className="text-xs text-muted-foreground tabular-nums">
+                              {roomDetails.join(" · ")}
+                            </span>
                           )}
-                        <Link
-                          href={`/maintenance/${req.id}`}
-                          className={buttonClasses({
-                            variant: "secondary",
-                            size: "sm",
-                          })}
-                        >
-                          Manage
-                        </Link>
-                      </div>
-                    </TableCell>
-                  </TableRow>
-                ))}
+                        </div>
+                      </TableCell>
+                      <TableCell>
+                        <Badge tone={MAINTENANCE_PRIORITY_TONE[req.priority]}>
+                          {MAINTENANCE_PRIORITY_LABELS[req.priority]}
+                        </Badge>
+                      </TableCell>
+                      <TableCell>
+                        <div className="flex flex-wrap gap-1.5">
+                          <Badge tone={MAINTENANCE_STATUS_TONE[req.status]}>
+                            {MAINTENANCE_STATUS_LABELS[req.status]}
+                          </Badge>
+                          {req.archivedAt && (
+                            <Badge tone="neutral">Archived</Badge>
+                          )}
+                          <OfflineSyncBadge badge={syncBadges[req.id]} />
+                        </div>
+                      </TableCell>
+                      <TableCell className="text-right">
+                        <RowActionMenu
+                          label={`Actions for ${req.title}`}
+                          items={getMaintenanceRowActions(req)}
+                        />
+                      </TableCell>
+                    </TableRow>
+                  );
+                })}
               </TableBody>
             </Table>
           </div>
@@ -831,6 +1097,76 @@ export function MaintenanceWorkspace({
           />
         </Card>
       )}
+
+      <ConfirmDialog
+        open={bulkArchiveOpen}
+        onClose={() => {
+          if (bulkArchivePending) return;
+          setBulkArchiveError(null);
+          setBulkArchiveOpen(false);
+        }}
+        onConfirm={() => {
+          void executeBulkArchiveRequests();
+        }}
+        title={
+          viewingArchived
+            ? `Restore ${selectedEligibleRequests.length} ${selectedEligibleRequests.length === 1 ? "request" : "requests"}?`
+            : `Archive ${selectedEligibleRequests.length} ${selectedEligibleRequests.length === 1 ? "request" : "requests"}?`
+        }
+        description={
+          viewingArchived
+            ? "Restoring returns the selected maintenance requests to active repair lists."
+            : "Archiving moves the selected maintenance requests out of active lists. You can restore them anytime."
+        }
+        errorMessage={bulkArchiveError}
+        confirmLabel={viewingArchived ? "Restore" : "Archive"}
+        confirmVariant={viewingArchived ? "primary" : "danger"}
+        loading={bulkArchivePending}
+      />
+
+      <ConfirmDialog
+        open={confirmRowAction !== null}
+        onClose={() => {
+          if (rowPendingId) return;
+          setConfirmRowError(null);
+          setConfirmRowAction(null);
+        }}
+        onConfirm={() => {
+          void executeConfirmRowAction();
+        }}
+        title={
+          confirmRowAction
+            ? confirmRowAction.kind === "resolve"
+              ? `Mark "${confirmRowAction.req.title}" as resolved?`
+              : confirmRowAction.kind === "archive"
+                ? `Archive "${confirmRowAction.req.title}"?`
+                : `Restore "${confirmRowAction.req.title}"?`
+            : "Update request?"
+        }
+        description={
+          confirmRowAction?.kind === "resolve"
+            ? confirmRowAction.req.activeHolds.length > 0
+              ? "Resolving this request will automatically release its active room hold(s)."
+              : "This marks the maintenance request as completed."
+            : confirmRowAction?.kind === "archive"
+              ? "Archiving moves this maintenance request out of active repair lists. You can restore it anytime."
+              : "Restoring returns this maintenance request to active repair lists."
+        }
+        errorMessage={confirmRowError}
+        confirmLabel={
+          confirmRowAction?.kind === "resolve"
+            ? "Mark resolved"
+            : confirmRowAction?.kind === "archive"
+              ? "Archive"
+              : "Restore"
+        }
+        confirmVariant={
+          confirmRowAction?.kind === "archive" ? "danger" : "primary"
+        }
+        loading={
+          confirmRowAction !== null && rowPendingId === confirmRowAction.req.id
+        }
+      />
 
       <OfflineVaultUnlockDialog
         open={unlockPromptOpen}

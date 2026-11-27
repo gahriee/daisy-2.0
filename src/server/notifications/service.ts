@@ -104,7 +104,7 @@ export async function listOwnerNotifications(
         ownerUserId,
         archivedAt: null,
         priority: "URGENT",
-        status: { in: ["OPEN", "IN_PROGRESS", "WAITING_PARTS"] },
+        status: { in: ["OPEN", "IN_PROGRESS"] },
       },
       orderBy: { createdAt: "desc" },
       take: 25,

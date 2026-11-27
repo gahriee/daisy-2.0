@@ -40,7 +40,6 @@ export function BookingRequestDetail({
     request.currentDailyRate ?? request.quotedDailyRate,
   );
   const [confirmRateChange, setConfirmRateChange] = useState(false);
-  const [issueInvoice, setIssueInvoice] = useState(false);
   const [rejectReason, setRejectReason] = useState("");
   const [withdrawing, setWithdrawing] = useState(false);
   const [withdrawFeedback, setWithdrawFeedback] =
@@ -115,7 +114,7 @@ export function BookingRequestDetail({
   return (
     <div className="grid min-w-0 gap-6">
       <div className="grid gap-2">
-        <BackLink href="/transients/requests">Booking requests</BackLink>
+        <BackLink href="/transients/stays">Stays &amp; requests</BackLink>
         <header className="grid gap-1">
           <div className="flex flex-wrap items-center gap-2">
             <span className="font-mono text-xs font-semibold text-muted-foreground">
@@ -137,7 +136,7 @@ export function BookingRequestDetail({
             {request.guestName}
           </h1>
           <div className="grid gap-0.5 text-sm text-muted-foreground tabular-nums">
-            <span>Room {room.number}</span>
+            <span>{room.number}</span>
             <span>
               {formatManilaDate(request.checkInDateManila)} &rarr;{" "}
               {formatManilaDate(request.checkOutDateManila)} ({request.nights}{" "}
@@ -331,12 +330,9 @@ export function BookingRequestDetail({
                   />
                 )}
 
-                <Checkbox
-                  name="issueInvoiceImmediately"
-                  checked={issueInvoice}
-                  onChange={(e) => setIssueInvoice(e.target.checked)}
-                  label="Issue stay invoice upon approval"
-                />
+                <p className="text-xs text-muted-foreground">
+                  Approving automatically creates and issues the stay invoice.
+                </p>
 
                 <Button
                   type="submit"
@@ -493,9 +489,7 @@ export function BookingRequestDetail({
               </div>
               <div className="flex items-center justify-between gap-2">
                 <span className="text-muted-foreground">Invoice</span>
-                <span className="text-foreground">
-                  {issueInvoice ? "Issue immediately" : "Do not issue yet"}
-                </span>
+                <span className="text-foreground">Issued automatically</span>
               </div>
             </>
           ) : confirmAction === "reject" && rejectReason.trim() ? (

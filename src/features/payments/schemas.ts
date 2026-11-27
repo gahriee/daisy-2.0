@@ -15,6 +15,14 @@ export const PAYMENT_METHODS = [
   "OTHER",
 ] as const;
 
+export const SELECTABLE_PAYMENT_METHODS = [
+  "CASH",
+  "GCASH",
+  "MAYA",
+  "BANK_TRANSFER",
+  "OTHER",
+] as const;
+
 export type PaymentMethodValue = (typeof PAYMENT_METHODS)[number];
 
 export const PAYMENT_METHOD_LABELS: Record<PaymentMethodValue, string> = {
@@ -274,6 +282,11 @@ export type PaymentDto = {
   proofs: PaymentProofDto[];
 };
 
+export type PaymentOpenInvoiceItemDto = {
+  description: string;
+  lineTotal: string;
+};
+
 export type PaymentOpenInvoiceOptionDto = {
   id: string;
   payerKind: "TENANT" | "TRANSIENT";
@@ -289,6 +302,7 @@ export type PaymentOpenInvoiceOptionDto = {
   paidAmount: string;
   balanceAmount: string;
   isOverdue: boolean;
+  items: PaymentOpenInvoiceItemDto[];
 };
 
 export type PaymentTransientOptionDto = {

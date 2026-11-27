@@ -10,7 +10,6 @@ import {
 } from "@/lib/money";
 
 export const TRANSIENT_RESERVATION_STATUSES = [
-  "TENTATIVE",
   "CONFIRMED",
   "CHECKED_IN",
   "CHECKED_OUT",
@@ -25,7 +24,6 @@ export const TRANSIENT_RESERVATION_STATUS_LABELS: Record<
   TransientReservationStatusValue,
   string
 > = {
-  TENTATIVE: "Tentative (offline)",
   CONFIRMED: "Confirmed",
   CHECKED_IN: "Checked in",
   CHECKED_OUT: "Checked out",
@@ -181,6 +179,11 @@ export const ArchiveTransientGuestSchema = z.object({
   expectedVersion: z.coerce.number().int().min(1),
 });
 
+export const ArchiveTransientReservationSchema = z.object({
+  reservationId: z.string().uuid("Select a valid stay."),
+  expectedVersion: z.coerce.number().int().min(1),
+});
+
 export const UpdateRoomTransientPublishSchema = z.object({
   roomId: z.string().uuid("Select a valid room."),
   expectedVersion: z.coerce.number().int().min(1),
@@ -222,8 +225,7 @@ export const transientReservationFieldsShape = {
     .max(20, "Party size cannot exceed 20 guests."),
   dailyRateOverride: optionalPositiveMoneySchema,
   notes: optionalShortText(500, "Keep stay notes under 500 characters."),
-  tentative: z.boolean().default(false),
-  issueInvoiceImmediately: z.boolean().default(false),
+  issueInvoiceImmediately: z.boolean().default(true),
 };
 
 function enforceTransientReservationConstraints(
@@ -469,7 +471,7 @@ export const ApproveBookingRequestSchema = z.object({
   confirmedDailyRate: positiveMoneySchema.optional(),
   confirmRateChange: z.boolean().default(false),
   notes: optionalShortText(500, "Keep notes under 500 characters."),
-  issueInvoiceImmediately: z.boolean().default(false),
+  issueInvoiceImmediately: z.boolean().default(true),
 });
 
 export const RejectBookingRequestSchema = z.object({
@@ -570,6 +572,7 @@ export type TransientReservationDto = {
   checkedInAt: string | null;
   checkedOutAt: string | null;
   cancelledAt: string | null;
+  archivedAt: string | null;
   notes: string | null;
   cancellationReason: string | null;
   activeInvoiceId: string | null;
@@ -656,9 +659,9 @@ export type TransientsOverviewDto = {
   transientPolicyNote: string | null;
   totals: {
     pendingRequests: number;
-    tentativeReservations: number;
     confirmedReservations: number;
     checkedInReservations: number;
+    archivedReservations: number;
     publishedRooms: number;
   };
   requests: BookingRequestDto[];

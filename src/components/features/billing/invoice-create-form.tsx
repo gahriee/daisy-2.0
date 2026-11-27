@@ -15,14 +15,12 @@ import { Select } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
 import { toast } from "@/components/ui/toaster";
 import { createManualInvoiceAction } from "@/features/billing/actions";
-import {
-  computeLineItemTotalCentavos,
-  getMonthBoundsManila,
-} from "@/features/billing/calculations";
+import { computeLineItemTotalCentavos } from "@/features/billing/calculations";
 import {
   INVOICE_ITEM_TYPE_LABELS,
   INVOICE_ITEM_TYPES,
   type BillingTenantOptionDto,
+  type BillingTransientGuestOptionDto,
   type InvoiceItemTypeValue,
 } from "@/features/billing/schemas";
 import { addManilaDays, toManilaDate } from "@/lib/dates";
@@ -41,39 +39,43 @@ function makeEmptyLine(key: string): DraftLineItem {
     key,
     itemType: "UTILITY",
     description: "",
-    quantity: "1.00",
+    quantity: "1",
     unitAmount: "",
   };
 }
 
 export function InvoiceCreateForm({
   tenants,
-  defaultPeriod,
+  transientGuests,
   hasInvoicePrefix,
   initialTenantId,
+  initialTransientGuestId,
 }: {
   tenants: BillingTenantOptionDto[];
-  defaultPeriod: string;
+  transientGuests: BillingTransientGuestOptionDto[];
   hasInvoicePrefix: boolean;
   initialTenantId?: string | null;
+  initialTransientGuestId?: string | null;
 }) {
   const router = useRouter();
-  const bounds = getMonthBoundsManila(defaultPeriod);
   const todayManila = toManilaDate(new Date());
 
-  const defaultTenant =
-    (initialTenantId && tenants.some((t) => t.id === initialTenantId)
-      ? initialTenantId
-      : tenants[0]?.id) ?? "";
+  const defaultRecipientKey = (() => {
+    if (
+      initialTransientGuestId &&
+      transientGuests.some((g) => g.id === initialTransientGuestId)
+    ) {
+      return `transient:${initialTransientGuestId}`;
+    }
+    if (initialTenantId && tenants.some((t) => t.id === initialTenantId)) {
+      return `tenant:${initialTenantId}`;
+    }
+    if (tenants[0]) return `tenant:${tenants[0].id}`;
+    if (transientGuests[0]) return `transient:${transientGuests[0].id}`;
+    return "";
+  })();
 
-  const [tenantId, setTenantId] = useState(defaultTenant);
-  const [billingPeriod, setBillingPeriod] = useState("");
-  const [periodStartManila, setPeriodStartManila] = useState(
-    bounds.monthStartManila,
-  );
-  const [periodEndManila, setPeriodEndManila] = useState(
-    bounds.monthEndExclusiveManila,
-  );
+  const [recipientKey, setRecipientKey] = useState(defaultRecipientKey);
   const [dueDateManila, setDueDateManila] = useState(
     addManilaDays(todayManila, 7),
   );
@@ -84,7 +86,7 @@ export function InvoiceCreateForm({
       key: "line-1",
       itemType: "UTILITY",
       description: "Water and electricity share",
-      quantity: "1.00",
+      quantity: "1",
       unitAmount: "",
     },
   ]);
@@ -108,7 +110,20 @@ export function InvoiceCreateForm({
     BigInt(0),
   );
 
-  const selectedTenant = tenants.find((t) => t.id === tenantId) ?? null;
+  const isTransient = recipientKey.startsWith("transient:");
+  const selectedTenantId = recipientKey.startsWith("tenant:")
+    ? recipientKey.slice("tenant:".length)
+    : null;
+  const selectedTransientGuestId = isTransient
+    ? recipientKey.slice("transient:".length)
+    : null;
+  const selectedTenant = selectedTenantId
+    ? (tenants.find((t) => t.id === selectedTenantId) ?? null)
+    : null;
+  const selectedTransientGuest = selectedTransientGuestId
+    ? (transientGuests.find((g) => g.id === selectedTransientGuestId) ?? null)
+    : null;
+  const hasRecipients = tenants.length > 0 || transientGuests.length > 0;
 
   function updateItem(key: string, patch: Partial<Omit<DraftLineItem, "key">>) {
     setItems((prev) =>
@@ -124,10 +139,8 @@ export function InvoiceCreateForm({
 
     startTransition(async () => {
       const result = await createManualInvoiceAction({
-        tenantId,
-        billingPeriod: billingPeriod.trim() ? billingPeriod.trim() : null,
-        periodStartManila,
-        periodEndManila,
+        tenantId: selectedTenantId,
+        transientGuestId: selectedTransientGuestId,
         dueDateManila,
         issueImmediately,
         notes: notes.trim() ? notes.trim() : null,
@@ -161,22 +174,33 @@ export function InvoiceCreateForm({
             Create invoice
           </h1>
           <p className="text-sm leading-6 text-muted-foreground">
-            Create an itemized draft or issued invoice for rent, utilities, or
-            deposits.
+            Create an itemized draft or issued invoice for a boarder or
+            transient guest.
           </p>
         </header>
       </div>
 
-      {tenants.length === 0 && (
+      {!hasRecipients && (
         <Alert tone="warning" role="status">
           <div className="flex flex-wrap items-center justify-between gap-3">
-            <span>Add an active boarder before creating a manual invoice.</span>
-            <Link
-              href="/tenants"
-              className={buttonClasses({ variant: "secondary", size: "sm" })}
-            >
-              Go to tenants
-            </Link>
+            <span>
+              Add an active boarder or transient guest before creating an
+              invoice.
+            </span>
+            <div className="flex flex-wrap items-center gap-2">
+              <Link
+                href="/tenants"
+                className={buttonClasses({ variant: "secondary", size: "sm" })}
+              >
+                Go to tenants
+              </Link>
+              <Link
+                href="/transients/stays"
+                className={buttonClasses({ variant: "secondary", size: "sm" })}
+              >
+                Go to transients
+              </Link>
+            </div>
           </div>
         </Alert>
       )}
@@ -200,83 +224,56 @@ export function InvoiceCreateForm({
                   Invoice details
                 </h2>
                 <p className="text-xs leading-5 text-muted-foreground">
-                  Choose the tenant, coverage dates, and payment deadline.
+                  Choose the boarder or transient guest and set the payment due
+                  date.
                 </p>
               </div>
 
               <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
                 <Field
-                  id="manual-invoice-tenant"
-                  label="Tenant"
+                  id="manual-invoice-recipient"
+                  label="Boarder or transient guest"
                   required
-                  error={fieldErrors.tenantId}
+                  error={fieldErrors.tenantId ?? fieldErrors.transientGuestId}
                 >
                   {(fieldProps) => (
                     <Select
                       {...fieldProps}
-                      value={tenantId}
-                      onChange={(event) => setTenantId(event.target.value)}
+                      value={recipientKey}
+                      onChange={(event) => setRecipientKey(event.target.value)}
                     >
-                      <option value="">Select tenant</option>
-                      {tenants.map((tenant) => (
-                        <option key={tenant.id} value={tenant.id}>
-                          {tenant.fullName}
-                          {tenant.roomNumber
-                            ? ` (Room ${tenant.roomNumber})`
-                            : ""}
-                        </option>
-                      ))}
+                      <option value="" disabled>
+                        Select boarder or guest
+                      </option>
+                      {tenants.length > 0 && (
+                        <optgroup label="Boarders">
+                          {tenants.map((tenant) => (
+                            <option
+                              key={tenant.id}
+                              value={`tenant:${tenant.id}`}
+                            >
+                              {tenant.fullName}
+                              {tenant.roomNumber
+                                ? ` - ${tenant.roomNumber}`
+                                : ""}
+                            </option>
+                          ))}
+                        </optgroup>
+                      )}
+                      {transientGuests.length > 0 && (
+                        <optgroup label="Transient guests">
+                          {transientGuests.map((guest) => (
+                            <option
+                              key={guest.id}
+                              value={`transient:${guest.id}`}
+                            >
+                              {guest.fullName}
+                              {guest.roomNumber ? ` - ${guest.roomNumber}` : ""}
+                            </option>
+                          ))}
+                        </optgroup>
+                      )}
                     </Select>
-                  )}
-                </Field>
-
-                <Field
-                  id="manual-invoice-period"
-                  label="Billing period (optional)"
-                  description="Leave blank for ad-hoc utility or deposit invoices."
-                  error={fieldErrors.billingPeriod}
-                >
-                  {(fieldProps) => (
-                    <Input
-                      {...fieldProps}
-                      type="month"
-                      value={billingPeriod}
-                      onChange={(event) => setBillingPeriod(event.target.value)}
-                    />
-                  )}
-                </Field>
-              </div>
-
-              <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
-                <Field
-                  id="manual-invoice-start"
-                  label="Period start"
-                  required
-                  error={fieldErrors.periodStartManila}
-                >
-                  {(fieldProps) => (
-                    <DatePicker
-                      {...fieldProps}
-                      required
-                      value={periodStartManila}
-                      onValueChange={setPeriodStartManila}
-                    />
-                  )}
-                </Field>
-
-                <Field
-                  id="manual-invoice-end"
-                  label="Period end (exclusive)"
-                  required
-                  error={fieldErrors.periodEndManila}
-                >
-                  {(fieldProps) => (
-                    <DatePicker
-                      {...fieldProps}
-                      required
-                      value={periodEndManila}
-                      onValueChange={setPeriodEndManila}
-                    />
                   )}
                 </Field>
 
@@ -434,11 +431,27 @@ export function InvoiceCreateForm({
                           {(fieldProps) => (
                             <Input
                               {...fieldProps}
-                              inputMode="decimal"
+                              type="number"
+                              inputMode="numeric"
+                              min={1}
+                              step={1}
+                              placeholder="1"
                               value={item.quantity}
+                              onKeyDown={(event) => {
+                                if (
+                                  [".", ",", "e", "E", "+", "-"].includes(
+                                    event.key,
+                                  )
+                                ) {
+                                  event.preventDefault();
+                                }
+                              }}
                               onChange={(event) =>
                                 updateItem(item.key, {
-                                  quantity: event.target.value,
+                                  quantity: event.target.value.replace(
+                                    /\D/g,
+                                    "",
+                                  ),
                                 })
                               }
                             />
@@ -454,9 +467,17 @@ export function InvoiceCreateForm({
                           {(fieldProps) => (
                             <Input
                               {...fieldProps}
+                              type="number"
                               inputMode="decimal"
+                              min={0}
+                              step="0.01"
                               placeholder="0.00"
                               value={item.unitAmount}
+                              onKeyDown={(event) => {
+                                if (["e", "E", "+", "-"].includes(event.key)) {
+                                  event.preventDefault();
+                                }
+                              }}
                               onChange={(event) =>
                                 updateItem(item.key, {
                                   unitAmount: event.target.value,
@@ -478,16 +499,24 @@ export function InvoiceCreateForm({
 
             <dl className="grid gap-2.5 text-sm">
               <div className="flex items-start justify-between gap-3">
-                <dt className="text-muted-foreground">Tenant</dt>
+                <dt className="text-muted-foreground">
+                  {isTransient ? "Transient guest" : "Boarder"}
+                </dt>
                 <dd className="text-right font-medium text-foreground">
-                  {selectedTenant ? selectedTenant.fullName : "None selected"}
+                  {selectedTenant
+                    ? selectedTenant.fullName
+                    : selectedTransientGuest
+                      ? selectedTransientGuest.fullName
+                      : "None selected"}
                 </dd>
               </div>
-              {selectedTenant?.roomNumber && (
+              {(selectedTenant?.roomNumber ||
+                selectedTransientGuest?.roomNumber) && (
                 <div className="flex items-start justify-between gap-3">
                   <dt className="text-muted-foreground">Room</dt>
                   <dd className="text-right text-foreground tabular-nums">
-                    Room {selectedTenant.roomNumber}
+                    {selectedTenant?.roomNumber ??
+                      selectedTransientGuest?.roomNumber}
                   </dd>
                 </div>
               )}
@@ -527,7 +556,7 @@ export function InvoiceCreateForm({
                 type="submit"
                 size="md"
                 loading={pending}
-                disabled={tenants.length === 0}
+                disabled={!hasRecipients}
               >
                 {issueImmediately ? "Create and issue" : "Save draft"}
               </Button>
@@ -545,7 +574,7 @@ export function InvoiceCreateForm({
               type="submit"
               size="md"
               loading={pending}
-              disabled={tenants.length === 0}
+              disabled={!hasRecipients}
               className="w-full"
             >
               {issueImmediately ? "Create and issue" : "Save draft"}

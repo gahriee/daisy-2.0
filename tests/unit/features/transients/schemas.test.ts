@@ -72,11 +72,9 @@ describe("transients Zod schemas and sync contracts", () => {
       checkOutDateManila: "2026-11-17",
       partySize: 2,
       dailyRateOverride: "1200",
-      tentative: true,
     });
     expect(validWholeRoom.bedId).toBeNull();
     expect(validWholeRoom.dailyRateOverride).toBe("1200.00");
-    expect(validWholeRoom.tentative).toBe(true);
   });
 
   it("requires email, privacy consent, and valid idempotency token on public booking requests", () => {

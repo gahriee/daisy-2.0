@@ -44,6 +44,7 @@ import {
 import {
   ApproveBookingRequestSchema,
   ArchiveTransientGuestSchema,
+  ArchiveTransientReservationSchema,
   CancelTransientReservationSchema,
   CheckInTransientReservationSchema,
   CheckOutTransientReservationSchema,
@@ -159,6 +160,7 @@ export const transientReservationSelect = {
   checkedInAt: true,
   checkedOutAt: true,
   cancelledAt: true,
+  archivedAt: true,
   notes: true,
   cancellationReason: true,
   createdByActorType: true,
@@ -200,16 +202,11 @@ type SelectedReservationRow = {
   partySize: number;
   dailyRate: { toString(): string };
   totalAmount: { toString(): string };
-  status:
-    | "TENTATIVE"
-    | "CONFIRMED"
-    | "CHECKED_IN"
-    | "CHECKED_OUT"
-    | "CANCELLED"
-    | "NO_SHOW";
+  status: "CONFIRMED" | "CHECKED_IN" | "CHECKED_OUT" | "CANCELLED" | "NO_SHOW";
   checkedInAt: Date | null;
   checkedOutAt: Date | null;
   cancelledAt: Date | null;
+  archivedAt: Date | null;
   notes: string | null;
   cancellationReason: string | null;
   createdByActorType: string;
@@ -261,6 +258,7 @@ export function toTransientReservationDto(
     checkedInAt: row.checkedInAt ? row.checkedInAt.toISOString() : null,
     checkedOutAt: row.checkedOutAt ? row.checkedOutAt.toISOString() : null,
     cancelledAt: row.cancelledAt ? row.cancelledAt.toISOString() : null,
+    archivedAt: row.archivedAt ? row.archivedAt.toISOString() : null,
     notes: row.notes,
     cancellationReason: row.cancellationReason,
     activeInvoiceId: activeInv?.id ?? null,
@@ -600,15 +598,14 @@ export async function getTransientsOverview(
     transientPolicyNote: settings?.transientPolicyNote ?? null,
     totals: {
       pendingRequests: requests.filter((r) => r.status === "PENDING").length,
-      tentativeReservations: reservations.filter(
-        (r) => r.status === "TENTATIVE",
-      ).length,
       confirmedReservations: reservations.filter(
-        (r) => r.status === "CONFIRMED",
+        (r) => r.archivedAt === null && r.status === "CONFIRMED",
       ).length,
       checkedInReservations: reservations.filter(
-        (r) => r.status === "CHECKED_IN",
+        (r) => r.archivedAt === null && r.status === "CHECKED_IN",
       ).length,
+      archivedReservations: reservations.filter((r) => r.archivedAt !== null)
+        .length,
       publishedRooms: rooms.filter((r) => r.isTransientPublished).length,
     },
     requests,
@@ -1139,7 +1136,7 @@ export async function archiveTransientGuestInTx(
     where: {
       ownerUserId,
       guestId,
-      status: { in: ["TENTATIVE", "CONFIRMED", "CHECKED_IN"] },
+      status: { in: ["CONFIRMED", "CHECKED_IN"] },
     },
     select: { id: true },
   });
@@ -1346,7 +1343,7 @@ export async function createTransientReservationInTx(
   });
 
   const reservationId = input.id ?? randomUUID();
-  const status = input.tentative ? "TENTATIVE" : "CONFIRMED";
+  const status = "CONFIRMED" as const;
 
   try {
     await tx.transientReservation.create({
@@ -1493,10 +1490,8 @@ export async function checkInTransientReservationInTx(
       "This stay changed since you loaded it. Reload before checking in.",
     );
   }
-  if (existing.status !== "CONFIRMED" && existing.status !== "TENTATIVE") {
-    throw new PreconditionError(
-      "Only confirmed or tentative reservations can check in.",
-    );
+  if (existing.status !== "CONFIRMED") {
+    throw new PreconditionError("Only confirmed reservations can check in.");
   }
 
   const nowUtc = new Date();
@@ -1505,7 +1500,7 @@ export async function checkInTransientReservationInTx(
       id: reservationId,
       ownerUserId,
       version: expectedVersion,
-      status: { in: ["CONFIRMED", "TENTATIVE"] },
+      status: "CONFIRMED",
     },
     data: {
       status: "CHECKED_IN",
@@ -1715,9 +1710,9 @@ async function releaseReservationInTx(
   if (existing.version !== expectedVersion) {
     throw new ConflictError("This stay changed since you loaded it.");
   }
-  if (existing.status !== "CONFIRMED" && existing.status !== "TENTATIVE") {
+  if (existing.status !== "CONFIRMED") {
     throw new PreconditionError(
-      "Only upcoming confirmed or tentative stays can be cancelled or marked no-show.",
+      "Only upcoming confirmed stays can be cancelled or marked no-show.",
     );
   }
 
@@ -1737,7 +1732,7 @@ async function releaseReservationInTx(
       id: reservationId,
       ownerUserId,
       version: expectedVersion,
-      status: { in: ["CONFIRMED", "TENTATIVE"] },
+      status: "CONFIRMED",
     },
     data: {
       status: targetStatus,
@@ -1771,6 +1766,156 @@ async function releaseReservationInTx(
     metadata: { version: dto.version },
   });
   return dto;
+}
+
+export async function archiveTransientReservation(
+  ownerUserId: string,
+  rawInput: { reservationId: string; expectedVersion: number },
+): Promise<TransientReservationDto> {
+  const parsed = ArchiveTransientReservationSchema.safeParse(rawInput);
+  if (!parsed.success) {
+    throw new ValidationError(
+      parsed.error.issues[0]?.message ?? "Select a valid stay to archive.",
+    );
+  }
+  const { reservationId, expectedVersion } = parsed.data;
+  const db = getDatabase();
+
+  return db.$transaction(
+    async (tx) => {
+      const existing = await tx.transientReservation.findFirst({
+        where: { id: reservationId, ownerUserId },
+        select: { id: true, version: true, status: true, archivedAt: true },
+      });
+      if (!existing) {
+        throw new NotFoundError("The requested transient stay was not found.");
+      }
+      if (existing.version !== expectedVersion) {
+        throw new ConflictError("This stay changed since you loaded it.");
+      }
+      if (existing.archivedAt !== null) {
+        throw new PreconditionError("This stay is already archived.");
+      }
+      if (existing.status === "CHECKED_IN" || existing.status === "CONFIRMED") {
+        throw new PreconditionError(
+          "Check out or cancel this stay before archiving.",
+        );
+      }
+
+      const nowUtc = new Date();
+      const updated = await tx.transientReservation.updateMany({
+        where: {
+          id: reservationId,
+          ownerUserId,
+          version: expectedVersion,
+          archivedAt: null,
+        },
+        data: {
+          archivedAt: nowUtc,
+          version: { increment: 1 },
+        },
+      });
+      if (updated.count === 0) {
+        throw new ConflictError("Stay state changed concurrently.");
+      }
+
+      const saved = await tx.transientReservation.findUniqueOrThrow({
+        where: { id: reservationId },
+        select: transientReservationSelect,
+      });
+      const dto = toTransientReservationDto(saved);
+      const sequence = await publishReservationSnapshotInTx(
+        tx,
+        ownerUserId,
+        dto,
+      );
+      await writeAuditEntry(tx, {
+        ownerUserId,
+        sequence,
+        area: "transients",
+        action: "transient_reservation.archived",
+        actorType: "owner",
+        actorId: ownerUserId,
+        entityType: "transient_reservation",
+        entityId: dto.id,
+        metadata: { version: dto.version },
+      });
+      return dto;
+    },
+    { maxWait: 10_000, timeout: 25_000 },
+  );
+}
+
+export async function restoreTransientReservation(
+  ownerUserId: string,
+  rawInput: { reservationId: string; expectedVersion: number },
+): Promise<TransientReservationDto> {
+  const parsed = ArchiveTransientReservationSchema.safeParse(rawInput);
+  if (!parsed.success) {
+    throw new ValidationError(
+      parsed.error.issues[0]?.message ?? "Select a valid stay to restore.",
+    );
+  }
+  const { reservationId, expectedVersion } = parsed.data;
+  const db = getDatabase();
+
+  return db.$transaction(
+    async (tx) => {
+      const existing = await tx.transientReservation.findFirst({
+        where: { id: reservationId, ownerUserId },
+        select: { id: true, version: true, archivedAt: true },
+      });
+      if (!existing) {
+        throw new NotFoundError("The requested transient stay was not found.");
+      }
+      if (existing.version !== expectedVersion) {
+        throw new ConflictError("This stay changed since you loaded it.");
+      }
+      if (existing.archivedAt === null) {
+        throw new PreconditionError("This stay is already active.");
+      }
+
+      const updated = await tx.transientReservation.updateMany({
+        where: {
+          id: reservationId,
+          ownerUserId,
+          version: expectedVersion,
+          archivedAt: { not: null },
+        },
+        data: {
+          archivedAt: null,
+          version: { increment: 1 },
+        },
+      });
+      if (updated.count === 0) {
+        throw new ConflictError("Stay state changed concurrently.");
+      }
+
+      const saved = await tx.transientReservation.findUniqueOrThrow({
+        where: { id: reservationId },
+        select: transientReservationSelect,
+      });
+      const dto = toTransientReservationDto(saved);
+      const sequence = await publishReservationSnapshotInTx(
+        tx,
+        ownerUserId,
+        dto,
+      );
+      await writeAuditEntry(tx, {
+        ownerUserId,
+        sequence,
+        area: "transients",
+        action: "transient_reservation.restored",
+        actorType: "owner",
+        actorId: ownerUserId,
+        entityType: "transient_reservation",
+        entityId: dto.id,
+        metadata: { version: dto.version },
+      });
+      return dto;
+    },
+    { maxWait: 10_000, timeout: 25_000 },
+  );
 }
 
 export async function cancelTransientReservation(
@@ -1972,7 +2117,6 @@ export async function approveBookingRequest(
           partySize: request.partySize,
           dailyRateOverride: finalRateStr,
           notes: input.notes ?? request.notes,
-          tentative: false,
           issueInvoiceImmediately: input.issueInvoiceImmediately,
         },
       );

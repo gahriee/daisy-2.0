@@ -1,7 +1,12 @@
 import type { OverpaymentPolicyValue } from "@/features/settings/schemas";
 import type { AnySyncOperationType } from "@/features/sync/contracts";
 import { prepareQueuedAttachments } from "./attachments";
-import { getBrowserOfflineDb, getVaultCustody } from "./client";
+import {
+  ensureTrustedDeviceVaultUnlocked,
+  getBrowserOfflineDb,
+  getVaultCustody,
+} from "./client";
+import { isTrustedDeviceVaultKeyMetadata } from "./crypto";
 import {
   discardNeedsAttentionOperation,
   enqueueOfflineOperationAtomic,
@@ -52,6 +57,7 @@ export type OfflineVaultClientState = {
   online: boolean;
   vaultConfigured: boolean;
   vaultUnlocked: boolean;
+  trustedDeviceAutoSync: boolean;
   deviceId: string | null;
   lastOnlineAuthAtMs: number | null;
   status: SyncStatusSummary;
@@ -116,6 +122,9 @@ export async function getOfflineVaultClientState(): Promise<OfflineVaultClientSt
     online: typeof navigator !== "undefined" ? navigator.onLine : true,
     vaultConfigured: cryptoMeta?.key === "crypto",
     vaultUnlocked: custody.isUnlocked(),
+    trustedDeviceAutoSync:
+      cryptoMeta?.key === "crypto" &&
+      isTrustedDeviceVaultKeyMetadata(cryptoMeta.metadata),
     deviceId: auth?.deviceId ?? null,
     lastOnlineAuthAtMs: auth?.lastOnlineAuthAtMs ?? null,
     status,
@@ -173,7 +182,17 @@ export async function submitOfflineCapableMutation(input: {
   const db = getBrowserOfflineDb();
   const custody = getVaultCustody();
   if (!custody.isUnlocked()) {
-    throw new OfflineVaultLockedError();
+    const auto = await ensureTrustedDeviceVaultUnlocked({
+      db,
+      custody,
+      isOnline: typeof navigator !== "undefined" ? navigator.onLine : false,
+    });
+    if (auto.status === "untrusted_device") {
+      throw new OfflineDeviceMissingError();
+    }
+    if (auto.status !== "unlocked") {
+      throw new OfflineVaultLockedError();
+    }
   }
   const key = custody.getKey();
 
@@ -273,12 +292,19 @@ export async function triggerForegroundSyncIfUnlocked(): Promise<SyncRunResult |
   if (typeof navigator !== "undefined" && !navigator.onLine) {
     return null;
   }
+  const db = getBrowserOfflineDb();
   const custody = getVaultCustody();
   if (!custody.isUnlocked()) {
-    return null;
+    const auto = await ensureTrustedDeviceVaultUnlocked({
+      db,
+      custody,
+      isOnline: true,
+    });
+    if (auto.status !== "unlocked") {
+      return null;
+    }
   }
   try {
-    const db = getBrowserOfflineDb();
     const res = await syncOfflineWorkspace({
       db,
       key: custody.getKey(),
@@ -299,11 +325,18 @@ export async function triggerForegroundSyncIfUnlocked(): Promise<SyncRunResult |
 export async function resolveNeedsAttentionKeepMine(
   supersededOpId: string,
 ): Promise<void> {
+  const db = getBrowserOfflineDb();
   const custody = getVaultCustody();
   if (!custody.isUnlocked()) {
-    throw new OfflineVaultLockedError();
+    const auto = await ensureTrustedDeviceVaultUnlocked({
+      db,
+      custody,
+      isOnline: typeof navigator !== "undefined" ? navigator.onLine : false,
+    });
+    if (auto.status !== "unlocked") {
+      throw new OfflineVaultLockedError();
+    }
   }
-  const db = getBrowserOfflineDb();
   await keepMineNeedsAttentionOperation(db, custody.getKey(), {
     supersededOpId,
     newOpId: crypto.randomUUID(),
@@ -321,11 +354,18 @@ export async function resolveNeedsAttentionKeepMine(
 export async function resolveNeedsAttentionDiscard(
   opId: string,
 ): Promise<void> {
+  const db = getBrowserOfflineDb();
   const custody = getVaultCustody();
   if (!custody.isUnlocked()) {
-    throw new OfflineVaultLockedError();
+    const auto = await ensureTrustedDeviceVaultUnlocked({
+      db,
+      custody,
+      isOnline: typeof navigator !== "undefined" ? navigator.onLine : false,
+    });
+    if (auto.status !== "unlocked") {
+      throw new OfflineVaultLockedError();
+    }
   }
-  const db = getBrowserOfflineDb();
   await discardNeedsAttentionOperation(db, custody.getKey(), opId);
   notifyOfflineVaultChanged();
 }

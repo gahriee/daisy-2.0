@@ -3,7 +3,9 @@
 import { useEffect, useState, useSyncExternalStore } from "react";
 import { Badge } from "@/components/ui/badge";
 import {
+  ensureTrustedDeviceVaultUnlocked,
   getBrowserOfflineDb,
+  getVaultCustody,
   recordOnlineSessionAnchor,
 } from "@/offline/client";
 import {
@@ -13,6 +15,7 @@ import {
 import {
   DAISY_OFFLINE_VAULT_EVENT,
   DAISY_OPEN_SYNC_MODAL_EVENT,
+  notifyOfflineVaultChanged,
   triggerForegroundSyncIfUnlocked,
 } from "@/offline/workspace-bridge";
 import { OfflineSyncDialog } from "./offline-sync-dialog";
@@ -60,25 +63,66 @@ export function OfflineStatusBar() {
     }
 
     let cancelled = false;
+    let lastAutoSyncMs = 0;
 
-    async function refreshLocalState() {
+    async function refreshLocalState(options?: { forceSync?: boolean }) {
       try {
         const db = getBrowserOfflineDb();
+        const custody = getVaultCustody();
+        let trustedNow = false;
+
         if (navigator.onLine) {
           const res = await fetch("/api/devices", { cache: "no-store" });
           if (res.ok) {
             const body = (await res.json()) as {
-              devices?: Array<{ id: string; isCurrent?: boolean }>;
+              devices?: Array<{
+                id: string;
+                isCurrent?: boolean;
+                revokedAt?: string | null;
+              }>;
             };
             const currentDevice =
-              body.devices?.find((d) => d.isCurrent) ?? body.devices?.[0];
+              body.devices?.find((d) => d.isCurrent && !d.revokedAt) ?? null;
+            trustedNow = Boolean(currentDevice?.id);
             await recordOnlineSessionAnchor(db, {
               ownerUserId: "owner",
               deviceId: currentDevice?.id ?? null,
             });
           }
         }
-        const status = await getOfflineSyncStatus(db);
+
+        const unlockRes = await ensureTrustedDeviceVaultUnlocked({
+          db,
+          custody,
+          isOnline: navigator.onLine,
+        });
+
+        let status = await getOfflineSyncStatus(db);
+
+        if (navigator.onLine && trustedNow && unlockRes.status === "unlocked") {
+          const nowMs = Date.now();
+          const shouldAutoSync =
+            options?.forceSync ||
+            !status.lastSyncedAt ||
+            status.pendingCount > 0 ||
+            nowMs - lastAutoSyncMs >= 60_000;
+
+          if (shouldAutoSync) {
+            lastAutoSyncMs = nowMs;
+            const synced = await triggerForegroundSyncIfUnlocked();
+            if (synced) {
+              status = await getOfflineSyncStatus(db);
+            }
+          } else if (unlockRes.initializedNew) {
+            notifyOfflineVaultChanged();
+          }
+        } else if (
+          unlockRes.status === "unlocked" &&
+          unlockRes.initializedNew
+        ) {
+          notifyOfflineVaultChanged();
+        }
+
         if (
           !cancelled &&
           swRegistration?.waiting &&
@@ -94,7 +138,7 @@ export function OfflineStatusBar() {
       }
     }
 
-    void refreshLocalState();
+    void refreshLocalState({ forceSync: true });
     const timer = window.setInterval(() => {
       void refreshLocalState();
     }, 30_000);
@@ -102,7 +146,7 @@ export function OfflineStatusBar() {
       void refreshLocalState();
     };
     const handleOnlineReconnect = () => {
-      void triggerForegroundSyncIfUnlocked().then(() => refreshLocalState());
+      void refreshLocalState({ forceSync: true });
     };
     const handleOpenSyncModal = () => {
       setModalOpen(true);

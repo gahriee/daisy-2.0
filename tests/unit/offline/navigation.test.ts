@@ -50,14 +50,14 @@ describe("resolveOfflineClientNavigation", () => {
 
     expect(
       resolveOfflineClientNavigation({
-        href: "/reports",
+        href: "/audit",
         currentOrigin: origin,
         currentPathname: "/tenants",
       }),
     ).toEqual({
       intercept: true,
-      url: "/reports",
-      pathname: "/reports",
+      url: "/audit",
+      pathname: "/audit",
     });
   });
 

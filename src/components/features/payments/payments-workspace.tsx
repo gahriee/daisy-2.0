@@ -15,6 +15,7 @@ import { Alert } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
 import { Button, buttonClasses } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
+import { DatePicker } from "@/components/ui/date-picker";
 import {
   EmptyState,
   EmptyStateActions,
@@ -22,6 +23,7 @@ import {
   EmptyStateTitle,
 } from "@/components/ui/empty-state";
 import { Field } from "@/components/ui/field";
+import { Input } from "@/components/ui/input";
 import { MetricCard } from "@/components/ui/metric-card";
 import {
   SearchFilterBar,
@@ -41,14 +43,19 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
+import {
+  FilterToggleButton,
+  TableColumnPicker,
+  type TableColumnOption,
+} from "@/components/ui/table-column-picker";
 import { TablePagination } from "@/components/ui/table-pagination";
 import { toast } from "@/components/ui/toaster";
 import { applyTenantCreditAction } from "@/features/payments/actions";
 import {
   PAYMENT_METHOD_LABELS,
-  PAYMENT_METHODS,
   PAYMENT_STATUS_LABELS,
   PAYMENT_STATUSES,
+  SELECTABLE_PAYMENT_METHODS,
   type PaymentDto,
   type PaymentMethodValue,
   type PaymentsOverviewDto,
@@ -193,6 +200,46 @@ function ProofIcon() {
   );
 }
 
+type PaymentPayerFilter = "all" | "boarder" | "transient";
+
+type PaymentColumnKey =
+  | "payer"
+  | "method"
+  | "amount"
+  | "status"
+  | "date"
+  | "creditLeft"
+  | "proofs"
+  | "reference";
+
+const PAYMENT_COLUMN_OPTIONS: readonly TableColumnOption<PaymentColumnKey>[] = [
+  { key: "payer", label: "Boarder / Guest", group: "Browse records" },
+  { key: "method", label: "Method", group: "Browse records" },
+  { key: "amount", label: "Amount", group: "Browse records" },
+  { key: "status", label: "Status", group: "Browse records" },
+  { key: "date", label: "Date", group: "More details" },
+  { key: "creditLeft", label: "Credit left", group: "More details" },
+  { key: "proofs", label: "Proofs", group: "More details" },
+  { key: "reference", label: "Reference", group: "More details" },
+];
+
+const DEFAULT_PAYMENT_COLUMNS: readonly PaymentColumnKey[] = [
+  "payer",
+  "method",
+  "amount",
+  "status",
+];
+
+function parseOptionalMoneyFilter(raw: string): bigint | null {
+  const trimmed = raw.trim();
+  if (!trimmed) return null;
+  try {
+    return parseMoneyDecimal(trimmed);
+  } catch {
+    return null;
+  }
+}
+
 export function PaymentsWorkspace({
   initialOverview,
   offlineMode = false,
@@ -224,12 +271,21 @@ export function PaymentsWorkspace({
   const [needsAttentionCount, setNeedsAttentionCount] = useState(0);
   const [unlockPromptOpen, setUnlockPromptOpen] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
+  const [filtersOpen, setFiltersOpen] = useState(false);
   const [methodFilter, setMethodFilter] = useState<PaymentMethodValue | "ALL">(
     "ALL",
   );
   const [statusFilter, setStatusFilter] = useState<PaymentStatusValue | "ALL">(
     "ALL",
   );
+  const [payerFilter, setPayerFilter] = useState<PaymentPayerFilter>("all");
+  const [dateFrom, setDateFrom] = useState("");
+  const [dateTo, setDateTo] = useState("");
+  const [minAmount, setMinAmount] = useState("");
+  const [maxAmount, setMaxAmount] = useState("");
+  const [visibleColumns, setVisibleColumns] = useState<PaymentColumnKey[]>([
+    ...DEFAULT_PAYMENT_COLUMNS,
+  ]);
   const [refreshing, startRefreshTransition] = useTransition();
   const [applyingTenantId, setApplyingTenantId] = useState<string | null>(null);
   const [, startCreditTransition] = useTransition();
@@ -393,12 +449,23 @@ export function PaymentsWorkspace({
   }
 
   const normalizedQuery = searchQuery.trim().toLowerCase();
+  const minAmountCentavos = parseOptionalMoneyFilter(minAmount);
+  const maxAmountCentavos = parseOptionalMoneyFilter(maxAmount);
   const filteredPayments = overview.payments.filter((payment) => {
     if (methodFilter !== "ALL" && payment.method !== methodFilter) {
       return false;
     }
     if (statusFilter !== "ALL" && payment.status !== statusFilter) {
       return false;
+    }
+    if (payerFilter === "boarder" && !payment.tenantId) return false;
+    if (payerFilter === "transient" && !payment.transientGuestId) return false;
+    if (dateFrom && payment.paidDateManila < dateFrom) return false;
+    if (dateTo && payment.paidDateManila > dateTo) return false;
+    if (minAmountCentavos !== null || maxAmountCentavos !== null) {
+      const amt = parseMoneyDecimal(payment.amount);
+      if (minAmountCentavos !== null && amt < minAmountCentavos) return false;
+      if (maxAmountCentavos !== null && amt > maxAmountCentavos) return false;
     }
     if (!normalizedQuery) return true;
     const haystack = [
@@ -418,6 +485,30 @@ export function PaymentsWorkspace({
       parseMoneyDecimal(t.openBalance) > BigInt(0),
   );
 
+  const extraFilterCount =
+    (methodFilter !== "ALL" ? 1 : 0) +
+    (payerFilter !== "all" ? 1 : 0) +
+    (dateFrom !== "" ? 1 : 0) +
+    (dateTo !== "" ? 1 : 0) +
+    (minAmount.trim() !== "" ? 1 : 0) +
+    (maxAmount.trim() !== "" ? 1 : 0);
+
+  const hasActiveFilter =
+    normalizedQuery !== "" || statusFilter !== "ALL" || extraFilterCount > 0;
+
+  function clearAllPaymentFilters() {
+    setSearchQuery("");
+    setMethodFilter("ALL");
+    setStatusFilter("ALL");
+    setPayerFilter("all");
+    setDateFrom("");
+    setDateTo("");
+    setMinAmount("");
+    setMaxAmount("");
+  }
+
+  const showCol = (key: PaymentColumnKey) => visibleColumns.includes(key);
+
   const {
     sortedRows: sortedPayments,
     sort,
@@ -429,11 +520,8 @@ export function PaymentsWorkspace({
 
   const { paginatedRows: paginatedPayments, paginationProps } =
     useTablePagination(sortedPayments, {
-      resetKey: `${normalizedQuery}|${methodFilter}|${statusFilter}|${sort?.key ?? ""}|${sort?.direction ?? ""}`,
+      resetKey: `${normalizedQuery}|${methodFilter}|${statusFilter}|${payerFilter}|${dateFrom}|${dateTo}|${minAmount}|${maxAmount}|${sort?.key ?? ""}|${sort?.direction ?? ""}`,
     });
-
-  const hasActiveFilter =
-    normalizedQuery !== "" || methodFilter !== "ALL" || statusFilter !== "ALL";
 
   function getPaymentRowActions(payment: PaymentDto): RowActionItem[] {
     const badge = syncBadges[payment.id];
@@ -623,73 +711,156 @@ export function PaymentsWorkspace({
       <SearchFilterBar
         aria-label="Find payments"
         hasActiveFilters={hasActiveFilter}
-        onClearAll={() => {
-          setSearchQuery("");
-          setMethodFilter("ALL");
-          setStatusFilter("ALL");
-        }}
+        onClearAll={clearAllPaymentFilters}
       >
-        <div className="grid w-full grid-cols-1 gap-3 md:grid-cols-2 lg:grid-cols-12 lg:items-end">
-          <div className="md:col-span-2 lg:col-span-6">
-            <Field id="payments-search" label="Find a payment">
-              {(fieldProps) => (
-                <SearchFilterInput
-                  id={fieldProps.id}
-                  value={searchQuery}
-                  onValueChange={setSearchQuery}
-                  placeholder="Receipt #, boarder, reference #, or invoice #"
-                />
-              )}
-            </Field>
+        <div className="grid gap-3">
+          <div className="flex flex-col gap-2.5 sm:flex-row sm:items-end">
+            <div className="min-w-0 flex-1">
+              <Field id="payments-search" label="Find a payment">
+                {(fieldProps) => (
+                  <SearchFilterInput
+                    id={fieldProps.id}
+                    value={searchQuery}
+                    onValueChange={setSearchQuery}
+                    placeholder="Receipt #, name, ref #, or invoice #"
+                  />
+                )}
+              </Field>
+            </div>
+            <div className="w-full sm:w-44">
+              <Field id="payments-status-filter" label="Status">
+                {(fieldProps) => (
+                  <Select
+                    {...fieldProps}
+                    variant="filter"
+                    value={statusFilter}
+                    onChange={(event) =>
+                      setStatusFilter(
+                        event.target.value as PaymentStatusValue | "ALL",
+                      )
+                    }
+                  >
+                    <option value="ALL">All statuses</option>
+                    {PAYMENT_STATUSES.map((item) => (
+                      <option key={item} value={item}>
+                        {PAYMENT_STATUS_LABELS[item]}
+                      </option>
+                    ))}
+                  </Select>
+                )}
+              </Field>
+            </div>
+            <div className="flex flex-wrap items-center gap-2">
+              <FilterToggleButton
+                open={filtersOpen}
+                activeCount={extraFilterCount}
+                onToggle={() => setFiltersOpen((prev) => !prev)}
+                controlsId="payments-filters-panel"
+              />
+              <TableColumnPicker
+                options={PAYMENT_COLUMN_OPTIONS}
+                visibleKeys={visibleColumns}
+                defaultKeys={DEFAULT_PAYMENT_COLUMNS}
+                onChange={setVisibleColumns}
+              />
+            </div>
           </div>
 
-          <div className="lg:col-span-3">
-            <Field id="payments-method-filter" label="Method">
-              {(fieldProps) => (
-                <Select
-                  {...fieldProps}
-                  variant="filter"
-                  value={methodFilter}
-                  onChange={(event) =>
-                    setMethodFilter(
-                      event.target.value as PaymentMethodValue | "ALL",
-                    )
-                  }
-                >
-                  <option value="ALL">All methods</option>
-                  {PAYMENT_METHODS.map((item) => (
-                    <option key={item} value={item}>
-                      {PAYMENT_METHOD_LABELS[item]}
-                    </option>
-                  ))}
-                </Select>
-              )}
-            </Field>
-          </div>
+          {filtersOpen && (
+            <div
+              id="payments-filters-panel"
+              className="grid grid-cols-1 gap-3 border-t border-border pt-3 sm:grid-cols-2 lg:grid-cols-4"
+            >
+              <Field id="payments-method-filter" label="Method">
+                {(fieldProps) => (
+                  <Select
+                    {...fieldProps}
+                    variant="filter"
+                    value={methodFilter}
+                    onChange={(event) =>
+                      setMethodFilter(
+                        event.target.value as PaymentMethodValue | "ALL",
+                      )
+                    }
+                  >
+                    <option value="ALL">All methods</option>
+                    {SELECTABLE_PAYMENT_METHODS.map((item) => (
+                      <option key={item} value={item}>
+                        {PAYMENT_METHOD_LABELS[item]}
+                      </option>
+                    ))}
+                  </Select>
+                )}
+              </Field>
 
-          <div className="lg:col-span-3">
-            <Field id="payments-status-filter" label="Status">
-              {(fieldProps) => (
-                <Select
-                  {...fieldProps}
-                  variant="filter"
-                  value={statusFilter}
-                  onChange={(event) =>
-                    setStatusFilter(
-                      event.target.value as PaymentStatusValue | "ALL",
-                    )
-                  }
-                >
-                  <option value="ALL">All statuses</option>
-                  {PAYMENT_STATUSES.map((item) => (
-                    <option key={item} value={item}>
-                      {PAYMENT_STATUS_LABELS[item]}
-                    </option>
-                  ))}
-                </Select>
-              )}
-            </Field>
-          </div>
+              <Field id="payments-payer-filter" label="Payer type">
+                {(fieldProps) => (
+                  <Select
+                    {...fieldProps}
+                    variant="filter"
+                    value={payerFilter}
+                    onChange={(event) =>
+                      setPayerFilter(event.target.value as PaymentPayerFilter)
+                    }
+                  >
+                    <option value="all">All payers</option>
+                    <option value="boarder">Boarders</option>
+                    <option value="transient">Transient guests</option>
+                  </Select>
+                )}
+              </Field>
+
+              <Field id="payments-date-from" label="Date from">
+                {(fieldProps) => (
+                  <DatePicker
+                    {...fieldProps}
+                    value={dateFrom}
+                    onValueChange={setDateFrom}
+                  />
+                )}
+              </Field>
+
+              <Field id="payments-date-to" label="Date to">
+                {(fieldProps) => (
+                  <DatePicker
+                    {...fieldProps}
+                    value={dateTo}
+                    onValueChange={setDateTo}
+                  />
+                )}
+              </Field>
+
+              <Field id="payments-min-amount" label="Min amount (PHP)">
+                {(fieldProps) => (
+                  <Input
+                    {...fieldProps}
+                    type="number"
+                    inputMode="decimal"
+                    min={0}
+                    step="0.01"
+                    placeholder="0.00"
+                    value={minAmount}
+                    onChange={(event) => setMinAmount(event.target.value)}
+                  />
+                )}
+              </Field>
+
+              <Field id="payments-max-amount" label="Max amount (PHP)">
+                {(fieldProps) => (
+                  <Input
+                    {...fieldProps}
+                    type="number"
+                    inputMode="decimal"
+                    min={0}
+                    step="0.01"
+                    placeholder="0.00"
+                    value={maxAmount}
+                    onChange={(event) => setMaxAmount(event.target.value)}
+                  />
+                )}
+              </Field>
+            </div>
+          )}
         </div>
       </SearchFilterBar>
 
@@ -719,11 +890,7 @@ export function PaymentsWorkspace({
               <Button
                 variant="secondary"
                 size="md"
-                onClick={() => {
-                  setSearchQuery("");
-                  setMethodFilter("ALL");
-                  setStatusFilter("ALL");
-                }}
+                onClick={clearAllPaymentFilters}
               >
                 Clear
               </Button>
@@ -806,98 +973,170 @@ export function PaymentsWorkspace({
           </div>
 
           {/* Desktop ledger table */}
-          <div className="hidden md:block">
+          <div className="hidden overflow-x-auto md:block">
             <Table containerClassName="rounded-none border-0">
               <TableHeader>
                 <TableRow>
-                  <TableHead {...sortHeaderProps("receipt")}>Receipt</TableHead>
-                  <TableHead {...sortHeaderProps("boarder")}>Boarder</TableHead>
-                  <TableHead {...sortHeaderProps("date")}>Date</TableHead>
-                  <TableHead {...sortHeaderProps("method")}>Method</TableHead>
-                  <TableHead numeric {...sortHeaderProps("amount")}>
-                    Amount
+                  <TableHead
+                    {...sortHeaderProps(showCol("date") ? "receipt" : "date")}
+                  >
+                    Receipt
                   </TableHead>
-                  <TableHead numeric {...sortHeaderProps("unallocated")}>
-                    Credit left
-                  </TableHead>
-                  <TableHead {...sortHeaderProps("proofs")}>Proofs</TableHead>
-                  <TableHead {...sortHeaderProps("status")}>Status</TableHead>
+                  {showCol("payer") && (
+                    <TableHead {...sortHeaderProps("boarder")}>
+                      Boarder / Guest
+                    </TableHead>
+                  )}
+                  {showCol("date") && (
+                    <TableHead {...sortHeaderProps("date")}>Date</TableHead>
+                  )}
+                  {showCol("reference") && <TableHead>Reference</TableHead>}
+                  {showCol("method") && (
+                    <TableHead {...sortHeaderProps("method")}>Method</TableHead>
+                  )}
+                  {showCol("amount") && (
+                    <TableHead numeric {...sortHeaderProps("amount")}>
+                      Amount
+                    </TableHead>
+                  )}
+                  {showCol("creditLeft") && (
+                    <TableHead numeric {...sortHeaderProps("unallocated")}>
+                      Credit left
+                    </TableHead>
+                  )}
+                  {showCol("proofs") && (
+                    <TableHead {...sortHeaderProps("proofs")}>Proofs</TableHead>
+                  )}
+                  {showCol("status") && (
+                    <TableHead {...sortHeaderProps("status")}>Status</TableHead>
+                  )}
                   <TableHead className="text-right">Actions</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {paginatedPayments.map((payment) => (
-                  <TableRow key={payment.id}>
-                    <TableCell className="font-mono text-xs font-semibold tabular-nums">
-                      <Link
-                        href={`/payments/${payment.id}`}
-                        className="text-foreground hover:text-primary"
-                      >
-                        {payment.receiptNumber ??
-                          (payment.status === "REVERSAL"
-                            ? "Reversal"
-                            : "Pending receipt")}
-                      </Link>
-                    </TableCell>
-                    <TableCell>
-                      <div className="grid gap-0.5">
-                        <Link
-                          href={
-                            payment.tenantId
-                              ? `/tenants/${payment.tenantId}`
-                              : "/transients/stays"
-                          }
-                          className="font-medium text-foreground hover:text-primary"
-                        >
-                          {payment.tenantName}
-                        </Link>
-                        {payment.referenceNo && (
-                          <span className="font-mono text-xs text-muted-foreground">
-                            Ref: {payment.referenceNo}
-                          </span>
-                        )}
-                      </div>
-                    </TableCell>
-                    <TableCell className="tabular-nums">
-                      {formatManilaDate(payment.paidDateManila)}
-                    </TableCell>
-                    <TableCell>
-                      {PAYMENT_METHOD_LABELS[payment.method]}
-                    </TableCell>
-                    <TableCell numeric className="font-semibold">
-                      {formatPhpCurrency(payment.amount)}
-                    </TableCell>
-                    <TableCell numeric className="text-muted-foreground">
-                      {formatPhpCurrency(payment.unallocatedAmount)}
-                    </TableCell>
-                    <TableCell className="tabular-nums">
-                      {payment.proofs.length > 0 ? (
-                        <Badge tone="info">
-                          {payment.proofs.length}{" "}
-                          {payment.proofs.length === 1 ? "file" : "files"}
-                        </Badge>
-                      ) : (
-                        <span className="text-xs text-muted-foreground">
-                          None
-                        </span>
+                {paginatedPayments.map((payment) => {
+                  const hasCreditLeft =
+                    parseMoneyDecimal(payment.unallocatedAmount) > BigInt(0);
+                  return (
+                    <TableRow key={payment.id}>
+                      <TableCell className="tabular-nums">
+                        <div className="grid gap-0.5">
+                          <Link
+                            href={`/payments/${payment.id}`}
+                            className="font-mono text-xs font-semibold text-foreground hover:text-primary"
+                          >
+                            {payment.receiptNumber ??
+                              (payment.status === "REVERSAL"
+                                ? "Reversal"
+                                : "Pending receipt")}
+                          </Link>
+                          {!showCol("date") && (
+                            <span className="text-xs text-muted-foreground">
+                              {formatManilaDate(payment.paidDateManila)}
+                            </span>
+                          )}
+                        </div>
+                      </TableCell>
+                      {showCol("payer") && (
+                        <TableCell>
+                          <div className="grid gap-0.5">
+                            <Link
+                              href={
+                                payment.tenantId
+                                  ? `/tenants/${payment.tenantId}`
+                                  : "/transients/stays"
+                              }
+                              className="font-medium text-foreground hover:text-primary"
+                            >
+                              {payment.tenantName}
+                            </Link>
+                            {!showCol("reference") && payment.referenceNo && (
+                              <span className="font-mono text-xs text-muted-foreground">
+                                Ref: {payment.referenceNo}
+                              </span>
+                            )}
+                          </div>
+                        </TableCell>
                       )}
-                    </TableCell>
-                    <TableCell>
-                      <div className="flex flex-wrap items-center gap-1.5">
-                        <Badge tone={PAYMENT_BADGE_TONE[payment.status]}>
-                          {PAYMENT_STATUS_LABELS[payment.status]}
-                        </Badge>
-                        <OfflineSyncBadge badge={syncBadges[payment.id]} />
-                      </div>
-                    </TableCell>
-                    <TableCell className="text-right">
-                      <RowActionMenu
-                        label={`Actions for payment ${payment.receiptNumber ?? "Reversal"}`}
-                        items={getPaymentRowActions(payment)}
-                      />
-                    </TableCell>
-                  </TableRow>
-                ))}
+                      {showCol("date") && (
+                        <TableCell className="tabular-nums">
+                          {formatManilaDate(payment.paidDateManila)}
+                        </TableCell>
+                      )}
+                      {showCol("reference") && (
+                        <TableCell className="font-mono text-xs text-muted-foreground">
+                          {payment.referenceNo ?? "—"}
+                        </TableCell>
+                      )}
+                      {showCol("method") && (
+                        <TableCell>
+                          <div className="grid gap-0.5">
+                            <span>{PAYMENT_METHOD_LABELS[payment.method]}</span>
+                            {!showCol("proofs") &&
+                              payment.proofs.length > 0 && (
+                                <span className="text-xs text-muted-foreground tabular-nums">
+                                  {payment.proofs.length}{" "}
+                                  {payment.proofs.length === 1
+                                    ? "proof"
+                                    : "proofs"}
+                                </span>
+                              )}
+                          </div>
+                        </TableCell>
+                      )}
+                      {showCol("amount") && (
+                        <TableCell numeric>
+                          <div className="grid gap-0.5">
+                            <span className="font-semibold text-foreground">
+                              {formatPhpCurrency(payment.amount)}
+                            </span>
+                            {!showCol("creditLeft") && hasCreditLeft && (
+                              <span className="text-xs text-muted-foreground">
+                                {formatPhpCurrency(payment.unallocatedAmount)}{" "}
+                                credit left
+                              </span>
+                            )}
+                          </div>
+                        </TableCell>
+                      )}
+                      {showCol("creditLeft") && (
+                        <TableCell numeric className="text-muted-foreground">
+                          {formatPhpCurrency(payment.unallocatedAmount)}
+                        </TableCell>
+                      )}
+                      {showCol("proofs") && (
+                        <TableCell className="tabular-nums">
+                          {payment.proofs.length > 0 ? (
+                            <Badge tone="info">
+                              {payment.proofs.length}{" "}
+                              {payment.proofs.length === 1 ? "file" : "files"}
+                            </Badge>
+                          ) : (
+                            <span className="text-xs text-muted-foreground">
+                              None
+                            </span>
+                          )}
+                        </TableCell>
+                      )}
+                      {showCol("status") && (
+                        <TableCell>
+                          <div className="flex flex-wrap items-center gap-1.5">
+                            <Badge tone={PAYMENT_BADGE_TONE[payment.status]}>
+                              {PAYMENT_STATUS_LABELS[payment.status]}
+                            </Badge>
+                            <OfflineSyncBadge badge={syncBadges[payment.id]} />
+                          </div>
+                        </TableCell>
+                      )}
+                      <TableCell className="text-right">
+                        <RowActionMenu
+                          label={`Actions for payment ${payment.receiptNumber ?? "Reversal"}`}
+                          items={getPaymentRowActions(payment)}
+                        />
+                      </TableCell>
+                    </TableRow>
+                  );
+                })}
               </TableBody>
             </Table>
           </div>

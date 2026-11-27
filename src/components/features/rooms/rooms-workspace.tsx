@@ -65,7 +65,6 @@ const STATUS_BADGE_TONE: Record<
   ARCHIVED: "neutral",
 };
 
-type RoomViewFilter = "active" | "archived" | "all";
 type StatusFilter = "ALL" | BedStatusValue;
 type ListingFilter = "ALL" | "PUBLISHED" | "HIDDEN";
 
@@ -187,8 +186,6 @@ export function RoomsWorkspace({
   const [searchQuery, setSearchQuery] = useState("");
   const [statusFilter, setStatusFilter] = useState<StatusFilter>("ALL");
   const [listingFilter, setListingFilter] = useState<ListingFilter>("ALL");
-  const [roomViewFilter, setRoomViewFilter] =
-    useState<RoomViewFilter>("active");
   const [refreshing, setRefreshing] = useState(false);
   const [rowPendingId, setRowPendingId] = useState<string | null>(null);
   const [confirmingRoom, setConfirmingRoom] = useState<RoomWithBedsDto | null>(
@@ -258,11 +255,13 @@ export function RoomsWorkspace({
 
   const filteredRooms = overview.rooms.filter((room) => {
     const isRoomArchived = room.archivedAt !== null;
-    if (roomViewFilter === "active" && isRoomArchived) return false;
-    if (roomViewFilter === "archived" && !isRoomArchived) return false;
-
-    const roomStatus = deriveRoomStatus(room);
-    if (statusFilter !== "ALL" && roomStatus !== statusFilter) return false;
+    if (statusFilter === "ARCHIVED") {
+      if (!isRoomArchived) return false;
+    } else {
+      if (isRoomArchived) return false;
+      const roomStatus = deriveRoomStatus(room);
+      if (statusFilter !== "ALL" && roomStatus !== statusFilter) return false;
+    }
     if (
       isTransient &&
       listingFilter === "PUBLISHED" &&
@@ -297,14 +296,12 @@ export function RoomsWorkspace({
   const hasFilters =
     normalizedQuery !== "" ||
     statusFilter !== "ALL" ||
-    (isTransient && listingFilter !== "ALL") ||
-    roomViewFilter !== "active";
+    (isTransient && listingFilter !== "ALL");
 
   function clearFilters() {
     setSearchQuery("");
     setStatusFilter("ALL");
     setListingFilter("ALL");
-    setRoomViewFilter("active");
   }
 
   const {
@@ -319,7 +316,7 @@ export function RoomsWorkspace({
   const { paginatedRows: paginatedRooms, paginationProps } = useTablePagination(
     sortedRooms,
     {
-      resetKey: `${normalizedQuery}|${statusFilter}|${listingFilter}|${roomViewFilter}|${sort?.key ?? ""}|${sort?.direction ?? ""}`,
+      resetKey: `${normalizedQuery}|${statusFilter}|${listingFilter}|${sort?.key ?? ""}|${sort?.direction ?? ""}`,
     },
   );
 
@@ -514,8 +511,8 @@ export function RoomsWorkspace({
         <div
           className={
             isTransient
-              ? "grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4"
-              : "grid grid-cols-1 gap-3 md:grid-cols-3"
+              ? "grid grid-cols-1 gap-3 md:grid-cols-3"
+              : "grid grid-cols-1 gap-3 md:grid-cols-2"
           }
         >
           <Field id="inventory-search" label="Find a room">
@@ -524,7 +521,7 @@ export function RoomsWorkspace({
                 id={id}
                 value={searchQuery}
                 onValueChange={setSearchQuery}
-                placeholder="Room number, floor, or occupant"
+                placeholder="Room title, floor, or occupant"
               />
             )}
           </Field>
@@ -539,7 +536,7 @@ export function RoomsWorkspace({
                   setStatusFilter(e.target.value as StatusFilter)
                 }
               >
-                <option value="ALL">All statuses</option>
+                <option value="ALL">All rooms</option>
                 {BED_STATUSES.map((st) => (
                   <option key={st} value={st}>
                     {BED_STATUS_LABELS[st]}
@@ -567,23 +564,6 @@ export function RoomsWorkspace({
               )}
             </Field>
           )}
-
-          <Field id="inventory-room-view" label="Room view">
-            {(fieldProps) => (
-              <Select
-                {...fieldProps}
-                variant="filter"
-                value={roomViewFilter}
-                onChange={(e) =>
-                  setRoomViewFilter(e.target.value as RoomViewFilter)
-                }
-              >
-                <option value="active">Active rooms</option>
-                <option value="archived">Archived rooms</option>
-                <option value="all">All rooms</option>
-              </Select>
-            )}
-          </Field>
         </div>
       </SearchFilterBar>
 

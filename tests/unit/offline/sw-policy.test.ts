@@ -12,7 +12,6 @@ describe("Service Worker cache policy", () => {
     const networkOnlyPaths = [
       "/api/sync/pull?cursor=abc",
       "/api/payments/proofs/p1/download",
-      "/api/reports/export?reportType=occupancy",
       "/auth/sign-in",
       "/book",
       "/book/11111111-1111-4111-8111-111111111111",
@@ -34,7 +33,6 @@ describe("Service Worker cache policy", () => {
       "/tenants",
       "/settings/devices",
       "/audit",
-      "/reports",
       "/notifications",
     ]) {
       expect(
@@ -65,7 +63,6 @@ describe("Service Worker cache policy", () => {
       "/maintenance",
       "/settings/devices",
       "/audit",
-      "/reports",
       "/notifications",
     ]) {
       expect(
@@ -124,7 +121,7 @@ describe("Service Worker cache policy", () => {
     ).toBe("cache-first-static");
 
     const devPaths = [
-      "/_next/static/chunks/app/reports/page.js",
+      "/_next/static/chunks/app/tenants/page.js",
       "/_next/static/chunks/app/page.js",
       "/_next/static/chunks/main-app.js",
       "/_next/static/chunks/_app-pages-browser_node_modules_apexcharts.js",

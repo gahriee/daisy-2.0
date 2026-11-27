@@ -49,6 +49,14 @@ describe("payments validation schemas", () => {
     });
     expect(zeroPay.success).toBe(false);
 
+    const emptyAlloc = RecordPaymentSchema.safeParse({
+      tenantId: randomUUID(),
+      amount: "1000",
+      method: "CASH",
+      allocations: [],
+    });
+    expect(emptyAlloc.success).toBe(true);
+
     const emptyRev = ReversePaymentSchema.safeParse({
       paymentId: randomUUID(),
       expectedVersion: 1,
@@ -104,7 +112,7 @@ describe("payments validation schemas", () => {
         tenantId: randomUUID(),
         amount: "3000",
         method: "CASH",
-        allocations: [],
+        allocations: [{ invoiceId: randomUUID(), amount: "3000" }],
         proofIntentIds: [],
       },
     });

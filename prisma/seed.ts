@@ -864,7 +864,6 @@ async function main(): Promise<void> {
         checkOutDateManila: addManilaDays(todayManila, 2),
         partySize: 1,
         notes: "3-night symposium stay; requested extra bath towel.",
-        tentative: false,
         issueInvoiceImmediately: true,
       });
 
@@ -906,7 +905,6 @@ async function main(): Promise<void> {
         checkOutDateManila: addManilaDays(todayManila, 6),
         partySize: 1,
         notes: "Arriving around 3:00 PM.",
-        tentative: false,
         issueInvoiceImmediately: false,
       });
     }

@@ -1,10 +1,11 @@
 "use client";
 
 import { useEffect, useId, useRef, useState, useTransition } from "react";
+import Link from "next/link";
 import { PasswordVisibilityButton } from "@/components/features/auth/password-visibility-button";
 import { Alert } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
-import { Button } from "@/components/ui/button";
+import { Button, buttonClasses } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import { Dialog } from "@/components/ui/dialog";
@@ -13,10 +14,12 @@ import { Input } from "@/components/ui/input";
 import { toast } from "@/components/ui/toaster";
 import { formatManilaDateTime } from "@/lib/dates";
 import {
+  ensureTrustedDeviceVaultUnlocked,
   getBrowserOfflineDb,
   getVaultCustody,
   resetOfflineVaultForNewPassphrase,
   unlockOrInitializeOfflineVault,
+  type TrustedDeviceUnlockResult,
 } from "@/offline/client";
 import { generateVaultPassphrase } from "@/offline/crypto";
 import type { DaisyOfflineDatabase } from "@/offline/db";
@@ -574,6 +577,81 @@ export function OfflineVaultUnlockCard({
   onUnlocked?: () => void | Promise<void>;
 }) {
   const [configured, setConfigured] = useState<boolean | null>(null);
+  const [autoState, setAutoState] = useState<TrustedDeviceUnlockResult | null>(
+    null,
+  );
+
+  useEffect(() => {
+    let active = true;
+    async function tryTrustedAutoUnlock() {
+      try {
+        const res = await ensureTrustedDeviceVaultUnlocked({
+          db: getBrowserOfflineDb(),
+          custody: getVaultCustody(),
+          isOnline: navigator.onLine,
+        });
+        if (!active) return;
+        setAutoState(res);
+        if (res.status === "unlocked") {
+          notifyOfflineVaultChanged();
+          await onUnlocked?.();
+        }
+      } catch {
+        // Ignore IndexedDB errors in restricted contexts.
+      }
+    }
+    void tryTrustedAutoUnlock();
+    return () => {
+      active = false;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  if (autoState?.status === "untrusted_device") {
+    return (
+      <Card className="grid max-w-lg gap-3">
+        <div className="grid gap-1">
+          <h2 className="text-base font-semibold text-foreground">
+            {title ?? "Trust this browser for automatic offline sync"}
+          </h2>
+          <p className="text-sm leading-6 text-muted-foreground">
+            Add this browser in Settings &rarr; Trusted devices so Daisy can
+            automatically save and open your offline copy without asking for a
+            password.
+          </p>
+        </div>
+        <div>
+          <Link
+            href="/settings/devices"
+            className={buttonClasses({ variant: "primary", size: "md" })}
+          >
+            Open Trusted devices
+          </Link>
+        </div>
+      </Card>
+    );
+  }
+
+  if (
+    autoState?.status === "expired" ||
+    autoState?.status === "needs_online_setup"
+  ) {
+    return (
+      <Card className="grid max-w-lg gap-3">
+        <div className="grid gap-1">
+          <h2 className="text-base font-semibold text-foreground">
+            {title ?? "Connect online to refresh offline copy"}
+          </h2>
+          <p className="text-sm leading-6 text-muted-foreground">
+            {autoState.status === "expired"
+              ? autoState.reason
+              : "Connect to the internet once on this trusted device so Daisy can automatically save your offline copy."}
+          </p>
+        </div>
+      </Card>
+    );
+  }
+
   const resolvedTitle =
     title ??
     (configured === false ? "Set up offline access" : "Open offline copy");
@@ -609,8 +687,8 @@ export function OfflineVaultUnlockCard({
 }
 
 /**
- * Inline modal letting the Owner save a generated passphrase or unlock the
- * offline vault without leaving the active workspace dialog.
+ * Inline modal letting the Owner auto-unlock on a trusted device or fall back
+ * to trusted-device registration / legacy passphrase unlock.
  */
 export function OfflineVaultUnlockDialog({
   open,
@@ -622,6 +700,61 @@ export function OfflineVaultUnlockDialog({
   onUnlocked?: () => void | Promise<void>;
 }) {
   const [configured, setConfigured] = useState<boolean | null>(null);
+  const [autoState, setAutoState] = useState<TrustedDeviceUnlockResult | null>(
+    null,
+  );
+
+  useEffect(() => {
+    if (!open) return;
+    let active = true;
+    async function tryTrustedAutoUnlock() {
+      try {
+        const res = await ensureTrustedDeviceVaultUnlocked({
+          db: getBrowserOfflineDb(),
+          custody: getVaultCustody(),
+          isOnline: navigator.onLine,
+        });
+        if (!active) return;
+        setAutoState(res);
+        if (res.status === "unlocked") {
+          notifyOfflineVaultChanged();
+          onClose();
+          await onUnlocked?.();
+        }
+      } catch {
+        // Ignore IndexedDB errors in restricted contexts.
+      }
+    }
+    void tryTrustedAutoUnlock();
+    return () => {
+      active = false;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open]);
+
+  if (autoState?.status === "untrusted_device") {
+    return (
+      <Dialog
+        open={open}
+        onClose={onClose}
+        title="Trust this browser for offline sync"
+        description="Add this browser in Trusted devices so Daisy can save changes offline automatically without a password."
+      >
+        <div className="flex flex-wrap items-center justify-end gap-2">
+          <Button type="button" variant="secondary" onClick={onClose}>
+            Cancel
+          </Button>
+          <Link
+            href="/settings/devices"
+            onClick={onClose}
+            className={buttonClasses({ variant: "primary", size: "md" })}
+          >
+            Open Trusted devices
+          </Link>
+        </div>
+      </Dialog>
+    );
+  }
 
   return (
     <Dialog
@@ -795,12 +928,17 @@ export function useOfflineSnapshotState<T>(input: {
       setNeedsAttentionCount(vault.status.needsAttentionCount);
       setLastSyncedAt(vault.status.lastSyncedAt);
 
+      const db = getBrowserOfflineDb();
       const custody = getVaultCustody();
+      if ((input.offlineMode || !navigator.onLine) && !custody.isUnlocked()) {
+        await ensureTrustedDeviceVaultUnlocked({
+          db,
+          custody,
+          isOnline: navigator.onLine,
+        });
+      }
       if ((input.offlineMode || !navigator.onLine) && custody.isUnlocked()) {
-        const res = await input.loadFromVault(
-          getBrowserOfflineDb(),
-          custody.getKey(),
-        );
+        const res = await input.loadFromVault(db, custody.getKey());
         setData(res.data);
         setLastSyncedAt(res.lastSyncedAt);
         return;

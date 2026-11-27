@@ -1,7 +1,7 @@
-import { renderTransientSectionPage } from "../_lib/transient-section-page";
+import { redirect } from "next/navigation";
 
 export const instant = false;
 
 export default function TransientRequestsPage() {
-  return renderTransientSectionPage("requests");
+  redirect("/transients/stays");
 }

@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { Badge } from "@/components/ui/badge";
+import { ActionLink } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import {
   RowActionMenu,
@@ -89,7 +90,7 @@ export function NotificationCard({
               {categoryLabel}
             </span>
             {!notification.read ? (
-              <span className="inline-flex shrink-0 items-center rounded-control bg-foreground px-1.5 py-0.5 text-[11px] font-medium leading-none text-surface">
+              <span className="inline-flex shrink-0 items-center rounded-control border border-primary/25 bg-accent px-1.5 py-0.5 text-[11px] font-medium leading-none text-accent-foreground">
                 Unread
               </span>
             ) : (
@@ -180,48 +181,61 @@ export function NotificationCard({
         </div>
       )}
 
-      <Link
-        href={notification.destination}
-        {...(onNavigate ? { onClick: onNavigate } : {})}
-        className="flex min-w-0 flex-1 items-start rounded-control pt-1 text-left"
-      >
-        <div className="grid min-w-0 flex-1 gap-1.5">
-          <div className="flex flex-wrap items-center gap-2">
-            <span className="text-xs font-medium text-muted-foreground">
-              {categoryLabel}
-            </span>
-            <Badge tone={TONE_BADGE_MAP[notification.tone]}>
-              {NOTIFICATION_TONE_LABELS[notification.tone]}
-            </Badge>
-            {!notification.read ? (
-              <span className="inline-flex items-center rounded-control bg-foreground px-2 py-0.5 text-xs font-medium leading-4 text-surface">
-                Unread
-              </span>
-            ) : (
-              <Badge tone="neutral">Read</Badge>
-            )}
-          </div>
-
-          <h3
-            className={cn(
-              "text-sm leading-5 text-foreground sm:text-base sm:leading-6",
-              notification.read ? "font-medium" : "font-semibold",
-            )}
+      <div className="grid min-w-0 flex-1 gap-1.5">
+        <div className="flex items-start justify-between gap-2">
+          <Link
+            href={notification.destination}
+            {...(onNavigate ? { onClick: onNavigate } : {})}
+            className="grid min-w-0 flex-1 gap-1.5 rounded-control pt-1 text-left"
           >
-            {notification.title}
-          </h3>
+            <div className="flex flex-wrap items-center gap-2">
+              <span className="text-xs font-medium text-muted-foreground">
+                {categoryLabel}
+              </span>
+              <Badge tone={TONE_BADGE_MAP[notification.tone]}>
+                {NOTIFICATION_TONE_LABELS[notification.tone]}
+              </Badge>
+              {!notification.read ? (
+                <Badge className="border-primary/25 bg-accent text-accent-foreground">
+                  Unread
+                </Badge>
+              ) : (
+                <Badge tone="neutral">Read</Badge>
+              )}
+            </div>
 
-          {messageLines.length > 0 && (
-            <div className="grid gap-0.5 text-sm leading-5 text-muted-foreground tabular-nums">
-              {messageLines.map((line, index) => (
-                <p key={index} className="break-words">
-                  {line}
-                </p>
-              ))}
+            <h3
+              className={cn(
+                "text-sm leading-5 text-foreground sm:text-base sm:leading-6",
+                notification.read ? "font-medium" : "font-semibold",
+              )}
+            >
+              {notification.title}
+            </h3>
+
+            {messageLines.length > 0 && (
+              <div className="grid gap-0.5 text-sm leading-5 text-muted-foreground tabular-nums">
+                {messageLines.map((line, index) => (
+                  <p key={index} className="break-words">
+                    {line}
+                  </p>
+                ))}
+              </div>
+            )}
+          </Link>
+
+          {rowActions.length > 0 && (
+            <div className="shrink-0 pt-0.5">
+              <RowActionMenu
+                label={`Actions for ${notification.title}`}
+                items={rowActions}
+              />
             </div>
           )}
+        </div>
 
-          <div className="flex flex-wrap items-center gap-x-4 gap-y-1 pt-0.5 text-xs text-muted-foreground tabular-nums">
+        <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-1 pt-0.5 text-xs text-muted-foreground tabular-nums">
+          <div className="flex flex-wrap items-center gap-x-4 gap-y-1">
             <time dateTime={notification.createdAt}>
               Created {formatManilaDateTime(new Date(notification.createdAt))}
             </time>
@@ -230,22 +244,17 @@ export function NotificationCard({
                 Read {formatManilaDateTime(new Date(notification.readAt))}
               </span>
             )}
-            <span className="inline-flex items-center gap-1 font-medium text-foreground">
-              Open record
-              <ChevronRightIcon className="size-3.5" />
-            </span>
           </div>
+          <ActionLink
+            href={notification.destination}
+            {...(onNavigate ? { onClick: onNavigate } : {})}
+            size="sm"
+            className="ml-auto"
+          >
+            Open record
+          </ActionLink>
         </div>
-      </Link>
-
-      {rowActions.length > 0 && (
-        <div className="shrink-0 pt-0.5">
-          <RowActionMenu
-            label={`Actions for ${notification.title}`}
-            items={rowActions}
-          />
-        </div>
-      )}
+      </div>
     </article>
   );
 }

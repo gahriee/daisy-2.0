@@ -28,8 +28,6 @@ import {
   SidebarHeader,
   SidebarLink,
   SidebarNav,
-  SidebarNavDisclosure,
-  SidebarSubLink,
 } from "@/components/ui/sidebar";
 import {
   Topbar,
@@ -64,7 +62,6 @@ function useWorkspacePathname(): string {
 }
 
 const SIDEBAR_STORAGE_KEY = "daisy:sidebar-collapsed";
-const SIDEBAR_TRANSIENTS_STORAGE_KEY = "daisy:sidebar-nav:transients";
 const sidebarListeners = new Set<() => void>();
 
 function subscribeSidebarState(callback: () => void) {
@@ -98,11 +95,24 @@ function writeSidebarFlag(key: string, value: boolean) {
   }
 }
 
-const TRANSIENTS_SECTIONS = [
-  { href: "/transients/stays", label: "Stays & reservations" },
-  { href: "/transients/requests", label: "Booking requests" },
-  { href: "/transients/house-rules", label: "House rules" },
-] as const;
+function HouseRulesIcon() {
+  return (
+    <svg
+      aria-hidden="true"
+      className="size-4.5"
+      viewBox="0 0 20 20"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.65"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+    >
+      <path d="M5.5 3.25h6.75L15.5 6.5v10.25H5.5V3.25Z" />
+      <path d="M12 3.25V6.75h3.5" />
+      <path d="M8 10h4.5M8 13h4.5" />
+    </svg>
+  );
+}
 
 function getInitials(label: string): string {
   const parts = label.trim().split(/\s+/).filter(Boolean);
@@ -127,26 +137,6 @@ function DashboardIcon() {
       <rect x="11" y="3" width="6" height="6" rx="1.25" />
       <rect x="3" y="11" width="6" height="6" rx="1.25" />
       <rect x="11" y="11" width="6" height="6" rx="1.25" />
-    </svg>
-  );
-}
-
-function ReportsIcon() {
-  return (
-    <svg
-      aria-hidden="true"
-      className="size-4.5"
-      viewBox="0 0 20 20"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="1.65"
-      strokeLinecap="round"
-      strokeLinejoin="round"
-    >
-      <path d="M4 16.5h12" />
-      <path d="M6 16.5v-5" />
-      <path d="M10 16.5v-9" />
-      <path d="M14 16.5V5.5" />
     </svg>
   );
 }
@@ -347,7 +337,7 @@ const SUBROUTE_PARENT_CRUMBS: ReadonlyArray<{
   label: string;
   href: string;
 }> = [
-  { prefix: "/rooms/", label: "Boarding rooms", href: "/rooms" },
+  { prefix: "/rooms/", label: "Boarding Rooms", href: "/rooms" },
   { prefix: "/tenants/", label: "Tenants", href: "/tenants" },
   {
     prefix: "/transients/rooms/",
@@ -356,8 +346,8 @@ const SUBROUTE_PARENT_CRUMBS: ReadonlyArray<{
   },
   {
     prefix: "/transients/requests/",
-    label: "Booking requests",
-    href: "/transients/requests",
+    label: "Stays & requests",
+    href: "/transients/stays",
   },
   {
     prefix: "/transients/",
@@ -870,18 +860,20 @@ const WorkspaceTitleContext = createContext<
 
 function resolveWorkspaceTitle(pathname: string): string {
   if (pathname === "/") return "Dashboard";
-  if (pathname === "/reports") return "Reports";
-  if (pathname === "/rooms") return "Rooms";
+  if (pathname === "/rooms") return "Boarding Rooms";
   if (pathname === "/rooms/new") return "Add room";
   if (pathname.startsWith("/rooms/")) return "Room details";
   if (pathname === "/tenants") return "Tenants";
   if (pathname.endsWith("/contracts/new")) return "Add signed contract";
   if (pathname.includes("/contracts/")) return "Signed contract";
   if (pathname.startsWith("/tenants/")) return "Tenant profile";
-  if (pathname === "/transients" || pathname === "/transients/stays") {
-    return "Stays & reservations";
+  if (
+    pathname === "/transients" ||
+    pathname === "/transients/stays" ||
+    pathname === "/transients/requests"
+  ) {
+    return "Stays & requests";
   }
-  if (pathname === "/transients/requests") return "Booking requests";
   if (pathname.startsWith("/transients/requests/")) return "Booking request";
   if (pathname === "/transients/house-rules") return "House rules";
   if (pathname === "/transients/rooms") return "Transient rooms";
@@ -975,23 +967,11 @@ export function WorkspaceShell({
     (titleOverride?.pathname === pathname ? titleOverride.title : null) ??
     resolveWorkspaceTitle(pathname);
   const [sidebarOpen, setSidebarOpen] = useState(false);
-  const defaultTransientsExpanded =
-    pathname.startsWith("/transients") &&
-    !pathname.startsWith("/transients/rooms");
 
   const sidebarCollapsed = useSyncExternalStore(
     subscribeSidebarState,
     () => readSidebarFlag(SIDEBAR_STORAGE_KEY, false),
     () => false,
-  );
-  const transientsNavExpanded = useSyncExternalStore(
-    subscribeSidebarState,
-    () =>
-      readSidebarFlag(
-        SIDEBAR_TRANSIENTS_STORAGE_KEY,
-        defaultTransientsExpanded,
-      ),
-    () => defaultTransientsExpanded,
   );
 
   function toggleSidebarCollapse() {
@@ -999,15 +979,6 @@ export function WorkspaceShell({
       SIDEBAR_STORAGE_KEY,
       !readSidebarFlag(SIDEBAR_STORAGE_KEY, false),
     );
-  }
-
-  function toggleDisclosureSection(key: string, fallback: boolean) {
-    if (sidebarCollapsed) {
-      writeSidebarFlag(SIDEBAR_STORAGE_KEY, false);
-      writeSidebarFlag(key, true);
-      return;
-    }
-    writeSidebarFlag(key, !readSidebarFlag(key, fallback));
   }
 
   return (
@@ -1045,15 +1016,6 @@ export function WorkspaceShell({
               >
                 Dashboard
               </SidebarLink>
-              <SidebarLink
-                href="/reports"
-                active={pathname.startsWith("/reports")}
-                icon={<ReportsIcon />}
-                {...(sidebarCollapsed ? { title: "Reports" } : {})}
-                onClick={() => setSidebarOpen(false)}
-              >
-                Reports
-              </SidebarLink>
             </SidebarGroup>
 
             <Separator />
@@ -1063,10 +1025,10 @@ export function WorkspaceShell({
                 href="/rooms"
                 active={pathname.startsWith("/rooms")}
                 icon={<RoomsIcon />}
-                {...(sidebarCollapsed ? { title: "Rooms" } : {})}
+                {...(sidebarCollapsed ? { title: "Boarding Rooms" } : {})}
                 onClick={() => setSidebarOpen(false)}
               >
-                Rooms
+                Boarding Rooms
               </SidebarLink>
               <SidebarLink
                 href="/tenants"
@@ -1082,43 +1044,6 @@ export function WorkspaceShell({
             <Separator />
 
             <SidebarGroup label="Transient">
-              <SidebarNavDisclosure
-                label="Stays & requests"
-                icon={<TransientsIcon />}
-                active={
-                  pathname.startsWith("/transients") &&
-                  !pathname.startsWith("/transients/rooms")
-                }
-                expanded={transientsNavExpanded}
-                onToggle={() =>
-                  toggleDisclosureSection(
-                    SIDEBAR_TRANSIENTS_STORAGE_KEY,
-                    defaultTransientsExpanded,
-                  )
-                }
-              >
-                {TRANSIENTS_SECTIONS.map((item) => {
-                  const isItemActive =
-                    item.href === "/transients/stays"
-                      ? pathname === "/transients" ||
-                        pathname === "/transients/stays" ||
-                        pathname.startsWith("/transients/stays/") ||
-                        pathname === "/transients/guests"
-                      : pathname === item.href ||
-                        pathname.startsWith(`${item.href}/`);
-
-                  return (
-                    <SidebarSubLink
-                      key={item.href}
-                      href={item.href}
-                      active={isItemActive}
-                      onClick={() => setSidebarOpen(false)}
-                    >
-                      {item.label}
-                    </SidebarSubLink>
-                  );
-                })}
-              </SidebarNavDisclosure>
               <SidebarLink
                 href="/transients/rooms"
                 active={pathname.startsWith("/transients/rooms")}
@@ -1127,6 +1052,31 @@ export function WorkspaceShell({
                 onClick={() => setSidebarOpen(false)}
               >
                 Transient rooms
+              </SidebarLink>
+              <SidebarLink
+                href="/transients/stays"
+                active={
+                  pathname === "/transients" ||
+                  pathname === "/transients/stays" ||
+                  pathname.startsWith("/transients/stays/") ||
+                  pathname === "/transients/requests" ||
+                  pathname.startsWith("/transients/requests/") ||
+                  pathname === "/transients/guests"
+                }
+                icon={<TransientsIcon />}
+                {...(sidebarCollapsed ? { title: "Stays & requests" } : {})}
+                onClick={() => setSidebarOpen(false)}
+              >
+                Stays &amp; requests
+              </SidebarLink>
+              <SidebarLink
+                href="/transients/house-rules"
+                active={pathname.startsWith("/transients/house-rules")}
+                icon={<HouseRulesIcon />}
+                {...(sidebarCollapsed ? { title: "House rules" } : {})}
+                onClick={() => setSidebarOpen(false)}
+              >
+                House rules
               </SidebarLink>
             </SidebarGroup>
 

@@ -122,14 +122,13 @@ function toTransientReservationDto(
     row.data.status,
   ) as TransientReservationStatusValue | null;
   const status: TransientReservationStatusValue =
-    rawStatus === "TENTATIVE" ||
     rawStatus === "CONFIRMED" ||
     rawStatus === "CHECKED_IN" ||
     rawStatus === "CHECKED_OUT" ||
     rawStatus === "CANCELLED" ||
     rawStatus === "NO_SHOW"
       ? rawStatus
-      : "TENTATIVE";
+      : "CONFIRMED";
 
   const checkInDateManila = asNonEmptyString(
     row.data.checkInDateManila,
@@ -193,6 +192,7 @@ function toTransientReservationDto(
     checkedInAt: asString(row.data.checkedInAt),
     checkedOutAt: asString(row.data.checkedOutAt),
     cancelledAt: asString(row.data.cancelledAt),
+    archivedAt: asString(row.data.archivedAt),
     notes: asString(row.data.notes),
     cancellationReason: asString(row.data.cancellationReason),
     activeInvoiceId: asString(row.data.activeInvoiceId),
@@ -416,18 +416,21 @@ export function buildTransientsOverviewFromRecords(input: {
   );
 
   const reservations: TransientReservationDto[] = [];
-  let tentativeReservations = 0;
   let confirmedReservations = 0;
   let checkedInReservations = 0;
+  let archivedReservations = 0;
 
   for (const row of input.projections) {
     if (row.entityType !== "transient_reservation") continue;
     const stay = toTransientReservationDto(row, guestById, roomById);
     if (!stay) continue;
     reservations.push(stay);
-    if (stay.status === "TENTATIVE") tentativeReservations += 1;
-    if (stay.status === "CONFIRMED") confirmedReservations += 1;
-    if (stay.status === "CHECKED_IN") checkedInReservations += 1;
+    if (stay.archivedAt !== null) {
+      archivedReservations += 1;
+    } else {
+      if (stay.status === "CONFIRMED") confirmedReservations += 1;
+      if (stay.status === "CHECKED_IN") checkedInReservations += 1;
+    }
   }
   reservations.sort(
     (a, b) =>
@@ -481,9 +484,9 @@ export function buildTransientsOverviewFromRecords(input: {
       transientPolicyNote: null,
       totals: {
         pendingRequests,
-        tentativeReservations,
         confirmedReservations,
         checkedInReservations,
+        archivedReservations,
         publishedRooms,
       },
       requests,
@@ -862,9 +865,8 @@ export function buildNoticesOverviewFromRecords(input: {
   tenants.sort((a, b) => a.fullName.localeCompare(b.fullName));
 
   const notices: NoticeDto[] = [];
-  let activeCount = 0;
+  let sentCount = 0;
   let scheduledCount = 0;
-  let expiredCount = 0;
   let archivedCount = 0;
 
   for (const row of input.projections) {
@@ -879,16 +881,13 @@ export function buildNoticesOverviewFromRecords(input: {
     const archivedAt = asString(row.data.archivedAt);
     const lifecycleStatus: NoticeLifecycleStatus = archivedAt
       ? "ARCHIVED"
-      : endDateManila < todayManila
-        ? "EXPIRED"
-        : startDateManila > todayManila
-          ? "SCHEDULED"
-          : "ACTIVE";
+      : startDateManila > todayManila
+        ? "SCHEDULED"
+        : "SENT";
 
     if (lifecycleStatus === "ARCHIVED") archivedCount += 1;
-    else if (lifecycleStatus === "EXPIRED") expiredCount += 1;
     else if (lifecycleStatus === "SCHEDULED") scheduledCount += 1;
-    else activeCount += 1;
+    else sentCount += 1;
 
     const rawAudience = asString(
       row.data.audience,
@@ -926,7 +925,7 @@ export function buildNoticesOverviewFromRecords(input: {
     todayManila,
     smsConfigured: false,
     businessName: "",
-    totals: { activeCount, scheduledCount, expiredCount, archivedCount },
+    totals: { sentCount, scheduledCount, archivedCount },
     notices,
     rooms,
     tenants,
@@ -1008,11 +1007,7 @@ export function buildDashboardSnapshotFromRecords(input: {
       roomHasHold.add(roomId);
       maintHoldCount += activeHolds.length;
     }
-    if (
-      status === "OPEN" ||
-      status === "IN_PROGRESS" ||
-      status === "WAITING_PARTS"
-    ) {
+    if (status === "OPEN" || status === "IN_PROGRESS") {
       maintOpenCount += 1;
       const priority =
         (asString(row.data.priority) as MaintenancePriorityValue) ?? "MEDIUM";
@@ -1211,7 +1206,7 @@ export function buildDashboardSnapshotFromRecords(input: {
     }));
 
   const activeNotices: DashboardNoticeItemDto[] = notices.notices
-    .filter((n) => n.lifecycleStatus === "ACTIVE")
+    .filter((n) => n.lifecycleStatus === "SENT")
     .map((n) => ({
       id: n.id,
       title: n.title,

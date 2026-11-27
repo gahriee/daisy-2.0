@@ -3,6 +3,7 @@
 import { useState, useTransition } from "react";
 import { Alert } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
+import { Checkbox } from "@/components/ui/checkbox";
 import { Dialog } from "@/components/ui/dialog";
 import { Field } from "@/components/ui/field";
 import { DatePicker } from "@/components/ui/date-picker";
@@ -23,7 +24,6 @@ import {
   type NoticeRoomOptionDto,
   type NoticeTenantOptionDto,
 } from "@/features/notices/schemas";
-import { ROOM_BUILDING_LABELS } from "@/features/rooms/schemas";
 import { estimateSmsSegments } from "@/features/sms/schemas";
 import { addManilaDays, formatManilaDate } from "@/lib/dates";
 
@@ -31,10 +31,9 @@ export const NOTICE_LIFECYCLE_TONE: Record<
   NoticeLifecycleStatus,
   "success" | "info" | "neutral" | "warning"
 > = {
-  ACTIVE: "success",
+  SENT: "success",
   SCHEDULED: "info",
-  EXPIRED: "neutral",
-  ARCHIVED: "warning",
+  ARCHIVED: "neutral",
 };
 
 export function NoticeFormDialog({
@@ -59,25 +58,37 @@ export function NoticeFormDialog({
   onSaved: (message: string, noticeId?: string) => void | Promise<void>;
 }) {
   const isEditing = Boolean(notice);
+  const boardingRooms = rooms.filter((r) => r.building === "BOARDING");
   const [audience, setAudience] = useState<NoticeAudienceValue>(
     notice?.audience ?? "EVERYONE",
   );
-  const [roomId, setRoomId] = useState(notice?.roomId ?? rooms[0]?.id ?? "");
+  const [roomId, setRoomId] = useState(
+    notice?.roomId ?? boardingRooms[0]?.id ?? "",
+  );
   const [tenantId, setTenantId] = useState(
     notice?.tenantId ?? tenants[0]?.id ?? "",
   );
   const [title, setTitle] = useState(notice?.title ?? "");
   const [body, setBody] = useState(notice?.body ?? "");
-  const [startDateManila, setStartDateManila] = useState(
-    notice?.startDateManila ?? todayManila,
+  const initialScheduled = Boolean(
+    notice && notice.startDateManila > todayManila,
   );
-  const [endDateManila, setEndDateManila] = useState(
-    notice?.endDateManila ?? addManilaDays(todayManila, 7),
+  const [scheduleForLater, setScheduleForLater] = useState(initialScheduled);
+  const [scheduledDateManila, setScheduledDateManila] = useState(
+    initialScheduled && notice
+      ? notice.startDateManila
+      : addManilaDays(todayManila, 1),
   );
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [pending, startTransition] = useTransition();
 
-  const isScheduledForFuture = startDateManila > todayManila;
+  const effectiveStartDate = scheduleForLater
+    ? scheduledDateManila
+    : (notice?.startDateManila ?? todayManila);
+  const effectiveEndDate = addManilaDays(effectiveStartDate, 7);
+  const isScheduledForFuture =
+    scheduleForLater && scheduledDateManila > todayManila;
+
   const isDirty =
     isEditing &&
     notice !== null &&
@@ -86,18 +97,20 @@ export function NoticeFormDialog({
       (audience === "TENANT" && tenantId !== (notice.tenantId ?? "")) ||
       title !== notice.title ||
       body !== notice.body ||
-      startDateManila !== notice.startDateManila ||
-      endDateManila !== notice.endDateManila);
+      effectiveStartDate !== notice.startDateManila);
 
   function handleDiscardChanges() {
     if (!notice) return;
+    const wasScheduled = notice.startDateManila > todayManila;
     setAudience(notice.audience);
-    setRoomId(notice.roomId ?? rooms[0]?.id ?? "");
+    setRoomId(notice.roomId ?? boardingRooms[0]?.id ?? "");
     setTenantId(notice.tenantId ?? tenants[0]?.id ?? "");
     setTitle(notice.title);
     setBody(notice.body);
-    setStartDateManila(notice.startDateManila);
-    setEndDateManila(notice.endDateManila);
+    setScheduleForLater(wasScheduled);
+    setScheduledDateManila(
+      wasScheduled ? notice.startDateManila : addManilaDays(todayManila, 1),
+    );
     setErrorMessage(null);
   }
   const smsPreviewText = formatNoticeSmsText({
@@ -110,7 +123,7 @@ export function NoticeFormDialog({
   function handleAudienceChange(next: NoticeAudienceValue) {
     setAudience(next);
     if (next === "ROOM" && !roomId) {
-      setRoomId(rooms[0]?.id ?? "");
+      setRoomId(boardingRooms[0]?.id ?? "");
     }
     if (next === "TENANT" && !tenantId) {
       setTenantId(tenants[0]?.id ?? "");
@@ -130,8 +143,8 @@ export function NoticeFormDialog({
     }
     formData.set("title", title);
     formData.set("body", body);
-    formData.set("startDateManila", startDateManila);
-    formData.set("endDateManila", endDateManila);
+    formData.set("startDateManila", effectiveStartDate);
+    formData.set("endDateManila", effectiveEndDate);
 
     if (notice) {
       formData.set("noticeId", notice.id);
@@ -162,7 +175,7 @@ export function NoticeFormDialog({
       dismissDisabled={pending}
       maxWidthClassName="max-w-xl"
       title={isEditing ? "Edit notice" : "Send SMS notice"}
-      description="Notices are texted directly to tenants through Semaphore—right away if the send date is today, or automatically on a future date."
+      description="SMS notices are for boarding house tenants only. Send right away or schedule for a later date."
     >
       <form onSubmit={handleSubmit} className="grid gap-4">
         {errorMessage && (
@@ -197,22 +210,21 @@ export function NoticeFormDialog({
           </Field>
 
           {audience === "ROOM" && (
-            <Field id="notice-room" label="Target room" required>
+            <Field id="notice-room" label="Boarding room" required>
               {(fieldProps) => (
                 <Select
                   {...fieldProps}
                   value={roomId}
                   onChange={(e) => setRoomId(e.target.value)}
-                  disabled={pending || rooms.length === 0}
+                  disabled={pending || boardingRooms.length === 0}
                 >
-                  {rooms.length === 0 ? (
-                    <option value="">No active rooms</option>
+                  {boardingRooms.length === 0 ? (
+                    <option value="">No active boarding rooms</option>
                   ) : (
-                    rooms.map((room) => (
+                    boardingRooms.map((room) => (
                       <option key={room.id} value={room.id}>
-                        Room {room.number} (
-                        {ROOM_BUILDING_LABELS[room.building]}
-                        {room.floor ? `, ${room.floor}` : ""})
+                        Room {room.number}
+                        {room.floor ? ` (${room.floor})` : ""}
                       </option>
                     ))
                   )}
@@ -222,7 +234,7 @@ export function NoticeFormDialog({
           )}
 
           {audience === "TENANT" && (
-            <Field id="notice-tenant" label="Target tenant" required>
+            <Field id="notice-tenant" label="Boarder" required>
               {(fieldProps) => (
                 <Select
                   {...fieldProps}
@@ -231,7 +243,7 @@ export function NoticeFormDialog({
                   disabled={pending || tenants.length === 0}
                 >
                   {tenants.length === 0 ? (
-                    <option value="">No active tenants</option>
+                    <option value="">No active boarders</option>
                   ) : (
                     tenants.map((tenant) => (
                       <option key={tenant.id} value={tenant.id}>
@@ -272,30 +284,34 @@ export function NoticeFormDialog({
           )}
         </Field>
 
-        <div className="grid gap-4 sm:grid-cols-2">
-          <Field id="notice-start" label="Send date" required>
-            {(fieldProps) => (
-              <DatePicker
-                {...fieldProps}
-                required
-                value={startDateManila}
-                onValueChange={setStartDateManila}
-                disabled={pending}
-              />
-            )}
-          </Field>
+        <div className="grid gap-3">
+          <Checkbox
+            id="notice-schedule-toggle"
+            checked={scheduleForLater}
+            disabled={pending}
+            onChange={(event) => {
+              const checked = event.target.checked;
+              setScheduleForLater(checked);
+              if (checked && scheduledDateManila <= todayManila) {
+                setScheduledDateManila(addManilaDays(todayManila, 1));
+              }
+            }}
+            label="Schedule send for a later date (optional)"
+          />
 
-          <Field id="notice-end" label="Active until" required>
-            {(fieldProps) => (
-              <DatePicker
-                {...fieldProps}
-                required
-                value={endDateManila}
-                onValueChange={setEndDateManila}
-                disabled={pending}
-              />
-            )}
-          </Field>
+          {scheduleForLater && (
+            <Field id="notice-start" label="Send date" required>
+              {(fieldProps) => (
+                <DatePicker
+                  {...fieldProps}
+                  required
+                  value={scheduledDateManila}
+                  onValueChange={setScheduledDateManila}
+                  disabled={pending}
+                />
+              )}
+            </Field>
+          )}
         </div>
 
         {!isEditing &&
@@ -308,7 +324,7 @@ export function NoticeFormDialog({
             <div className="grid gap-1.5 rounded-control border border-border bg-surface-muted/50 p-3 text-xs">
               <p className="font-medium text-foreground">
                 {isScheduledForFuture
-                  ? `Scheduled SMS — will text automatically on ${formatManilaDate(startDateManila)}`
+                  ? `Scheduled SMS — will text automatically on ${formatManilaDate(scheduledDateManila)}`
                   : "Sends right away via Semaphore"}
               </p>
               <p className="break-words text-muted-foreground">

@@ -10,7 +10,7 @@ export const instant = false;
 export default async function NewInvoicePage({
   searchParams,
 }: {
-  searchParams: Promise<{ tenantId?: string }>;
+  searchParams: Promise<{ tenantId?: string; transientGuestId?: string }>;
 }) {
   await connection();
   let authenticated = false;
@@ -31,13 +31,20 @@ export default async function NewInvoicePage({
   ]);
 
   const parsedTenantId = z.string().uuid().safeParse(rawSearch.tenantId);
+  const parsedTransientGuestId = z
+    .string()
+    .uuid()
+    .safeParse(rawSearch.transientGuestId);
 
   return (
     <InvoiceCreateForm
       tenants={context.tenants}
-      defaultPeriod={context.currentBillingPeriod}
+      transientGuests={context.transientGuests}
       hasInvoicePrefix={context.hasInvoicePrefix}
       initialTenantId={parsedTenantId.success ? parsedTenantId.data : null}
+      initialTransientGuestId={
+        parsedTransientGuestId.success ? parsedTransientGuestId.data : null
+      }
     />
   );
 }

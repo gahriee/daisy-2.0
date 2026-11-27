@@ -77,7 +77,6 @@ function revalidateBillingPaths(
     revalidatePath("/transients", "layout");
     revalidatePath("/transients/stays");
   }
-  revalidatePath("/reports");
   revalidatePath("/notifications");
   revalidatePath("/audit");
   revalidatePath("/");

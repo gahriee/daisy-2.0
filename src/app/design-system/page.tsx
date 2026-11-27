@@ -268,7 +268,7 @@ export default function DesignSystemPage() {
             </Button>
             <Button disabled>Unavailable</Button>
             <Button loading>Saving example</Button>
-            <ActionLink href="/reports">Analytics</ActionLink>
+            <ActionLink href="/billing">Billing</ActionLink>
             <BackLink href="/tenants">Tenants</BackLink>
           </div>
         </section>

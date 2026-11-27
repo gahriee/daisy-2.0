@@ -207,7 +207,6 @@ export async function applyTransientSyncOperation(input: {
               {
                 id: op.entityId,
                 ...op.payload,
-                tentative: true,
               },
               actor,
             );

@@ -696,7 +696,6 @@ describe("transients, public booking, billing bridge & sync integration", () => 
           checkInDateManila: "2026-12-20",
           checkOutDateManila: "2026-12-22",
           partySize: 1,
-          tentative: true,
         },
       },
     });

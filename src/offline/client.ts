@@ -2,9 +2,12 @@ import {
   assertOfflineUnlockWithinWindow,
   decryptJsonPayload,
   DEFAULT_INACTIVITY_LOCK_MS,
+  initializeTrustedDeviceVaultKey,
   initializeVaultKeyMetadata,
+  isTrustedDeviceVaultKeyMetadata,
   VaultKeyCustody,
   verifyAndUnlockVaultKey,
+  verifyTrustedDeviceVaultKey,
 } from "./crypto";
 import {
   DAISY_OFFLINE_SCHEMA_VERSION,
@@ -111,8 +114,146 @@ export async function recordOnlineSessionAnchor(
     offlineUnlockMaxDays:
       input.offlineUnlockMaxDays ?? prev?.offlineUnlockMaxDays ?? 7,
     ownerUserId: input.ownerUserId,
-    deviceId: input.deviceId ?? prev?.deviceId ?? null,
+    deviceId: input.deviceId,
   });
+}
+
+export type TrustedDeviceUnlockResult =
+  | {
+      status: "unlocked";
+      initializedNew: boolean;
+      deviceId: string;
+    }
+  | {
+      status: "untrusted_device";
+    }
+  | {
+      status: "needs_online_setup";
+    }
+  | {
+      status: "legacy_passphrase_required";
+    }
+  | {
+      status: "expired";
+      reason: string;
+    };
+
+/**
+ * Automatically initializes or unlocks the offline vault on an Owner-approved
+ * trusted device using a non-extractable AES-256-GCM CryptoKey stored in
+ * IndexedDB — no manual sync password required.
+ *
+ * Refuses to auto-unlock on untrusted/revoked browsers or outside the
+ * configured `offlineUnlockMaxDays` window when offline.
+ */
+export async function ensureTrustedDeviceVaultUnlocked(input: {
+  db: DaisyOfflineDatabase;
+  custody: VaultKeyCustody;
+  isOnline: boolean;
+  nowMs?: number;
+}): Promise<TrustedDeviceUnlockResult> {
+  const nowMs = input.nowMs ?? Date.now();
+  const [cryptoMeta, authMeta, syncMeta] = await Promise.all([
+    input.db.vaultMeta.get("crypto"),
+    input.db.vaultMeta.get("auth"),
+    input.db.vaultMeta.get("sync"),
+  ]);
+
+  const auth = authMeta?.key === "auth" ? authMeta : null;
+  if (!auth?.deviceId) {
+    input.custody.lock();
+    return { status: "untrusted_device" };
+  }
+
+  if (!input.isOnline) {
+    try {
+      assertOfflineUnlockWithinWindow({
+        lastOnlineAuthAtMs: auth.lastOnlineAuthAtMs,
+        offlineUnlockMaxDays: auth.offlineUnlockMaxDays ?? 7,
+        nowMs,
+      });
+    } catch (error) {
+      input.custody.lock();
+      return {
+        status: "expired",
+        reason:
+          error instanceof Error
+            ? error.message
+            : "Connect to the internet and sign in again to refresh offline access.",
+      };
+    }
+  }
+
+  // Already unlocked in memory for this trusted device.
+  if (
+    input.custody.isUnlocked(nowMs) &&
+    cryptoMeta?.key === "crypto" &&
+    isTrustedDeviceVaultKeyMetadata(cryptoMeta.metadata)
+  ) {
+    return {
+      status: "unlocked",
+      initializedNew: false,
+      deviceId: auth.deviceId,
+    };
+  }
+
+  // Existing trusted-device key stored in IndexedDB.
+  if (
+    cryptoMeta?.key === "crypto" &&
+    isTrustedDeviceVaultKeyMetadata(cryptoMeta.metadata)
+  ) {
+    const key = await verifyTrustedDeviceVaultKey(cryptoMeta.metadata);
+    input.custody.setUnlockedKey(key, nowMs);
+    return {
+      status: "unlocked",
+      initializedNew: false,
+      deviceId: auth.deviceId,
+    };
+  }
+
+  // Legacy passphrase-encrypted vault: auto-migrate cleanly if online and nothing
+  // is unsynced; otherwise ask for the old password once so no offline work is lost.
+  if (cryptoMeta?.key === "crypto") {
+    const unsyncedCount = await input.db.outbox
+      .where("status")
+      .anyOf(["pending", "syncing", "conflict", "rejected", "blocked"])
+      .count();
+
+    if (!input.isOnline || unsyncedCount > 0) {
+      return { status: "legacy_passphrase_required" };
+    }
+
+    await resetOfflineVaultForNewPassphrase({
+      db: input.db,
+      custody: input.custody,
+    });
+  } else if (!input.isOnline) {
+    return { status: "needs_online_setup" };
+  }
+
+  const created = await initializeTrustedDeviceVaultKey();
+  await input.db.vaultMeta.put({
+    key: "crypto",
+    metadata: created.metadata,
+  });
+  if (!syncMeta) {
+    await input.db.vaultMeta.put({
+      key: "sync",
+      schemaVersion: DAISY_OFFLINE_SCHEMA_VERSION,
+      watermark: null,
+      syncCursor: null,
+      lastSyncedAt: null,
+      nextLocalSequence: 1,
+      rebootstrapRequired: false,
+    });
+  }
+
+  input.custody.setUnlockedKey(created.key, nowMs);
+  return {
+    status: "unlocked",
+    initializedNew: true,
+    deviceId: auth.deviceId,
+  };
 }
 
 /**
@@ -174,6 +315,8 @@ export async function unlockOrInitializeOfflineVault(input: {
         rebootstrapRequired: false,
       });
     }
+  } else if (isTrustedDeviceVaultKeyMetadata(cryptoMeta.metadata)) {
+    key = await verifyTrustedDeviceVaultKey(cryptoMeta.metadata);
   } else {
     key = await verifyAndUnlockVaultKey(input.passphrase, cryptoMeta.metadata);
   }

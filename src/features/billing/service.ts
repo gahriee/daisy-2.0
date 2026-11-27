@@ -2,6 +2,7 @@ import "server-only";
 import { getServerBillingPolicies } from "@/config/business-config";
 import { randomUUID } from "node:crypto";
 import {
+  addManilaDays,
   isOverdueManila,
   manilaDateTimeToUtc,
   toManilaDate,
@@ -54,6 +55,7 @@ import {
   type AddInvoiceAdjustmentInput,
   type BillingOverviewDto,
   type BillingTenantOptionDto,
+  type BillingTransientGuestOptionDto,
   type CreateManualInvoiceInput,
   type GeneratePeriodInvoicesInput,
   type GeneratePeriodInvoicesSummary,
@@ -401,7 +403,13 @@ async function listBillingTenantOptionsInTx(
   ownerUserId: string,
 ): Promise<BillingTenantOptionDto[]> {
   const tenantRows = await tx.tenant.findMany({
-    where: { ownerUserId, archivedAt: null },
+    where: {
+      ownerUserId,
+      archivedAt: null,
+      assignments: {
+        some: { status: "ACTIVE" },
+      },
+    },
     orderBy: [{ fullName: "asc" }],
     select: {
       id: true,
@@ -430,23 +438,70 @@ async function listBillingTenantOptionsInTx(
   });
 }
 
+async function listBillingTransientGuestOptionsInTx(
+  tx: DatabaseExecutor,
+  ownerUserId: string,
+): Promise<BillingTransientGuestOptionDto[]> {
+  const guestRows = await tx.transientGuest.findMany({
+    where: {
+      ownerUserId,
+      archivedAt: null,
+      reservations: {
+        some: {
+          archivedAt: null,
+          status: { in: ["CONFIRMED", "CHECKED_IN"] },
+        },
+      },
+    },
+    orderBy: [{ fullName: "asc" }],
+    select: {
+      id: true,
+      fullName: true,
+      phone: true,
+      reservations: {
+        where: {
+          archivedAt: null,
+          status: { in: ["CONFIRMED", "CHECKED_IN"] },
+        },
+        orderBy: [{ startDate: "desc" }],
+        take: 1,
+        select: {
+          room: { select: { title: true } },
+        },
+      },
+    },
+  });
+
+  return guestRows.map((guest) => ({
+    id: guest.id,
+    fullName: guest.fullName,
+    phone: guest.phone,
+    roomNumber: guest.reservations[0]?.room.title ?? null,
+  }));
+}
+
 export async function getBillingCreateContext(ownerUserId: string): Promise<{
   hasInvoicePrefix: boolean;
   currentBillingPeriod: string;
   tenants: BillingTenantOptionDto[];
+  transientGuests: BillingTransientGuestOptionDto[];
 }> {
   const db = getDatabase();
   const currentBillingPeriod = getCurrentManilaBillingPeriod(new Date());
   const policies = getServerBillingPolicies();
 
-  const tenants = await db.$transaction((tx) =>
-    listBillingTenantOptionsInTx(tx, ownerUserId),
+  const [tenants, transientGuests] = await db.$transaction((tx) =>
+    Promise.all([
+      listBillingTenantOptionsInTx(tx, ownerUserId),
+      listBillingTransientGuestOptionsInTx(tx, ownerUserId),
+    ]),
   );
 
   return {
     hasInvoicePrefix: Boolean(policies.invoicePrefix),
     currentBillingPeriod,
     tenants,
+    transientGuests,
   };
 }
 
@@ -882,40 +937,116 @@ export async function createManualInvoice(
   try {
     return await db.$transaction(
       async (tx) => {
-        const tenant = await tx.tenant.findFirst({
-          where: { id: input.tenantId, ownerUserId },
-          select: {
-            id: true,
-            fullName: true,
-            archivedAt: true,
-            assignments: {
-              where: { status: "ACTIVE" },
-              take: 1,
-              select: {
-                id: true,
-                monthlyRate: true,
-                room: { select: { title: true } },
-                bed: { select: { number: true } },
-              },
-            },
-          },
-        });
-        if (!tenant) {
-          throw new NotFoundError("The requested tenant was not found.");
-        }
-        if (tenant.archivedAt !== null) {
-          throw new PreconditionError(
-            "Restore this archived tenant before creating an invoice.",
-          );
-        }
-
+        const nowUtc = new Date();
+        const todayManila = toManilaDate(nowUtc);
         const policies = getServerBillingPolicies();
 
+        let targetTenantId: string | null = null;
+        let targetTransientGuestId: string | null = null;
+        let targetAssignmentId: string | null = null;
+        let snapshotTenantName: string | null = null;
+        let snapshotRoomNumber: string | null = null;
+        let snapshotBedNumber: string | null = null;
+        let snapshotMonthlyRate: string | null = null;
+
+        if (input.tenantId) {
+          const tenant = await tx.tenant.findFirst({
+            where: { id: input.tenantId, ownerUserId },
+            select: {
+              id: true,
+              fullName: true,
+              archivedAt: true,
+              assignments: {
+                where: { status: "ACTIVE" },
+                take: 1,
+                select: {
+                  id: true,
+                  monthlyRate: true,
+                  room: { select: { title: true } },
+                  bed: { select: { number: true } },
+                },
+              },
+            },
+          });
+          if (!tenant) {
+            throw new NotFoundError("The requested tenant was not found.");
+          }
+          if (tenant.archivedAt !== null) {
+            throw new PreconditionError(
+              "Restore this archived tenant before creating an invoice.",
+            );
+          }
+
+          const activeAssignment = tenant.assignments[0] ?? null;
+          targetTenantId = tenant.id;
+          targetAssignmentId = activeAssignment?.id ?? null;
+          snapshotTenantName = tenant.fullName;
+          snapshotRoomNumber = activeAssignment?.room.title ?? null;
+          snapshotBedNumber = activeAssignment?.bed.number ?? null;
+          snapshotMonthlyRate = activeAssignment
+            ? decimalToString(activeAssignment.monthlyRate)
+            : null;
+        } else if (input.transientGuestId) {
+          const guest = await tx.transientGuest.findFirst({
+            where: { id: input.transientGuestId, ownerUserId },
+            select: {
+              id: true,
+              fullName: true,
+              archivedAt: true,
+              reservations: {
+                where: { archivedAt: null, status: { not: "CANCELLED" } },
+                orderBy: [{ startDate: "desc" }],
+                take: 1,
+                select: {
+                  room: { select: { title: true } },
+                  bed: { select: { number: true } },
+                },
+              },
+            },
+          });
+          if (!guest) {
+            throw new NotFoundError(
+              "The requested transient guest was not found.",
+            );
+          }
+          if (guest.archivedAt !== null) {
+            throw new PreconditionError(
+              "Restore this archived transient guest before creating an invoice.",
+            );
+          }
+
+          const latestStay = guest.reservations[0] ?? null;
+          targetTransientGuestId = guest.id;
+          snapshotTenantName = guest.fullName;
+          snapshotRoomNumber = latestStay?.room.title ?? null;
+          snapshotBedNumber = latestStay?.bed?.number ?? null;
+        } else {
+          throw new ValidationError("Select a boarder or transient guest.");
+        }
+
+        const resolvedPeriodBounds =
+          input.periodStartManila && input.periodEndManila
+            ? {
+                start: input.periodStartManila,
+                end: input.periodEndManila,
+              }
+            : input.billingPeriod
+              ? (() => {
+                  const bounds = getMonthBoundsManila(input.billingPeriod);
+                  return {
+                    start: bounds.monthStartManila,
+                    end: bounds.monthEndExclusiveManila,
+                  };
+                })()
+              : {
+                  start: todayManila,
+                  end: addManilaDays(todayManila, 1),
+                };
+
         let invoiceNumber: string | null = null;
-        const nowUtc = new Date();
         if (input.issueImmediately) {
           const prefix = policies.invoicePrefix;
-          const issueYear = Number(toManilaDate(nowUtc).slice(0, 4));
+          const issueYear = Number(todayManila.slice(0, 4));
           invoiceNumber = await allocateInvoiceNumberInTx(
             tx,
             ownerUserId,
@@ -943,7 +1074,6 @@ export async function createManualInvoice(
         });
 
         const subtotalAmount = formatMoneyDecimal(subtotalCentavos);
-        const activeAssignment = tenant.assignments[0] ?? null;
         const status: InvoiceStatusValue = input.issueImmediately
           ? "ISSUED"
           : "DRAFT";
@@ -952,28 +1082,30 @@ export async function createManualInvoice(
           data: {
             id: randomUUID(),
             ownerUserId,
-            tenantId: tenant.id,
-            assignmentId: activeAssignment?.id ?? null,
+            tenantId: targetTenantId,
+            transientGuestId: targetTransientGuestId,
+            assignmentId: targetAssignmentId,
             version: 1,
             invoiceNumber,
-            billingPeriod: input.billingPeriod,
+            billingPeriod: targetTenantId ? input.billingPeriod : null,
             periodStartDate: manilaDateTimeToUtc(
-              input.periodStartManila,
+              resolvedPeriodBounds.start,
               "00:00",
             ),
-            periodEndDate: manilaDateTimeToUtc(input.periodEndManila, "00:00"),
+            periodEndDate: manilaDateTimeToUtc(
+              resolvedPeriodBounds.end,
+              "00:00",
+            ),
             dueDate: manilaDateTimeToUtc(input.dueDateManila, "00:00"),
             status,
             subtotalAmount,
             adjustmentAmount: "0.00",
             totalAmount: subtotalAmount,
             paidAmount: "0.00",
-            snapshotTenantName: tenant.fullName,
-            snapshotRoomNumber: activeAssignment?.room.title ?? null,
-            snapshotBedNumber: activeAssignment?.bed.number ?? null,
-            snapshotMonthlyRate: activeAssignment
-              ? decimalToString(activeAssignment.monthlyRate)
-              : null,
+            snapshotTenantName,
+            snapshotRoomNumber,
+            snapshotBedNumber,
+            snapshotMonthlyRate,
             snapshotProrationPolicy: policies.prorationPolicy,
             snapshotDepositPolicy: policies.depositPolicy,
             notes: input.notes,
@@ -997,7 +1129,7 @@ export async function createManualInvoice(
           entityType: "invoice",
           entityId: created.id,
           metadata: {
-            billingPeriod: input.billingPeriod,
+            billingPeriod: created.billingPeriod,
             status,
             invoiceNumber,
             totalAmount: dto.totalAmount,
@@ -1005,7 +1137,7 @@ export async function createManualInvoice(
           },
         });
 
-        if (input.issueImmediately) {
+        if (input.issueImmediately && created.tenantId) {
           const creditApplied = await applyAvailableCreditToInvoiceInTx(
             tx,
             ownerUserId,

@@ -7,6 +7,7 @@ import {
   encryptJsonPayload,
   type EncryptedBinaryRecord,
   type EncryptedPayloadRecord,
+  type TrustedDeviceVaultKeyMetadata,
   type VaultKeyMetadata,
 } from "./crypto";
 
@@ -27,7 +28,7 @@ export type VaultMetaRecord =
     }
   | {
       key: "crypto";
-      metadata: VaultKeyMetadata;
+      metadata: VaultKeyMetadata | TrustedDeviceVaultKeyMetadata;
     }
   | {
       key: "sync";

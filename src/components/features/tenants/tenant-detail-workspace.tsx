@@ -173,7 +173,7 @@ const TENANT_PAYMENT_SORT_COLUMNS: Record<
 };
 
 type TenantProfileTab =
-  "overview" | "assignments" | "contracts" | "invoices" | "payments" | "notes";
+  "overview" | "contracts" | "invoices" | "payments" | "notes";
 
 export function TenantDetailWorkspace({
   initialDetail,
@@ -318,13 +318,6 @@ export function TenantDetailWorkspace({
             Overview
           </TabsTrigger>
           <TabsTrigger
-            value="assignments"
-            badge={assignments.length}
-            className="whitespace-nowrap"
-          >
-            Assignments
-          </TabsTrigger>
-          <TabsTrigger
             value="contracts"
             badge={contracts.length}
             className="whitespace-nowrap"
@@ -355,143 +348,289 @@ export function TenantDetailWorkspace({
         </TabsList>
 
         <TabsContent value="overview">
-          <div className="grid grid-cols-1 gap-4 lg:grid-cols-3">
-            <Card className="grid content-start gap-4 lg:col-span-2">
-              <h2 className="text-base font-semibold text-foreground">
-                Contact &amp; profile details
-              </h2>
-              <dl className="grid grid-cols-1 gap-4 text-sm sm:grid-cols-2">
-                <div className="grid gap-1">
-                  <dt className="text-xs font-medium text-muted-foreground">
-                    Phone
-                  </dt>
-                  <dd className="text-foreground">
-                    {tenant.phone ?? "Not provided"}
-                  </dd>
-                </div>
-                <div className="grid gap-1">
-                  <dt className="text-xs font-medium text-muted-foreground">
-                    Email
-                  </dt>
-                  <dd className="text-foreground">
-                    {tenant.email ?? "Not provided"}
-                  </dd>
-                </div>
-                <div className="grid gap-1 sm:col-span-2">
-                  <dt className="text-xs font-medium text-muted-foreground">
-                    Home address
-                  </dt>
-                  <dd className="text-foreground">
-                    {tenant.address ?? "Not provided"}
-                  </dd>
-                </div>
-                <div className="grid gap-1 sm:col-span-2">
-                  <dt className="text-xs font-medium text-muted-foreground">
-                    Emergency contact
-                  </dt>
-                  <dd className="text-foreground">
-                    {tenant.emergencyContact ?? "Not provided"}
-                  </dd>
-                </div>
-              </dl>
-            </Card>
-
-            <Card className="grid content-start gap-4">
-              <div className="grid gap-1">
+          <div className="grid gap-5">
+            <div className="grid grid-cols-1 gap-4 lg:grid-cols-3">
+              <Card className="grid content-start gap-4 lg:col-span-2">
                 <h2 className="text-base font-semibold text-foreground">
-                  Current occupancy &amp; balance
+                  Contact &amp; profile details
                 </h2>
-                <p className="text-xs text-muted-foreground">
-                  Derived read-only balance from posted invoices and payments.
-                </p>
-              </div>
-
-              <div className="grid gap-2 border-t border-border pt-4">
-                <div className="flex flex-wrap items-start justify-between gap-2">
-                  <div>
-                    <span className="text-xs font-medium text-muted-foreground">
-                      Derived balance
-                    </span>
-                    <div className="mt-1 text-xl font-semibold text-foreground tabular-nums">
-                      {formatPhpCurrency(derivedBalance)}
-                    </div>
+                <dl className="grid grid-cols-1 gap-4 text-sm sm:grid-cols-2">
+                  <div className="grid gap-1">
+                    <dt className="text-xs font-medium text-muted-foreground">
+                      Phone
+                    </dt>
+                    <dd className="text-foreground">
+                      {tenant.phone ?? "Not provided"}
+                    </dd>
                   </div>
-                  <Link
-                    href={`/payments/new?tenantId=${tenant.id}`}
-                    className={buttonClasses({
-                      variant: "secondary",
-                      size: "sm",
-                    })}
-                  >
-                    Record payment
-                  </Link>
-                </div>
-                {parseMoneyDecimal(unallocatedCredit) > BigInt(0) && (
-                  <p className="text-xs text-muted-foreground tabular-nums">
-                    Includes{" "}
-                    <strong className="font-semibold text-foreground">
-                      {formatPhpCurrency(unallocatedCredit)}
-                    </strong>{" "}
-                    unallocated credit ready for future invoices.
+                  <div className="grid gap-1">
+                    <dt className="text-xs font-medium text-muted-foreground">
+                      Email
+                    </dt>
+                    <dd className="text-foreground">
+                      {tenant.email ?? "Not provided"}
+                    </dd>
+                  </div>
+                  <div className="grid gap-1 sm:col-span-2">
+                    <dt className="text-xs font-medium text-muted-foreground">
+                      Home address
+                    </dt>
+                    <dd className="text-foreground">
+                      {tenant.address ?? "Not provided"}
+                    </dd>
+                  </div>
+                  <div className="grid gap-1 sm:col-span-2">
+                    <dt className="text-xs font-medium text-muted-foreground">
+                      Emergency contact
+                    </dt>
+                    <dd className="text-foreground">
+                      {tenant.emergencyContact ?? "Not provided"}
+                    </dd>
+                  </div>
+                </dl>
+              </Card>
+
+              <Card className="grid content-start gap-4">
+                <div className="grid gap-1">
+                  <h2 className="text-base font-semibold text-foreground">
+                    Current occupancy &amp; balance
+                  </h2>
+                  <p className="text-xs text-muted-foreground">
+                    Derived read-only balance from posted invoices and payments.
                   </p>
-                )}
-              </div>
-
-              {activeAssignment ? (
-                <div className="grid gap-3 border-t border-border pt-4">
-                  <div className="flex items-center justify-between gap-2">
-                    <span className="text-sm font-semibold text-foreground tabular-nums">
-                      Room {activeAssignment.roomNumber}
-                    </span>
-                    <Badge tone="info">Active</Badge>
-                  </div>
-                  <dl className="grid gap-1.5 text-xs text-muted-foreground tabular-nums">
-                    <div className="flex justify-between gap-2">
-                      <dt>Move-in</dt>
-                      <dd className="font-medium text-foreground">
-                        {formatManilaDate(activeAssignment.startDateManila)}
-                      </dd>
-                    </div>
-                    <div className="flex justify-between gap-2">
-                      <dt>Planned end</dt>
-                      <dd className="font-medium text-foreground">
-                        {formatManilaDate(activeAssignment.endDateManila)}
-                      </dd>
-                    </div>
-                    <div className="flex justify-between gap-2">
-                      <dt>Monthly rate</dt>
-                      <dd className="font-medium text-foreground">
-                        {formatPhpCurrency(activeAssignment.monthlyRate)}
-                      </dd>
-                    </div>
-                    <div className="flex justify-between gap-2">
-                      <dt>Security deposit</dt>
-                      <dd className="font-medium text-foreground">
-                        {formatPhpCurrency(activeAssignment.securityDeposit)}
-                      </dd>
-                    </div>
-                  </dl>
-                  <Button
-                    size="md"
-                    variant="secondary"
-                    onClick={() => setMovingOutAssignment(activeAssignment)}
-                  >
-                    Record move-out
-                  </Button>
                 </div>
-              ) : (
-                <div className="grid gap-3 border-t border-border pt-4">
-                  <span className="text-xs text-muted-foreground">
-                    {isArchived
-                      ? "Restore this tenant profile to assign a room."
-                      : "This tenant is not assigned to any room right now."}
-                  </span>
-                  {!isArchived && (
-                    <Button size="md" onClick={() => setAssignOpen(true)}>
-                      Assign room
-                    </Button>
+
+                <div className="grid gap-2 border-t border-border pt-4">
+                  <div className="flex flex-wrap items-start justify-between gap-2">
+                    <div>
+                      <span className="text-xs font-medium text-muted-foreground">
+                        Derived balance
+                      </span>
+                      <div className="mt-1 text-xl font-semibold text-foreground tabular-nums">
+                        {formatPhpCurrency(derivedBalance)}
+                      </div>
+                    </div>
+                    <Link
+                      href={`/payments/new?tenantId=${tenant.id}`}
+                      className={buttonClasses({
+                        variant: "secondary",
+                        size: "sm",
+                      })}
+                    >
+                      Record payment
+                    </Link>
+                  </div>
+                  {parseMoneyDecimal(unallocatedCredit) > BigInt(0) && (
+                    <p className="text-xs text-muted-foreground tabular-nums">
+                      Includes{" "}
+                      <strong className="font-semibold text-foreground">
+                        {formatPhpCurrency(unallocatedCredit)}
+                      </strong>{" "}
+                      unallocated credit ready for future invoices.
+                    </p>
                   )}
                 </div>
+
+                {activeAssignment ? (
+                  <div className="grid gap-3 border-t border-border pt-4">
+                    <div className="flex items-center justify-between gap-2">
+                      <span className="text-sm font-semibold text-foreground tabular-nums">
+                        Room {activeAssignment.roomNumber}
+                      </span>
+                      <Badge tone="info">Active</Badge>
+                    </div>
+                    <dl className="grid gap-1.5 text-xs text-muted-foreground tabular-nums">
+                      <div className="flex justify-between gap-2">
+                        <dt>Move-in</dt>
+                        <dd className="font-medium text-foreground">
+                          {formatManilaDate(activeAssignment.startDateManila)}
+                        </dd>
+                      </div>
+                      <div className="flex justify-between gap-2">
+                        <dt>Planned end</dt>
+                        <dd className="font-medium text-foreground">
+                          {formatManilaDate(activeAssignment.endDateManila)}
+                        </dd>
+                      </div>
+                      <div className="flex justify-between gap-2">
+                        <dt>Monthly rate</dt>
+                        <dd className="font-medium text-foreground">
+                          {formatPhpCurrency(activeAssignment.monthlyRate)}
+                        </dd>
+                      </div>
+                      <div className="flex justify-between gap-2">
+                        <dt>Security deposit</dt>
+                        <dd className="font-medium text-foreground">
+                          {formatPhpCurrency(activeAssignment.securityDeposit)}
+                        </dd>
+                      </div>
+                    </dl>
+                    <Button
+                      size="md"
+                      variant="secondary"
+                      onClick={() => setMovingOutAssignment(activeAssignment)}
+                    >
+                      Record move-out
+                    </Button>
+                  </div>
+                ) : (
+                  <div className="grid gap-3 border-t border-border pt-4">
+                    <span className="text-xs text-muted-foreground">
+                      {isArchived
+                        ? "Restore this tenant profile to assign a room."
+                        : "This tenant is not assigned to any room right now."}
+                    </span>
+                    {!isArchived && (
+                      <Button size="md" onClick={() => setAssignOpen(true)}>
+                        Assign room
+                      </Button>
+                    )}
+                  </div>
+                )}
+              </Card>
+            </div>
+
+            <Card className="overflow-hidden p-0 sm:p-0">
+              <TableCardHeader
+                title="Assignment history"
+                count={`${assignments.length} ${assignments.length === 1 ? "assignment" : "assignments"}`}
+              />
+
+              {assignments.length === 0 ? (
+                <TableEmptyState
+                  title="No room assignments yet"
+                  description="Assign an available room to record move-in dates and rates."
+                  actions={
+                    !isArchived ? (
+                      <Button size="md" onClick={() => setAssignOpen(true)}>
+                        Assign room
+                      </Button>
+                    ) : undefined
+                  }
+                />
+              ) : (
+                <>
+                  <div className="grid divide-y divide-border md:hidden">
+                    {assignmentsPage.paginatedRows.map((item) => (
+                      <div key={item.id} className="grid gap-2.5 p-4">
+                        <div className="flex items-start justify-between gap-2">
+                          <div className="grid min-w-0 gap-0.5">
+                            <span className="font-medium text-foreground tabular-nums">
+                              Room {item.roomNumber}
+                            </span>
+                            <span className="text-xs text-muted-foreground tabular-nums">
+                              Move-in: {formatManilaDate(item.startDateManila)}
+                            </span>
+                            <span className="text-xs text-muted-foreground tabular-nums">
+                              Planned end:{" "}
+                              {formatManilaDate(item.endDateManila)}
+                            </span>
+                            <span className="text-xs text-muted-foreground tabular-nums">
+                              Actual move-out:{" "}
+                              {item.actualMoveOutDateManila
+                                ? formatManilaDate(item.actualMoveOutDateManila)
+                                : "—"}
+                            </span>
+                          </div>
+                          <Badge tone={ASSIGNMENT_BADGE_TONE[item.status]}>
+                            {TENANT_ASSIGNMENT_STATUS_LABELS[item.status]}
+                          </Badge>
+                        </div>
+                        <div className="flex items-center justify-between gap-2 border-t border-border pt-2 text-xs tabular-nums">
+                          <span className="text-muted-foreground">
+                            Rate {formatPhpCurrency(item.monthlyRate)}
+                          </span>
+                          <span className="font-medium text-foreground">
+                            Deposit {formatPhpCurrency(item.securityDeposit)}
+                          </span>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+
+                  <div className="hidden md:block">
+                    <Table containerClassName="rounded-none border-0">
+                      <TableHeader>
+                        <TableRow>
+                          <TableHead
+                            {...assignmentsSort.sortHeaderProps("room")}
+                          >
+                            Room
+                          </TableHead>
+                          <TableHead
+                            {...assignmentsSort.sortHeaderProps("moveIn")}
+                          >
+                            Move-in
+                          </TableHead>
+                          <TableHead
+                            {...assignmentsSort.sortHeaderProps("plannedEnd")}
+                          >
+                            Planned end
+                          </TableHead>
+                          <TableHead
+                            {...assignmentsSort.sortHeaderProps(
+                              "actualMoveOut",
+                            )}
+                          >
+                            Actual move-out
+                          </TableHead>
+                          <TableHead
+                            numeric
+                            {...assignmentsSort.sortHeaderProps("monthlyRate")}
+                          >
+                            Monthly rate
+                          </TableHead>
+                          <TableHead
+                            numeric
+                            {...assignmentsSort.sortHeaderProps("deposit")}
+                          >
+                            Deposit
+                          </TableHead>
+                          <TableHead
+                            {...assignmentsSort.sortHeaderProps("status")}
+                          >
+                            Status
+                          </TableHead>
+                        </TableRow>
+                      </TableHeader>
+                      <TableBody>
+                        {assignmentsPage.paginatedRows.map((item) => (
+                          <TableRow key={item.id}>
+                            <TableCell className="font-medium tabular-nums">
+                              Room {item.roomNumber}
+                            </TableCell>
+                            <TableCell className="tabular-nums">
+                              {formatManilaDate(item.startDateManila)}
+                            </TableCell>
+                            <TableCell className="tabular-nums">
+                              {formatManilaDate(item.endDateManila)}
+                            </TableCell>
+                            <TableCell className="tabular-nums">
+                              {item.actualMoveOutDateManila
+                                ? formatManilaDate(item.actualMoveOutDateManila)
+                                : "—"}
+                            </TableCell>
+                            <TableCell numeric>
+                              {formatPhpCurrency(item.monthlyRate)}
+                            </TableCell>
+                            <TableCell numeric>
+                              {formatPhpCurrency(item.securityDeposit)}
+                            </TableCell>
+                            <TableCell>
+                              <Badge tone={ASSIGNMENT_BADGE_TONE[item.status]}>
+                                {TENANT_ASSIGNMENT_STATUS_LABELS[item.status]}
+                              </Badge>
+                            </TableCell>
+                          </TableRow>
+                        ))}
+                      </TableBody>
+                    </Table>
+                  </div>
+                  <TablePagination
+                    {...assignmentsPage.paginationProps}
+                    label="Assignment history table pagination"
+                  />
+                </>
               )}
             </Card>
           </div>
@@ -568,147 +707,6 @@ export function TenantDetailWorkspace({
                 <TablePagination
                   {...notesPage.paginationProps}
                   label="Tenant notes table pagination"
-                />
-              </>
-            )}
-          </Card>
-        </TabsContent>
-
-        <TabsContent value="assignments">
-          <Card className="overflow-hidden p-0 sm:p-0">
-            <TableCardHeader
-              title="Assignment history"
-              count={`${assignments.length} ${assignments.length === 1 ? "assignment" : "assignments"}`}
-            />
-
-            {assignments.length === 0 ? (
-              <TableEmptyState
-                title="No room assignments yet"
-                description="Assign an available room to record move-in dates and rates."
-                actions={
-                  !isArchived ? (
-                    <Button size="md" onClick={() => setAssignOpen(true)}>
-                      Assign room
-                    </Button>
-                  ) : undefined
-                }
-              />
-            ) : (
-              <>
-                <div className="grid divide-y divide-border md:hidden">
-                  {assignmentsPage.paginatedRows.map((item) => (
-                    <div key={item.id} className="grid gap-2.5 p-4">
-                      <div className="flex items-start justify-between gap-2">
-                        <div className="grid min-w-0 gap-0.5">
-                          <span className="font-medium text-foreground tabular-nums">
-                            Room {item.roomNumber}
-                          </span>
-                          <span className="text-xs text-muted-foreground tabular-nums">
-                            Move-in: {formatManilaDate(item.startDateManila)}
-                          </span>
-                          <span className="text-xs text-muted-foreground tabular-nums">
-                            Planned end: {formatManilaDate(item.endDateManila)}
-                          </span>
-                          <span className="text-xs text-muted-foreground tabular-nums">
-                            Actual move-out:{" "}
-                            {item.actualMoveOutDateManila
-                              ? formatManilaDate(item.actualMoveOutDateManila)
-                              : "—"}
-                          </span>
-                        </div>
-                        <Badge tone={ASSIGNMENT_BADGE_TONE[item.status]}>
-                          {TENANT_ASSIGNMENT_STATUS_LABELS[item.status]}
-                        </Badge>
-                      </div>
-                      <div className="flex items-center justify-between gap-2 border-t border-border pt-2 text-xs tabular-nums">
-                        <span className="text-muted-foreground">
-                          Rate {formatPhpCurrency(item.monthlyRate)}
-                        </span>
-                        <span className="font-medium text-foreground">
-                          Deposit {formatPhpCurrency(item.securityDeposit)}
-                        </span>
-                      </div>
-                    </div>
-                  ))}
-                </div>
-
-                <div className="hidden md:block">
-                  <Table containerClassName="rounded-none border-0">
-                    <TableHeader>
-                      <TableRow>
-                        <TableHead {...assignmentsSort.sortHeaderProps("room")}>
-                          Room
-                        </TableHead>
-                        <TableHead
-                          {...assignmentsSort.sortHeaderProps("moveIn")}
-                        >
-                          Move-in
-                        </TableHead>
-                        <TableHead
-                          {...assignmentsSort.sortHeaderProps("plannedEnd")}
-                        >
-                          Planned end
-                        </TableHead>
-                        <TableHead
-                          {...assignmentsSort.sortHeaderProps("actualMoveOut")}
-                        >
-                          Actual move-out
-                        </TableHead>
-                        <TableHead
-                          numeric
-                          {...assignmentsSort.sortHeaderProps("monthlyRate")}
-                        >
-                          Monthly rate
-                        </TableHead>
-                        <TableHead
-                          numeric
-                          {...assignmentsSort.sortHeaderProps("deposit")}
-                        >
-                          Deposit
-                        </TableHead>
-                        <TableHead
-                          {...assignmentsSort.sortHeaderProps("status")}
-                        >
-                          Status
-                        </TableHead>
-                      </TableRow>
-                    </TableHeader>
-                    <TableBody>
-                      {assignmentsPage.paginatedRows.map((item) => (
-                        <TableRow key={item.id}>
-                          <TableCell className="font-medium tabular-nums">
-                            Room {item.roomNumber}
-                          </TableCell>
-                          <TableCell className="tabular-nums">
-                            {formatManilaDate(item.startDateManila)}
-                          </TableCell>
-                          <TableCell className="tabular-nums">
-                            {formatManilaDate(item.endDateManila)}
-                          </TableCell>
-                          <TableCell className="tabular-nums">
-                            {item.actualMoveOutDateManila
-                              ? formatManilaDate(item.actualMoveOutDateManila)
-                              : "—"}
-                          </TableCell>
-                          <TableCell numeric>
-                            {formatPhpCurrency(item.monthlyRate)}
-                          </TableCell>
-                          <TableCell numeric>
-                            {formatPhpCurrency(item.securityDeposit)}
-                          </TableCell>
-                          <TableCell>
-                            <Badge tone={ASSIGNMENT_BADGE_TONE[item.status]}>
-                              {TENANT_ASSIGNMENT_STATUS_LABELS[item.status]}
-                            </Badge>
-                          </TableCell>
-                        </TableRow>
-                      ))}
-                    </TableBody>
-                  </Table>
-                </div>
-                <TablePagination
-                  {...assignmentsPage.paginationProps}
-                  label="Assignment history table pagination"
                 />
               </>
             )}

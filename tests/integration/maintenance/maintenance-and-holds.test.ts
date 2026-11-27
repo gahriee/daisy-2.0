@@ -470,7 +470,6 @@ describe("maintenance requests, attachment relay, bed holds, urgent alerts & off
         checkInDateManila: "2026-12-10",
         checkOutDateManila: "2026-12-15",
         partySize: 1,
-        tentative: false,
         issueInvoiceImmediately: false,
       });
 
@@ -542,7 +541,6 @@ describe("maintenance requests, attachment relay, bed holds, urgent alerts & off
           checkInDateManila: todayManila,
           checkOutDateManila: tomorrow,
           partySize: 1,
-          tentative: false,
           issueInvoiceImmediately: false,
         }),
       ).rejects.toBeInstanceOf(PreconditionError);
@@ -591,7 +589,6 @@ describe("maintenance requests, attachment relay, bed holds, urgent alerts & off
           checkInDateManila: "2027-02-11",
           checkOutDateManila: "2027-02-13",
           partySize: 1,
-          tentative: false,
           issueInvoiceImmediately: false,
         }),
       ).rejects.toBeInstanceOf(AllocationConflictError);
@@ -751,7 +748,7 @@ describe("maintenance requests, attachment relay, bed holds, urgent alerts & off
         occurredAt: "2026-11-14T02:10:00.000Z",
         payload: {
           expectedVersion: 1,
-          statusTo: "WAITING_PARTS",
+          statusTo: "IN_PROGRESS",
           note: "Queued offline while out of signal.",
           attachmentIntentIds: [],
         },

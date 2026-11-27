@@ -52,9 +52,7 @@ export const MAINTENANCE_PRIORITY_LABELS: Record<
 export const MAINTENANCE_STATUSES = [
   "OPEN",
   "IN_PROGRESS",
-  "WAITING_PARTS",
   "RESOLVED",
-  "CANCELLED",
 ] as const;
 
 export type MaintenanceStatusValue = (typeof MAINTENANCE_STATUSES)[number];
@@ -63,9 +61,7 @@ export const MAINTENANCE_STATUS_LABELS: Record<MaintenanceStatusValue, string> =
   {
     OPEN: "Open",
     IN_PROGRESS: "In progress",
-    WAITING_PARTS: "Waiting parts",
     RESOLVED: "Resolved",
-    CANCELLED: "Cancelled",
   };
 
 export const MAINTENANCE_ATTACHMENT_ALLOWED_MIME_TYPES = [
@@ -350,7 +346,6 @@ export type MaintenanceRequestDto = {
   priority: MaintenancePriorityValue;
   status: MaintenanceStatusValue;
   resolvedAt: string | null;
-  cancelledAt: string | null;
   archivedAt: string | null;
   createdByActorType: string;
   createdAt: string;
@@ -378,7 +373,6 @@ export type MaintenanceOverviewDto = {
   totals: {
     openCount: number;
     inProgressCount: number;
-    waitingPartsCount: number;
     urgentOpenCount: number;
     activeHoldsCount: number;
   };

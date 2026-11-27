@@ -6,23 +6,21 @@ export const NOTICE_AUDIENCES = ["EVERYONE", "ROOM", "TENANT"] as const;
 export type NoticeAudienceValue = (typeof NOTICE_AUDIENCES)[number];
 
 export const NOTICE_AUDIENCE_LABELS: Record<NoticeAudienceValue, string> = {
-  EVERYONE: "Everyone",
-  ROOM: "Specific room",
-  TENANT: "Specific tenant",
+  EVERYONE: "All boarders",
+  ROOM: "Specific boarding room",
+  TENANT: "Specific boarder",
 };
 
 export const NOTICE_LIFECYCLE_STATUSES = [
-  "ACTIVE",
+  "SENT",
   "SCHEDULED",
-  "EXPIRED",
   "ARCHIVED",
 ] as const;
 export type NoticeLifecycleStatus = (typeof NOTICE_LIFECYCLE_STATUSES)[number];
 
 export const NOTICE_LIFECYCLE_LABELS: Record<NoticeLifecycleStatus, string> = {
-  ACTIVE: "Active",
+  SENT: "Sent",
   SCHEDULED: "Scheduled",
-  EXPIRED: "Expired",
   ARCHIVED: "Archived",
 };
 
@@ -218,9 +216,8 @@ export type NoticeOverviewDto = {
   smsConfigured: boolean;
   businessName: string;
   totals: {
-    activeCount: number;
+    sentCount: number;
     scheduledCount: number;
-    expiredCount: number;
     archivedCount: number;
   };
   notices: NoticeDto[];

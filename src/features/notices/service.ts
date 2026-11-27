@@ -85,13 +85,12 @@ type NoticeRow = {
 };
 
 function computeNoticeLifecycleStatus(
-  row: Pick<NoticeRow, "archivedAt" | "startDateManila" | "endDateManila">,
+  row: Pick<NoticeRow, "archivedAt" | "startDateManila">,
   todayManila: string,
 ): NoticeLifecycleStatus {
   if (row.archivedAt) return "ARCHIVED";
   if (row.startDateManila > todayManila) return "SCHEDULED";
-  if (row.endDateManila < todayManila) return "EXPIRED";
-  return "ACTIVE";
+  return "SENT";
 }
 
 function toNoticeDto(row: NoticeRow, todayManila: string): NoticeDto {
@@ -171,11 +170,16 @@ async function assertNoticeTargetsExistInTx(
       throw new ValidationError("Select the room this notice applies to.");
     }
     const room = await tx.room.findFirst({
-      where: { id: roomId, ownerUserId, archivedAt: null },
+      where: {
+        id: roomId,
+        ownerUserId,
+        archivedAt: null,
+        building: "BOARDING",
+      },
       select: { id: true },
     });
     if (!room) {
-      throw new NotFoundError("Selected room was not found.");
+      throw new NotFoundError("Selected boarding room was not found.");
     }
     return;
   }
@@ -238,8 +242,8 @@ export async function getNoticesOverview(
           }),
           tx.room
             .findMany({
-              where: { ownerUserId, archivedAt: null },
-              orderBy: [{ building: "asc" }, { title: "asc" }],
+              where: { ownerUserId, archivedAt: null, building: "BOARDING" },
+              orderBy: [{ title: "asc" }],
               select: { id: true, building: true, title: true, floor: true },
             })
             .then((rows) =>
@@ -263,15 +267,13 @@ export async function getNoticesOverview(
       );
 
       const notices = noticeRows.map((row) => toNoticeDto(row, todayManila));
-      let activeCount = 0;
+      let sentCount = 0;
       let scheduledCount = 0;
-      let expiredCount = 0;
       let archivedCount = 0;
 
       for (const notice of notices) {
-        if (notice.lifecycleStatus === "ACTIVE") activeCount += 1;
+        if (notice.lifecycleStatus === "SENT") sentCount += 1;
         else if (notice.lifecycleStatus === "SCHEDULED") scheduledCount += 1;
-        else if (notice.lifecycleStatus === "EXPIRED") expiredCount += 1;
         else archivedCount += 1;
       }
 
@@ -281,9 +283,8 @@ export async function getNoticesOverview(
         businessName:
           settingsRow?.businessName?.trim() || "Boarding House Management",
         totals: {
-          activeCount,
+          sentCount,
           scheduledCount,
-          expiredCount,
           archivedCount,
         },
         notices,

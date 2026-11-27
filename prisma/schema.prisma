@@ -111,7 +111,6 @@ enum ProofIntentStatus {
 }
 
 enum TransientReservationStatus {
-  TENTATIVE
   CONFIRMED
   CHECKED_IN
   CHECKED_OUT
@@ -147,9 +146,7 @@ enum MaintenancePriority {
 enum MaintenanceStatus {
   OPEN
   IN_PROGRESS
-  WAITING_PARTS
   RESOLVED
-  CANCELLED
 }
 
 enum NoticeAudience {
@@ -894,6 +891,7 @@ model TransientReservation {
   checkedInAt        DateTime?                  @db.Timestamptz(3)
   checkedOutAt       DateTime?                  @db.Timestamptz(3)
   cancelledAt        DateTime?                  @db.Timestamptz(3)
+  archivedAt         DateTime?                  @db.Timestamptz(3)
   notes              String?
   cancellationReason String?
   createdByActorType String
@@ -906,6 +904,7 @@ model TransientReservation {
 
   @@index([ownerUserId, status, startDate])
   @@index([ownerUserId, guestId, createdAt])
+  @@index([ownerUserId, archivedAt])
 }
 
 model BookingRequest {
@@ -964,7 +963,6 @@ model MaintenanceRequest {
   priority            MaintenancePriority     @default(MEDIUM)
   status              MaintenanceStatus       @default(OPEN)
   resolvedAt          DateTime?               @db.Timestamptz(3)
-  cancelledAt         DateTime?               @db.Timestamptz(3)
   archivedAt          DateTime?               @db.Timestamptz(3)
   createdByActorType  String
   createdByActorId    String

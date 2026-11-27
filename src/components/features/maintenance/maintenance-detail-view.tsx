@@ -495,32 +495,18 @@ export function MaintenanceDetailView({
             <p className="text-sm leading-6 whitespace-pre-wrap text-foreground">
               {request.description}
             </p>
-            {(request.resolvedAt || request.cancelledAt) && (
+            {request.resolvedAt && (
               <dl className="grid gap-1 text-xs text-muted-foreground sm:grid-cols-2">
-                {request.resolvedAt && (
-                  <div>
-                    <dt className="inline font-medium text-foreground">
-                      Resolved:{" "}
-                    </dt>
-                    <dd className="inline tabular-nums">
-                      {formatManilaDate(
-                        toManilaDate(new Date(request.resolvedAt)),
-                      )}
-                    </dd>
-                  </div>
-                )}
-                {request.cancelledAt && (
-                  <div>
-                    <dt className="inline font-medium text-foreground">
-                      Cancelled:{" "}
-                    </dt>
-                    <dd className="inline tabular-nums">
-                      {formatManilaDate(
-                        toManilaDate(new Date(request.cancelledAt)),
-                      )}
-                    </dd>
-                  </div>
-                )}
+                <div>
+                  <dt className="inline font-medium text-foreground">
+                    Resolved:{" "}
+                  </dt>
+                  <dd className="inline tabular-nums">
+                    {formatManilaDate(
+                      toManilaDate(new Date(request.resolvedAt)),
+                    )}
+                  </dd>
+                </div>
               </dl>
             )}
           </Card>
@@ -840,7 +826,6 @@ export function MaintenanceDetailView({
             </div>
             {!isArchived &&
               request.status !== "RESOLVED" &&
-              request.status !== "CANCELLED" &&
               request.activeHolds.length === 0 && (
                 <Button
                   type="button"
@@ -975,9 +960,7 @@ export function MaintenanceDetailView({
           ) : (
             <p className="text-xs leading-5 text-muted-foreground">
               No active room hold is placed for this issue.
-              {(isArchived ||
-                request.status === "RESOLVED" ||
-                request.status === "CANCELLED") &&
+              {(isArchived || request.status === "RESOLVED") &&
                 " Reopen or restore the request if a room hold is needed."}
             </p>
           )}

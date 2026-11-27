@@ -94,9 +94,9 @@ const positiveQuantitySchema = z
   .trim()
   .min(1, "Enter a quantity.")
   .refine((val) => {
-    if (!/^\d+(?:\.\d{1,2})?$/.test(val)) return false;
+    if (!/^\d+$/.test(val)) return false;
     return parseMoneyDecimal(val) > BigInt(0);
-  }, "Enter a positive quantity (up to 2 decimals).")
+  }, "Enter a positive whole number.")
   .transform((val) => normalizeNonNegativeMoneyDecimal(val));
 
 const optionalShortText = (max: number, message: string) =>
@@ -119,13 +119,24 @@ export const InvoiceItemInputSchema = z.object({
     .trim()
     .min(1, "Enter a line description.")
     .max(200, "Keep line description under 200 characters."),
-  quantity: positiveQuantitySchema.default("1.00"),
+  quantity: positiveQuantitySchema.default("1"),
   unitAmount: nonNegativeMoneySchema,
 });
 
 export const CreateManualInvoiceSchema = z
   .object({
-    tenantId: z.string().uuid("Select a valid tenant."),
+    tenantId: z
+      .string()
+      .uuid("Select a valid tenant.")
+      .nullable()
+      .optional()
+      .transform((val) => val ?? null),
+    transientGuestId: z
+      .string()
+      .uuid("Select a valid transient guest.")
+      .nullable()
+      .optional()
+      .transform((val) => val ?? null),
     billingPeriod: z
       .union([z.string(), z.null()])
       .optional()
@@ -135,8 +146,8 @@ export const CreateManualInvoiceSchema = z
         "Use YYYY-MM format or leave blank.",
       )
       .transform((val) => (val ? val : null)),
-    periodStartManila: manilaDateSchema,
-    periodEndManila: manilaDateSchema,
+    periodStartManila: manilaDateSchema.optional(),
+    periodEndManila: manilaDateSchema.optional(),
     dueDateManila: manilaDateSchema,
     issueImmediately: z.boolean().default(false),
     notes: optionalShortText(500, "Keep notes under 500 characters."),
@@ -145,9 +156,27 @@ export const CreateManualInvoiceSchema = z
       .min(1, "Add at least one invoice line item.")
       .max(30, "Keep invoices to 30 line items or fewer."),
   })
-  .refine((value) => value.periodEndManila > value.periodStartManila, {
-    message: "Period end date must be after period start date.",
-    path: ["periodEndManila"],
+  .superRefine((value, ctx) => {
+    const hasTenant = Boolean(value.tenantId);
+    const hasGuest = Boolean(value.transientGuestId);
+    if (hasTenant === hasGuest) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "Select a boarder or transient guest.",
+        path: ["tenantId"],
+      });
+    }
+    if (
+      value.periodStartManila &&
+      value.periodEndManila &&
+      value.periodEndManila <= value.periodStartManila
+    ) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "Period end date must be after period start date.",
+        path: ["periodEndManila"],
+      });
+    }
   });
 
 export const IssueInvoiceSchema = z.object({
@@ -250,6 +279,13 @@ export type BillingTenantOptionDto = {
   roomNumber: string | null;
   bedNumber: string | null;
   monthlyRate: string | null;
+};
+
+export type BillingTransientGuestOptionDto = {
+  id: string;
+  fullName: string;
+  phone: string | null;
+  roomNumber: string | null;
 };
 
 export type BillingSummaryDto = {

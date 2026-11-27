@@ -96,7 +96,6 @@ function revalidateTenantPaths(tenantId?: string) {
   revalidatePath("/rooms");
   revalidatePath("/billing");
   revalidatePath("/payments");
-  revalidatePath("/reports");
   revalidatePath("/notifications");
   revalidatePath("/audit");
   revalidatePath("/");
@@ -224,6 +223,91 @@ export async function restoreTenantAction(rawInput: {
     };
   } catch (error) {
     return handleActionError(error, "Could not restore tenant right now.");
+  }
+}
+
+export async function bulkArchiveTenantsAction(
+  items: Array<{ tenantId: string; expectedVersion: number }>,
+  mode: "archive" | "restore",
+): Promise<TenantActionResult> {
+  try {
+    const ownerUserId = await requireOwnerUserId();
+    if (!Array.isArray(items) || items.length === 0) {
+      return {
+        status: "error",
+        message: "Select at least one tenant first.",
+        fieldErrors: {},
+      };
+    }
+
+    let successCount = 0;
+    let failedCount = 0;
+    let firstError: string | null = null;
+
+    for (const rawItem of items) {
+      const parsed = ArchiveRestoreTenantSchema.safeParse(rawItem);
+      if (!parsed.success) {
+        failedCount += 1;
+        firstError ??=
+          parsed.error.issues[0]?.message ?? "Invalid tenant selection.";
+        continue;
+      }
+      try {
+        if (mode === "archive") {
+          await archiveTenant(ownerUserId, parsed.data);
+        } else {
+          await restoreTenant(ownerUserId, parsed.data);
+        }
+        successCount += 1;
+      } catch (error) {
+        failedCount += 1;
+        if (!firstError) {
+          const mapped = handleActionError(
+            error,
+            mode === "archive"
+              ? "Could not archive selected tenant."
+              : "Could not restore selected tenant.",
+          );
+          if (mapped.status === "error") {
+            firstError = mapped.message;
+          }
+        }
+      }
+    }
+
+    if (successCount > 0) {
+      revalidateTenantPaths();
+    }
+
+    if (successCount === 0) {
+      return {
+        status: "error",
+        message:
+          firstError ??
+          (mode === "archive"
+            ? "Could not archive the selected tenants."
+            : "Could not restore the selected tenants."),
+        fieldErrors: {},
+      };
+    }
+
+    const verb = mode === "archive" ? "Archived" : "Restored";
+    const noun = successCount === 1 ? "tenant" : "tenants";
+    const suffix =
+      failedCount > 0
+        ? ` (${failedCount} skipped${firstError ? `: ${firstError}` : ""}).`
+        : ".";
+    return {
+      status: "saved",
+      message: `${verb} ${successCount} ${noun}${suffix}`,
+    };
+  } catch (error) {
+    return handleActionError(
+      error,
+      mode === "archive"
+        ? "Could not archive selected tenants right now."
+        : "Could not restore selected tenants right now.",
+    );
   }
 }
 

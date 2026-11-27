@@ -65,7 +65,6 @@ const maintenanceRequestSelect = {
   priority: true,
   status: true,
   resolvedAt: true,
-  cancelledAt: true,
   archivedAt: true,
   createdByActorType: true,
   createdAt: true,
@@ -124,7 +123,6 @@ type MaintenanceRequestRow = {
   priority: MaintenancePriorityValue;
   status: MaintenanceStatusValue;
   resolvedAt: Date | null;
-  cancelledAt: Date | null;
   archivedAt: Date | null;
   createdByActorType: string;
   createdAt: Date;
@@ -225,7 +223,6 @@ function toMaintenanceRequestDto(
     priority: row.priority,
     status: row.status,
     resolvedAt: row.resolvedAt ? row.resolvedAt.toISOString() : null,
-    cancelledAt: row.cancelledAt ? row.cancelledAt.toISOString() : null,
     archivedAt: row.archivedAt ? row.archivedAt.toISOString() : null,
     createdByActorType: row.createdByActorType,
     createdAt: row.createdAt.toISOString(),
@@ -494,15 +491,10 @@ export async function getMaintenanceOverview(
       openCount: activeRequests.filter((r) => r.status === "OPEN").length,
       inProgressCount: activeRequests.filter((r) => r.status === "IN_PROGRESS")
         .length,
-      waitingPartsCount: activeRequests.filter(
-        (r) => r.status === "WAITING_PARTS",
-      ).length,
       urgentOpenCount: activeRequests.filter(
         (r) =>
           r.priority === "URGENT" &&
-          (r.status === "OPEN" ||
-            r.status === "IN_PROGRESS" ||
-            r.status === "WAITING_PARTS"),
+          (r.status === "OPEN" || r.status === "IN_PROGRESS"),
       ).length,
       activeHoldsCount: activeRequests.reduce(
         (sum, r) => sum + r.activeHolds.length,
@@ -685,7 +677,6 @@ export async function addMaintenanceUpdateInTx(
       status: true,
       archivedAt: true,
       resolvedAt: true,
-      cancelledAt: true,
     },
   });
   if (!existing) {
@@ -704,19 +695,8 @@ export async function addMaintenanceUpdateInTx(
 
   const nextStatus = input.statusTo ?? existing.status;
   const nowUtc = new Date();
-  let resolvedAt = existing.resolvedAt;
-  let cancelledAt = existing.cancelledAt;
-
-  if (nextStatus === "RESOLVED") {
-    resolvedAt = existing.resolvedAt ?? nowUtc;
-    cancelledAt = null;
-  } else if (nextStatus === "CANCELLED") {
-    cancelledAt = existing.cancelledAt ?? nowUtc;
-    resolvedAt = null;
-  } else {
-    resolvedAt = null;
-    cancelledAt = null;
-  }
+  const resolvedAt =
+    nextStatus === "RESOLVED" ? (existing.resolvedAt ?? nowUtc) : null;
 
   const bumped = await tx.maintenanceRequest.updateMany({
     where: {
@@ -728,7 +708,6 @@ export async function addMaintenanceUpdateInTx(
     data: {
       status: nextStatus,
       resolvedAt,
-      cancelledAt,
       version: { increment: 1 },
     },
   });
@@ -768,11 +747,11 @@ export async function addMaintenanceUpdateInTx(
   }
 
   let releasedHoldCount = 0;
-  if (nextStatus === "RESOLVED" || nextStatus === "CANCELLED") {
+  if (nextStatus === "RESOLVED") {
     releasedHoldCount = await releaseHoldAllocationsInTx(tx, {
       ownerUserId,
       maintenanceRequestId: existing.id,
-      action: nextStatus === "CANCELLED" ? "CANCEL" : "COMPLETE",
+      action: "COMPLETE",
       endUtc: nowUtc,
       actorType: actor.actorType,
       actorId: actor.actorId,
@@ -1066,7 +1045,7 @@ export async function placeMaintenanceHold(
           "Restore the maintenance request before placing a hold.",
         );
       }
-      if (request.status === "RESOLVED" || request.status === "CANCELLED") {
+      if (request.status === "RESOLVED") {
         throw new ConflictError(
           "Reopen the maintenance request before placing a maintenance hold.",
         );

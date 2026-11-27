@@ -26,11 +26,7 @@ import type {
 } from "./schemas";
 
 const ZERO = BigInt(0);
-const OPEN_MAINTENANCE_STATUSES = [
-  "OPEN",
-  "IN_PROGRESS",
-  "WAITING_PARTS",
-] as const;
+const OPEN_MAINTENANCE_STATUSES = ["OPEN", "IN_PROGRESS"] as const;
 
 type RoomOccupancyInput = {
   id: string;
@@ -238,14 +234,14 @@ export async function getDashboardSnapshot(
           where: {
             ownerUserId,
             checkInDateManila: todayManila,
-            status: { in: ["TENTATIVE", "CONFIRMED", "CHECKED_IN"] },
+            status: { in: ["CONFIRMED", "CHECKED_IN"] },
           },
         }),
         tx.transientReservation.findMany({
           where: {
             ownerUserId,
             checkInDateManila: todayManila,
-            status: { in: ["TENTATIVE", "CONFIRMED", "CHECKED_IN"] },
+            status: { in: ["CONFIRMED", "CHECKED_IN"] },
           },
           orderBy: [{ createdAt: "asc" }],
           take: 10,
@@ -602,10 +598,7 @@ export async function getDashboardSnapshot(
             building: row.room.building,
             category: row.category,
             priority: row.priority,
-            status:
-              row.status === "IN_PROGRESS" || row.status === "WAITING_PARTS"
-                ? row.status
-                : "OPEN",
+            status: row.status === "IN_PROGRESS" ? row.status : "OPEN",
             hasActiveHold: row.holdAllocations.length > 0,
             createdAt: row.createdAt.toISOString(),
           })),

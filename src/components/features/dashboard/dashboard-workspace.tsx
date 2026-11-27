@@ -608,7 +608,7 @@ export function DashboardWorkspace({
           title="Occupancy by building"
           description="Live occupied, available, and maintenance room counts."
           summary={`${totalOccupiedAll} of ${totalRoomsAll} occupied`}
-          actions={<ActionLink href="/reports">Analytics</ActionLink>}
+          actions={<ActionLink href="/rooms">Rooms</ActionLink>}
         >
           {totalRoomsAll === 0 ? (
             <TableEmptyState
@@ -632,7 +632,7 @@ export function DashboardWorkspace({
           title="Collections & receivables"
           description="Recent monthly collections compared with current and overdue open balances."
           summary={`${snapshot.billing.overdueInvoiceCount} overdue`}
-          actions={<ActionLink href="/reports">Reports</ActionLink>}
+          actions={<ActionLink href="/billing">Billing</ActionLink>}
         >
           {!hasFinancialTotals ? (
             <TableEmptyState

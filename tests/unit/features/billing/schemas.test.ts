@@ -44,7 +44,7 @@ describe("billing Zod schemas", () => {
         {
           itemType: "UTILITY",
           description: "Electricity sub-meter",
-          quantity: "12.5",
+          quantity: "12",
           unitAmount: "14",
         },
       ],
@@ -54,9 +54,24 @@ describe("billing Zod schemas", () => {
     expect(valid.items[0]).toEqual({
       itemType: "UTILITY",
       description: "Electricity sub-meter",
-      quantity: "12.50",
+      quantity: "12.00",
       unitAmount: "14.00",
     });
+
+    expect(
+      CreateManualInvoiceSchema.safeParse({
+        tenantId: VALID_UUID,
+        dueDateManila: "2026-11-15",
+        items: [
+          {
+            itemType: "UTILITY",
+            description: "Electricity sub-meter",
+            quantity: "12.5",
+            unitAmount: "14",
+          },
+        ],
+      }).success,
+    ).toBe(false);
 
     expect(
       CreateManualInvoiceSchema.safeParse({

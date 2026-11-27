@@ -12,6 +12,7 @@ import { getDatabase } from "@/server/db/client";
 import { sendBookingApprovedEmailSafe } from "@/server/mail/booking-mailer";
 import {
   approveBookingRequest,
+  archiveTransientReservation,
   cancelTransientReservation,
   checkInTransientReservation,
   checkOutTransientReservation,
@@ -20,6 +21,7 @@ import {
   createTransientStayInvoice,
   markNoShowTransientReservation,
   rejectBookingRequest,
+  restoreTransientReservation,
   updateRoomTransientPublish,
   updateTransientPolicyNote,
   withdrawBookingRequest,
@@ -64,7 +66,6 @@ function revalidateTransientPaths(requestId?: string, roomId?: string) {
   revalidatePath("/rooms");
   revalidatePath("/billing");
   revalidatePath("/payments");
-  revalidatePath("/reports");
   revalidatePath("/notifications");
   revalidatePath("/audit");
   revalidatePath("/book");
@@ -112,14 +113,13 @@ export async function createTransientReservationAction(
       partySize: Number(readStr(formData, "partySize") || "1"),
       dailyRateOverride: dailyRateOverride || null,
       notes: readStr(formData, "notes"),
-      tentative: formData.get("tentative") === "on",
-      issueInvoiceImmediately: formData.get("issueInvoiceImmediately") === "on",
+      issueInvoiceImmediately: true,
     });
     revalidateTransientPaths();
     return {
       status: "saved",
       entityId: stay.id,
-      message: `Created ${stay.status === "TENTATIVE" ? "tentative" : "confirmed"} stay for ${stay.guestName}.`,
+      message: `Created confirmed stay and issued invoice for ${stay.guestName}.`,
     };
   } catch (error) {
     return handleActionError(error, "Could not create stay right now.");
@@ -313,7 +313,7 @@ export async function approveBookingRequestAction(
       ...(confirmedDailyRate ? { confirmedDailyRate } : {}),
       confirmRateChange: formData.get("confirmRateChange") === "on",
       notes: readStr(formData, "notes"),
-      issueInvoiceImmediately: formData.get("issueInvoiceImmediately") === "on",
+      issueInvoiceImmediately: true,
     });
     revalidateTransientPaths(requestId);
 
@@ -441,5 +441,224 @@ export async function withdrawBookingRequestAction(rawInput: {
     };
   } catch (error) {
     return handleActionError(error, "Could not withdraw request right now.");
+  }
+}
+
+export async function bulkApproveBookingRequestsAction(
+  items: Array<{ requestId: string; expectedVersion: number }>,
+): Promise<TransientActionResult> {
+  try {
+    const ownerUserId = await requireOwnerUserId();
+    if (items.length === 0) {
+      return {
+        status: "error",
+        message: "Select at least one pending booking to approve.",
+        fieldErrors: {},
+      };
+    }
+
+    const db = getDatabase();
+    let approvedCount = 0;
+    const errors: string[] = [];
+
+    for (const item of items) {
+      try {
+        const result = await approveBookingRequest(ownerUserId, {
+          requestId: item.requestId,
+          expectedVersion: item.expectedVersion,
+          bedId: null,
+          existingGuestId: null,
+          confirmRateChange: true,
+          notes: null,
+          issueInvoiceImmediately: true,
+        });
+        approvedCount += 1;
+        revalidateTransientPaths(item.requestId);
+
+        const guestEmail =
+          result.request.guestEmail ?? result.reservation.guestEmail;
+        if (guestEmail) {
+          const [settings, roomInfo] = await Promise.all([
+            db.businessSettings.findUnique({
+              where: { ownerUserId },
+              select: {
+                businessName: true,
+                businessAddress: true,
+                businessLatitude: true,
+                businessLongitude: true,
+                businessPhone: true,
+                checkInTimeManila: true,
+                checkOutTimeManila: true,
+              },
+            }),
+            db.room.findFirst({
+              where: { id: result.reservation.roomId, ownerUserId },
+              select: {
+                title: true,
+                photos: {
+                  where: { role: "PREVIEW" },
+                  select: { id: true },
+                  take: 1,
+                },
+              },
+            }),
+          ]);
+
+          const appOrigin =
+            process.env.APP_ORIGIN?.trim().replace(/\/+$/, "") ||
+            "http://localhost:3000";
+          const previewPhotoId = roomInfo?.photos?.[0]?.id ?? null;
+          const roomPhotoUrl =
+            previewPhotoId && /^https:\/\//i.test(appOrigin)
+              ? `${appOrigin}/api/public/room-photos/${previewPhotoId}`
+              : null;
+          await sendBookingApprovedEmailSafe(
+            {
+              toEmail: guestEmail,
+              guestName: result.reservation.guestName,
+              referenceCode: result.request.referenceCode,
+              propertyName: settings?.businessName || "Daisy Residences",
+              propertyAddress: settings?.businessAddress ?? null,
+              propertyLatitude: settings?.businessLatitude ?? null,
+              propertyLongitude: settings?.businessLongitude ?? null,
+              contactPhone: settings?.businessPhone ?? null,
+              roomTitle: roomInfo?.title ?? result.reservation.roomNumber,
+              scopeLabel: getScopeLabel(result.reservation.scope),
+              roomPhotoUrl,
+              checkInDateManila: result.reservation.checkInDateManila,
+              checkOutDateManila: result.reservation.checkOutDateManila,
+              checkInTimeLabel: formatStayTime(
+                settings?.checkInTimeManila ?? "",
+              ),
+              checkOutTimeLabel: formatStayTime(
+                settings?.checkOutTimeManila ?? "",
+              ),
+              nights: result.reservation.nights,
+              partySize: result.reservation.partySize,
+              dailyRate: result.reservation.dailyRate,
+              totalAmount: result.reservation.totalAmount,
+              trackUrl: `${appOrigin}/book#track`,
+            },
+            { ownerUserId },
+          );
+        }
+      } catch (err) {
+        errors.push(
+          err instanceof Error ? err.message : "Could not approve booking.",
+        );
+      }
+    }
+
+    if (approvedCount === 0) {
+      return {
+        status: "error",
+        message: errors[0] ?? "Could not approve the selected bookings.",
+        fieldErrors: {},
+      };
+    }
+
+    const baseMsg = `Approved ${approvedCount} ${approvedCount === 1 ? "booking" : "bookings"}.`;
+    return {
+      status: "saved",
+      message:
+        errors.length > 0
+          ? `${baseMsg} ${errors.length} could not be approved (${errors[0]}).`
+          : baseMsg,
+    };
+  } catch (error) {
+    return handleActionError(
+      error,
+      "Could not approve selected bookings right now.",
+    );
+  }
+}
+
+export async function archiveTransientReservationAction(rawInput: {
+  reservationId: string;
+  expectedVersion: number;
+}): Promise<TransientActionResult> {
+  try {
+    const ownerUserId = await requireOwnerUserId();
+    const dto = await archiveTransientReservation(ownerUserId, rawInput);
+    revalidateTransientPaths();
+    return {
+      status: "saved",
+      entityId: dto.id,
+      message: `Archived stay for ${dto.guestName}.`,
+    };
+  } catch (error) {
+    return handleActionError(error, "Could not archive stay right now.");
+  }
+}
+
+export async function restoreTransientReservationAction(rawInput: {
+  reservationId: string;
+  expectedVersion: number;
+}): Promise<TransientActionResult> {
+  try {
+    const ownerUserId = await requireOwnerUserId();
+    const dto = await restoreTransientReservation(ownerUserId, rawInput);
+    revalidateTransientPaths();
+    return {
+      status: "saved",
+      entityId: dto.id,
+      message: `Restored stay for ${dto.guestName}.`,
+    };
+  } catch (error) {
+    return handleActionError(error, "Could not restore stay right now.");
+  }
+}
+
+export async function bulkArchiveTransientReservationsAction(
+  items: Array<{ reservationId: string; expectedVersion: number }>,
+  mode: "archive" | "restore",
+): Promise<TransientActionResult> {
+  try {
+    const ownerUserId = await requireOwnerUserId();
+    if (items.length === 0) {
+      return {
+        status: "error",
+        message: `Select at least one stay to ${mode}.`,
+        fieldErrors: {},
+      };
+    }
+
+    let successCount = 0;
+    const errors: string[] = [];
+    for (const item of items) {
+      try {
+        if (mode === "archive") {
+          await archiveTransientReservation(ownerUserId, item);
+        } else {
+          await restoreTransientReservation(ownerUserId, item);
+        }
+        successCount += 1;
+      } catch (err) {
+        errors.push(
+          err instanceof Error ? err.message : `Could not ${mode} stay.`,
+        );
+      }
+    }
+    if (successCount > 0) {
+      revalidateTransientPaths();
+    }
+    if (successCount === 0) {
+      return {
+        status: "error",
+        message: errors[0] ?? `Could not ${mode} the selected stays.`,
+        fieldErrors: {},
+      };
+    }
+    const verb = mode === "archive" ? "Archived" : "Restored";
+    const baseMsg = `${verb} ${successCount} ${successCount === 1 ? "stay" : "stays"}.`;
+    return {
+      status: "saved",
+      message:
+        errors.length > 0
+          ? `${baseMsg} ${errors.length} skipped (${errors[0]}).`
+          : baseMsg,
+    };
+  } catch (error) {
+    return handleActionError(error, `Could not ${mode} selected stays.`);
   }
 }

@@ -15,9 +15,7 @@ export const MAINTENANCE_STATUS_TONE: Record<
 > = {
   OPEN: "info",
   IN_PROGRESS: "warning",
-  WAITING_PARTS: "warning",
   RESOLVED: "success",
-  CANCELLED: "neutral",
 };
 
 export const MAINTENANCE_PRIORITY_TONE: Record<

@@ -60,6 +60,19 @@ export type VaultKeyMetadata = {
   verifier: EncryptedPayloadRecord;
 };
 
+export type TrustedDeviceVaultKeyMetadata = {
+  v: typeof VAULT_CRYPTO_VERSION;
+  mode: "trusted_device";
+  deviceKey: CryptoKey;
+  verifier: EncryptedPayloadRecord;
+};
+
+export function isTrustedDeviceVaultKeyMetadata(
+  metadata: VaultKeyMetadata | TrustedDeviceVaultKeyMetadata,
+): metadata is TrustedDeviceVaultKeyMetadata {
+  return "mode" in metadata && metadata.mode === "trusted_device";
+}
+
 function getWebCrypto(): Crypto {
   if (!globalThis.crypto?.subtle) {
     throw new Error("Web Crypto API is unavailable in this environment.");
@@ -262,6 +275,61 @@ export async function verifyAndUnlockVaultKey(
     throw new Error("Offline vault verifier check failed.");
   }
   return key;
+}
+
+/**
+ * Generates a non-extractable AES-256-GCM CryptoKey for automatic passwordless
+ * offline storage on an Owner-approved trusted device.
+ */
+export async function generateTrustedDeviceAesKey(): Promise<CryptoKey> {
+  const cryptoApi = getWebCrypto();
+  return cryptoApi.subtle.generateKey({ name: "AES-GCM", length: 256 }, false, [
+    "encrypt",
+    "decrypt",
+  ]);
+}
+
+/**
+ * Initializes non-extractable trusted-device key metadata for IndexedDB storage.
+ */
+export async function initializeTrustedDeviceVaultKey(): Promise<{
+  metadata: TrustedDeviceVaultKeyMetadata;
+  key: CryptoKey;
+}> {
+  const key = await generateTrustedDeviceAesKey();
+  const verifier = await encryptJsonPayload(key, {
+    check: VERIFIER_PLAINTEXT,
+  });
+  return {
+    key,
+    metadata: {
+      v: VAULT_CRYPTO_VERSION,
+      mode: "trusted_device",
+      deviceKey: key,
+      verifier,
+    },
+  };
+}
+
+/**
+ * Verifies a stored non-extractable trusted-device CryptoKey against its verifier.
+ */
+export async function verifyTrustedDeviceVaultKey(
+  metadata: TrustedDeviceVaultKeyMetadata,
+): Promise<CryptoKey> {
+  let decoded: { check?: string };
+  try {
+    decoded = await decryptJsonPayload<{ check?: string }>(
+      metadata.deviceKey,
+      metadata.verifier,
+    );
+  } catch {
+    throw new Error("Trusted device offline key could not be verified.");
+  }
+  if (decoded.check !== VERIFIER_PLAINTEXT) {
+    throw new Error("Trusted device offline key verifier check failed.");
+  }
+  return metadata.deviceKey;
 }
 
 /**

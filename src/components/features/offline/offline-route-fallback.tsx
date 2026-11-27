@@ -36,7 +36,11 @@ import type {
 } from "@/features/rooms/schemas";
 import type { TenantsOverviewDto } from "@/features/tenants/schemas";
 import type { TransientsOverviewDto } from "@/features/transients/schemas";
-import { getBrowserOfflineDb, getVaultCustody } from "@/offline/client";
+import {
+  ensureTrustedDeviceVaultUnlocked,
+  getBrowserOfflineDb,
+  getVaultCustody,
+} from "@/offline/client";
 import {
   loadMaintenanceDetailFromVault,
   loadMaintenanceOverviewFromVault,
@@ -60,10 +64,7 @@ import { DAISY_OFFLINE_VAULT_EVENT } from "@/offline/workspace-bridge";
 import { OfflineVaultUnlockCard } from "./offline-vault-unlock";
 import { OfflineVaultWorkspace } from "./offline-vault-workspace";
 
-function resolveTransientOfflineSection(
-  pathname: string,
-): TransientWorkspaceSection {
-  if (pathname === "/transients/requests") return "requests";
+function resolveTransientOfflineSection(): TransientWorkspaceSection {
   return "stays";
 }
 
@@ -71,13 +72,12 @@ function resolveOfflineShellTitle(pathname: string): string {
   if (pathname === "/") return "Dashboard";
   if (pathname.startsWith("/tenants")) return "Tenants";
   if (pathname.startsWith("/transients/rooms")) return "Transient rooms";
-  if (pathname === "/transients/requests") return "Booking requests";
-  if (pathname.startsWith("/transients")) return "Stays & reservations";
+  if (pathname.startsWith("/transients")) return "Stays & requests";
   if (pathname.startsWith("/payments/new")) return "Record payment";
   if (pathname.startsWith("/payments")) return "Payments";
   if (pathname.startsWith("/maintenance/new")) return "Log maintenance";
   if (pathname.startsWith("/maintenance")) return "Maintenance";
-  if (pathname.startsWith("/rooms")) return "Rooms";
+  if (pathname.startsWith("/rooms")) return "Boarding Rooms";
   if (pathname.startsWith("/billing")) return "Billing";
   if (pathname.startsWith("/notices")) return "Notices";
   return "Offline copy";
@@ -194,7 +194,15 @@ export function OfflineRouteFallback() {
     const requestSeq = ++loadSeqRef.current;
     const targetPathname = pathname;
     try {
+      const db = getBrowserOfflineDb();
       const custody = getVaultCustody();
+      if (!custody.isUnlocked()) {
+        await ensureTrustedDeviceVaultUnlocked({
+          db,
+          custody,
+          isOnline: navigator.onLine,
+        });
+      }
       const unlocked = custody.isUnlocked();
       if (loadSeqRef.current !== requestSeq) return;
       setVaultUnlocked(unlocked);
@@ -210,7 +218,6 @@ export function OfflineRouteFallback() {
         return;
       }
 
-      const db = getBrowserOfflineDb();
       const key = custody.getKey();
 
       let nextData: OfflineRouteData = { kind: "unsupported" };
@@ -230,7 +237,7 @@ export function OfflineRouteFallback() {
         const res = await loadTransientsOverviewFromVault(db, key);
         nextData = {
           kind: "transients",
-          section: resolveTransientOfflineSection(targetPathname),
+          section: resolveTransientOfflineSection(),
           ...res,
         };
       } else if (

@@ -730,6 +730,23 @@ export function buildPaymentsOverviewFromRecords(input: {
         ? (tenantNames.get(tenantId) ?? "Boarder")
         : "Payer";
 
+    const rawItems = Array.isArray(row.data.items) ? row.data.items : [];
+    const items = rawItems
+      .map((entry) => {
+        if (!entry || typeof entry !== "object") return null;
+        const record = entry as Record<string, unknown>;
+        const description = asString(record.description);
+        if (!description) return null;
+        return {
+          description,
+          lineTotal: formatMoneyDecimal(parseSafeMoney(record.lineTotal)),
+        };
+      })
+      .filter(
+        (item): item is { description: string; lineTotal: string } =>
+          item !== null,
+      );
+
     openInvoices.push({
       id: asNonEmptyString(row.data.id, row.entityId),
       payerKind,
@@ -745,6 +762,7 @@ export function buildPaymentsOverviewFromRecords(input: {
       paidAmount: formatMoneyDecimal(paid),
       balanceAmount: formatMoneyDecimal(balance),
       isOverdue: dueDateManila < todayManila,
+      items,
     });
   }
 
@@ -944,9 +962,7 @@ const VALID_MAINT_PRIORITIES = new Set<MaintenancePriorityValue>([
 const VALID_MAINT_STATUSES = new Set<MaintenanceStatusValue>([
   "OPEN",
   "IN_PROGRESS",
-  "WAITING_PARTS",
   "RESOLVED",
-  "CANCELLED",
 ]);
 
 function toMaintenanceDtoFromRecord(
@@ -1058,7 +1074,6 @@ function toMaintenanceDtoFromRecord(
     priority,
     status,
     resolvedAt: asString(row.data.resolvedAt),
-    cancelledAt: asString(row.data.cancelledAt),
     archivedAt: asString(row.data.archivedAt),
     createdByActorType: asNonEmptyString(row.data.createdByActorType, "owner"),
     createdAt: asNonEmptyString(row.data.createdAt, row.updatedAt),
@@ -1126,7 +1141,6 @@ export function buildMaintenanceOverviewFromRecords(input: {
   const requests: MaintenanceRequestDto[] = [];
   let openCount = 0;
   let inProgressCount = 0;
-  let waitingPartsCount = 0;
   let urgentOpenCount = 0;
   let activeHoldsCount = 0;
 
@@ -1139,12 +1153,7 @@ export function buildMaintenanceOverviewFromRecords(input: {
     if (dto.archivedAt === null) {
       if (dto.status === "OPEN") openCount += 1;
       if (dto.status === "IN_PROGRESS") inProgressCount += 1;
-      if (dto.status === "WAITING_PARTS") waitingPartsCount += 1;
-      if (
-        dto.priority === "URGENT" &&
-        dto.status !== "RESOLVED" &&
-        dto.status !== "CANCELLED"
-      ) {
+      if (dto.priority === "URGENT" && dto.status !== "RESOLVED") {
         urgentOpenCount += 1;
       }
       activeHoldsCount += dto.activeHolds.length;
@@ -1160,7 +1169,6 @@ export function buildMaintenanceOverviewFromRecords(input: {
       totals: {
         openCount,
         inProgressCount,
-        waitingPartsCount,
         urgentOpenCount,
         activeHoldsCount,
       },

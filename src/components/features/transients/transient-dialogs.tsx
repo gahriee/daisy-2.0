@@ -7,7 +7,6 @@ import { StayDateRangePicker } from "@/components/features/transients/public-sta
 import { Alert } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
 import { Button, buttonClasses } from "@/components/ui/button";
-import { Checkbox } from "@/components/ui/checkbox";
 import { Dialog } from "@/components/ui/dialog";
 import { Field } from "@/components/ui/field";
 import { Input } from "@/components/ui/input";
@@ -284,8 +283,6 @@ export function CreateTransientReservationDialog({
   const [calendarOpen, setCalendarOpen] = useState(false);
   const [partySize, setPartySize] = useState("1");
   const [dailyRateOverride, setDailyRateOverride] = useState("");
-  const [tentative, setTentative] = useState(false);
-  const [issueInvoiceImmediately, setIssueInvoiceImmediately] = useState(false);
 
   const roomUnavailableDates = useMemo(() => {
     if (!roomId) return [] as string[];
@@ -293,9 +290,8 @@ export function CreateTransientReservationDialog({
     for (const stay of reservations) {
       if (stay.roomId !== roomId) continue;
       if (
-        stay.status !== "TENTATIVE" &&
-        stay.status !== "CONFIRMED" &&
-        stay.status !== "CHECKED_IN"
+        stay.archivedAt !== null ||
+        (stay.status !== "CONFIRMED" && stay.status !== "CHECKED_IN")
       ) {
         continue;
       }
@@ -332,9 +328,7 @@ export function CreateTransientReservationDialog({
           partySize,
           dailyRateOverride,
           notes: String(formData.get("notes") ?? ""),
-          tentative: offlineMode || !vault.online ? true : tentative,
-          issueInvoiceImmediately:
-            offlineMode || !vault.online ? false : issueInvoiceImmediately,
+          issueInvoiceImmediately: true,
         });
         if (!parsed.success) {
           return {
@@ -381,7 +375,8 @@ export function CreateTransientReservationDialog({
               partySize: parsed.data.partySize,
               dailyRate: rateStr,
               totalAmount: formatMoneyDecimal(totalCentavos),
-              status: "TENTATIVE",
+              status: "CONFIRMED",
+              archivedAt: null,
               notes: parsed.data.notes,
               createdAt: nowIso,
               updatedAt: nowIso,
@@ -596,20 +591,9 @@ export function CreateTransientReservationDialog({
                 : "—"}
             </span>
           </div>
-          <Checkbox
-            name="tentative"
-            checked={tentative}
-            onChange={(e) => setTentative(e.target.checked)}
-            label="Save as tentative hold instead of confirmed"
-          />
-          {!offlineMode && (
-            <Checkbox
-              name="issueInvoiceImmediately"
-              checked={issueInvoiceImmediately}
-              onChange={(e) => setIssueInvoiceImmediately(e.target.checked)}
-              label="Create and issue stay invoice right away"
-            />
-          )}
+          <p className="text-xs text-muted-foreground">
+            An invoice will be issued automatically when this stay is booked.
+          </p>
         </div>
 
         <div className="flex flex-wrap justify-end gap-2.5 pt-2">
@@ -789,7 +773,6 @@ const RESERVATION_DETAIL_STATUS_TONE: Record<
   TransientReservationStatusValue,
   "warning" | "info" | "success" | "neutral" | "danger"
 > = {
-  TENTATIVE: "warning",
   CONFIRMED: "info",
   CHECKED_IN: "success",
   CHECKED_OUT: "neutral",
@@ -964,7 +947,7 @@ export function TransientReservationDetailDialog({
               {reservation.cancellationReason && (
                 <div className="grid gap-0.5 sm:col-span-2">
                   <dt className="text-xs text-muted-foreground">
-                    Cancellation / no-show reason
+                    Cancellation reason
                   </dt>
                   <dd className="whitespace-pre-wrap text-foreground">
                     {reservation.cancellationReason}

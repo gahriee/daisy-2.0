@@ -102,11 +102,7 @@ export const DashboardMaintenanceItemSchema = z.object({
   building: z.enum(ROOM_BUILDINGS),
   category: z.enum(MAINTENANCE_CATEGORIES),
   priority: z.enum(MAINTENANCE_PRIORITIES),
-  status: z.enum([
-    MAINTENANCE_STATUSES[0],
-    MAINTENANCE_STATUSES[1],
-    MAINTENANCE_STATUSES[2],
-  ]),
+  status: z.enum([MAINTENANCE_STATUSES[0], MAINTENANCE_STATUSES[1]]),
   hasActiveHold: z.boolean(),
   createdAt: z.string(),
 });

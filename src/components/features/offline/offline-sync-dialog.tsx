@@ -4,12 +4,13 @@ import { useCallback, useEffect, useState, useTransition } from "react";
 import Link from "next/link";
 import { Alert } from "@/components/ui/alert";
 import { Badge, CountPill } from "@/components/ui/badge";
-import { Button } from "@/components/ui/button";
+import { Button, buttonClasses } from "@/components/ui/button";
 import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import { Dialog } from "@/components/ui/dialog";
 import { toast } from "@/components/ui/toaster";
 import { formatManilaDateTime } from "@/lib/dates";
 import {
+  ensureTrustedDeviceVaultUnlocked,
   getBrowserOfflineDb,
   getVaultCustody,
   inspectAndRequestStorageQuota,
@@ -18,7 +19,9 @@ import {
   listDecryptedProjections,
   type NeedsAttentionView,
   type StorageQuotaStatus,
+  type TrustedDeviceUnlockResult,
 } from "@/offline/client";
+import { isTrustedDeviceVaultKeyMetadata } from "@/offline/crypto";
 import {
   getOfflineSyncStatus,
   syncOfflineWorkspace,
@@ -49,6 +52,9 @@ export function OfflineSyncDialog({
   online: boolean;
 }) {
   const [unlocked, setUnlocked] = useState(false);
+  const [trustedDeviceMode, setTrustedDeviceMode] = useState(false);
+  const [autoUnlockState, setAutoUnlockState] =
+    useState<TrustedDeviceUnlockResult | null>(null);
   const [vaultConfigured, setVaultConfigured] = useState<boolean | null>(null);
   const [deviceId, setDeviceId] = useState<string | null>(null);
   const [cachedCount, setCachedCount] = useState(0);
@@ -81,6 +87,13 @@ export function OfflineSyncDialog({
     try {
       const db = getBrowserOfflineDb();
       const custody = getVaultCustody();
+      const unlockRes = await ensureTrustedDeviceVaultUnlocked({
+        db,
+        custody,
+        isOnline: navigator.onLine,
+      });
+      setAutoUnlockState(unlockRes);
+
       const [status, authMeta, cryptoMeta, quotaStatus] = await Promise.all([
         getOfflineSyncStatus(db),
         db.vaultMeta.get("auth"),
@@ -90,6 +103,10 @@ export function OfflineSyncDialog({
       setSyncSummary(status);
       setQuota(quotaStatus);
       setVaultConfigured(cryptoMeta?.key === "crypto");
+      setTrustedDeviceMode(
+        cryptoMeta?.key === "crypto" &&
+          isTrustedDeviceVaultKeyMetadata(cryptoMeta.metadata),
+      );
       setDeviceId(authMeta?.key === "auth" ? authMeta.deviceId : null);
 
       if (custody.isUnlocked()) {
@@ -304,11 +321,15 @@ export function OfflineSyncDialog({
               )}
             </dd>
             <dd className="text-[11px] text-muted-foreground">
-              {vaultConfigured === false
-                ? "Sync password not set"
-                : unlocked
-                  ? "Unlocked"
-                  : "Locked"}
+              {!deviceId
+                ? "Not trusted yet"
+                : trustedDeviceMode && unlocked
+                  ? "Auto-sync on (no password needed)"
+                  : vaultConfigured === false
+                    ? "Ready to set up"
+                    : unlocked
+                      ? "Unlocked"
+                      : "Locked"}
             </dd>
           </div>
         </dl>
@@ -334,24 +355,69 @@ export function OfflineSyncDialog({
         )}
 
         {!unlocked ? (
-          <VaultPassphraseForm
-            showCancel
-            onCancel={handleClose}
-            submitSetupLabel={online ? "Save & sync" : "Save password"}
-            submitUnlockLabel={online ? "Unlock & sync" : "Unlock"}
-            onUnlocked={async ({ initializedNew }) => {
-              await reloadModalState();
-              toast.success(
-                initializedNew
-                  ? online
-                    ? "Sync enabled and records updated."
-                    : "Sync password saved on this browser."
-                  : online
-                    ? "Unlocked and synced."
-                    : "Offline copy unlocked.",
-              );
-            }}
-          />
+          autoUnlockState?.status === "legacy_passphrase_required" ? (
+            <VaultPassphraseForm
+              showCancel
+              onCancel={handleClose}
+              submitSetupLabel={online ? "Save & sync" : "Save password"}
+              submitUnlockLabel={online ? "Unlock & sync" : "Unlock"}
+              onUnlocked={async ({ initializedNew }) => {
+                await reloadModalState();
+                toast.success(
+                  initializedNew
+                    ? online
+                      ? "Sync enabled and records updated."
+                      : "Sync password saved on this browser."
+                    : online
+                      ? "Unlocked and synced."
+                      : "Offline copy unlocked.",
+                );
+              }}
+            />
+          ) : autoUnlockState?.status === "expired" ? (
+            <div className="grid gap-3">
+              <Alert tone="warning" role="status">
+                {autoUnlockState.reason}
+              </Alert>
+              <div className="flex justify-end">
+                <Button type="button" variant="secondary" onClick={handleClose}>
+                  Close
+                </Button>
+              </div>
+            </div>
+          ) : autoUnlockState?.status === "needs_online_setup" ? (
+            <div className="grid gap-3">
+              <Alert tone="info" role="status">
+                Connect to the internet once so Daisy can automatically save an
+                offline copy on this trusted device.
+              </Alert>
+              <div className="flex justify-end">
+                <Button type="button" variant="secondary" onClick={handleClose}>
+                  Close
+                </Button>
+              </div>
+            </div>
+          ) : (
+            <div className="grid gap-3">
+              <Alert tone="info" role="status">
+                Add this browser as a Trusted device in Settings so Daisy can
+                automatically keep an offline copy without asking for a
+                password.
+              </Alert>
+              <div className="flex flex-wrap items-center justify-end gap-2">
+                <Button type="button" variant="secondary" onClick={handleClose}>
+                  Close
+                </Button>
+                <Link
+                  href="/settings/devices"
+                  onClick={handleClose}
+                  className={buttonClasses({ variant: "primary", size: "md" })}
+                >
+                  Open Trusted devices
+                </Link>
+              </div>
+            </div>
+          )
         ) : (
           <div className="grid gap-4">
             {needsAttention.length > 0 && (
@@ -469,16 +535,18 @@ export function OfflineSyncDialog({
               </div>
 
               <div className="flex flex-wrap items-center gap-2">
-                <Button
-                  type="button"
-                  variant="secondary"
-                  size="sm"
-                  disabled={busy}
-                  onClick={handleLockVault}
-                  className="min-h-11 sm:min-h-9"
-                >
-                  Lock copy
-                </Button>
+                {!trustedDeviceMode && (
+                  <Button
+                    type="button"
+                    variant="secondary"
+                    size="sm"
+                    disabled={busy}
+                    onClick={handleLockVault}
+                    className="min-h-11 sm:min-h-9"
+                  >
+                    Lock copy
+                  </Button>
+                )}
                 <Button
                   type="button"
                   variant="primary"

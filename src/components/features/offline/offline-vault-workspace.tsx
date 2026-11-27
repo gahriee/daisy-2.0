@@ -29,6 +29,7 @@ import {
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { formatManilaDateTime } from "@/lib/dates";
 import {
+  ensureTrustedDeviceVaultUnlocked,
   getBrowserOfflineDb,
   getVaultCustody,
   inspectAndRequestStorageQuota,
@@ -38,6 +39,7 @@ import {
   type NeedsAttentionView,
   type StorageQuotaStatus,
 } from "@/offline/client";
+import { isTrustedDeviceVaultKeyMetadata } from "@/offline/crypto";
 import {
   discardNeedsAttentionOperation,
   enqueueOfflineOperationAtomic,
@@ -116,6 +118,7 @@ function summarizeRecordSubtitle(item: DecryptedEntityView): string {
 export function OfflineVaultWorkspace() {
   const online = useBrowserOnline();
   const [unlocked, setUnlocked] = useState<boolean>(false);
+  const [trustedDeviceMode, setTrustedDeviceMode] = useState<boolean>(false);
   const [deviceId, setDeviceId] = useState<string | null>(null);
   const [syncSummary, setSyncSummary] = useState<SyncStatusSummary>({
     pendingCount: 0,
@@ -145,13 +148,23 @@ export function OfflineVaultWorkspace() {
   async function reloadMetadataAndUnlockedViews() {
     const db = getBrowserOfflineDb();
     const custody = getVaultCustody();
-    const [status, authMeta, quotaStatus] = await Promise.all([
+    await ensureTrustedDeviceVaultUnlocked({
+      db,
+      custody,
+      isOnline: navigator.onLine,
+    });
+    const [status, authMeta, cryptoMeta, quotaStatus] = await Promise.all([
       getOfflineSyncStatus(db),
       db.vaultMeta.get("auth"),
+      db.vaultMeta.get("crypto"),
       inspectAndRequestStorageQuota(),
     ]);
     setSyncSummary(status);
     setQuota(quotaStatus);
+    setTrustedDeviceMode(
+      cryptoMeta?.key === "crypto" &&
+        isTrustedDeviceVaultKeyMetadata(cryptoMeta.metadata),
+    );
     if (authMeta?.key === "auth") {
       setDeviceId(authMeta.deviceId);
     }
@@ -184,14 +197,24 @@ export function OfflineVaultWorkspace() {
       try {
         const db = getBrowserOfflineDb();
         const custody = getVaultCustody();
-        const [status, authMeta, quotaStatus] = await Promise.all([
+        await ensureTrustedDeviceVaultUnlocked({
+          db,
+          custody,
+          isOnline: navigator.onLine,
+        });
+        const [status, authMeta, cryptoMeta, quotaStatus] = await Promise.all([
           getOfflineSyncStatus(db),
           db.vaultMeta.get("auth"),
+          db.vaultMeta.get("crypto"),
           inspectAndRequestStorageQuota(),
         ]);
         if (cancelled) return;
         setSyncSummary(status);
         setQuota(quotaStatus);
+        setTrustedDeviceMode(
+          cryptoMeta?.key === "crypto" &&
+            isTrustedDeviceVaultKeyMetadata(cryptoMeta.metadata),
+        );
         if (authMeta?.key === "auth") {
           setDeviceId(authMeta.deviceId);
         }
@@ -395,15 +418,17 @@ export function OfflineVaultWorkspace() {
           </Link>
           {unlocked && (
             <>
-              <Button
-                type="button"
-                variant="secondary"
-                size="sm"
-                onClick={handleLockVault}
-                disabled={busy}
-              >
-                Lock copy
-              </Button>
+              {!trustedDeviceMode && (
+                <Button
+                  type="button"
+                  variant="secondary"
+                  size="sm"
+                  onClick={handleLockVault}
+                  disabled={busy}
+                >
+                  Lock copy
+                </Button>
+              )}
               <Button
                 type="button"
                 variant="primary"
