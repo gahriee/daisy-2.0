@@ -68,22 +68,12 @@ const optionalShortText = (max: number, message: string) =>
     .refine((val) => val.length <= max, message)
     .transform((val) => (val ? val : null));
 
-const optionalUnsetShortText = (max: number, message: string) =>
-  z
-    .union([z.string(), z.null()])
-    .optional()
-    .transform((val) =>
-      val === undefined ? undefined : typeof val === "string" ? val.trim() : "",
-    )
-    .refine((val) => val === undefined || val.length <= max, message)
-    .transform((val) => (val === undefined ? undefined : val ? val : null));
-
 const sharedRoomFieldsSchema = {
-  number: z
+  title: z
     .string()
     .trim()
-    .min(1, "Enter a room number or code.")
-    .max(40, "Keep room number under 40 characters."),
+    .min(1, "Enter a room title.")
+    .max(120, "Keep room title under 120 characters."),
   floor: optionalShortText(40, "Keep floor label under 40 characters."),
   capacity: z.coerce
     .number()
@@ -91,7 +81,7 @@ const sharedRoomFieldsSchema = {
     .min(1, "Room capacity must be at least 1 bed.")
     .max(50, "Room capacity cannot exceed 50 beds."),
   transientDailyRate: optionalMoneySchema,
-  notes: optionalShortText(400, "Keep notes under 400 characters."),
+  summary: optionalShortText(600, "Keep summary under 600 characters."),
 };
 
 export const CreateRoomPhotoIntentSchema = z.object({
@@ -153,8 +143,6 @@ function enforceRoomBuildingRates(
     baseMonthlyRate: string | null;
     transientDailyRate: string | null;
     isTransientPublished?: boolean | undefined;
-    transientTitle?: string | null | undefined;
-    transientDescription?: string | null | undefined;
     photos?: z.input<typeof RoomPhotoManifestSchema> | undefined;
   },
   ctx: z.RefinementCtx,
@@ -179,24 +167,6 @@ function enforceRoomBuildingRates(
         code: z.ZodIssueCode.custom,
         message: "Boarding House rooms cannot be published on /book.",
         path: ["isTransientPublished"],
-      });
-    }
-    if (val.transientTitle !== undefined && val.transientTitle !== null) {
-      ctx.addIssue({
-        code: z.ZodIssueCode.custom,
-        message: "Boarding House rooms do not support public listing titles.",
-        path: ["transientTitle"],
-      });
-    }
-    if (
-      val.transientDescription !== undefined &&
-      val.transientDescription !== null
-    ) {
-      ctx.addIssue({
-        code: z.ZodIssueCode.custom,
-        message:
-          "Boarding House rooms do not support public listing summaries.",
-        path: ["transientDescription"],
       });
     }
     if (hasNonEmptyRoomPhotos(val.photos)) {
@@ -236,14 +206,6 @@ export const CreateRoomSchema = z
     ...sharedRoomFieldsSchema,
     baseMonthlyRate: optionalMoneySchema,
     isTransientPublished: z.boolean().default(false),
-    transientTitle: optionalShortText(
-      120,
-      "Keep public title under 120 characters.",
-    ),
-    transientDescription: optionalShortText(
-      600,
-      "Keep public summary under 600 characters.",
-    ),
     photos: RoomPhotoManifestSchema.optional(),
   })
   .superRefine(enforceRoomBuildingRates);
@@ -256,14 +218,6 @@ export const UpdateRoomSchema = z
     ...sharedRoomFieldsSchema,
     baseMonthlyRate: optionalMoneySchema,
     isTransientPublished: z.boolean().optional(),
-    transientTitle: optionalUnsetShortText(
-      120,
-      "Keep public title under 120 characters.",
-    ),
-    transientDescription: optionalUnsetShortText(
-      600,
-      "Keep public summary under 600 characters.",
-    ),
     photos: RoomPhotoManifestSchema.optional(),
   })
   .superRefine(enforceRoomBuildingRates);
@@ -396,15 +350,13 @@ export type RoomDto = {
   id: string;
   version: number;
   building: RoomBuildingValue;
-  number: string;
+  title: string;
   floor: string | null;
   capacity: number;
   baseMonthlyRate: string | null;
   transientDailyRate: string | null;
   isTransientPublished: boolean;
-  transientTitle: string | null;
-  transientDescription: string | null;
-  notes: string | null;
+  summary: string | null;
   previewPhoto: RoomPhotoDto | null;
   galleryPhotos: RoomPhotoDto[];
   archivedAt: string | null;

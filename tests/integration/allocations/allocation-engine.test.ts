@@ -94,7 +94,7 @@ describe("unified allocation engine & btree_gist exclusion integration", () => {
   it("allows abutting [startDate, endDate) intervals and rejects overlaps at both service and DB constraint levels", async () => {
     const db = state.db!;
     const room = await createRoom(state.ownerId, {
-      number: "101",
+      title: "101",
       baseMonthlyRate: "4500.00",
       capacity: 1,
     });
@@ -220,7 +220,7 @@ describe("unified allocation engine & btree_gist exclusion integration", () => {
   it("claims all beds on WHOLE_ROOM allocation, blocks overlapping bed additions, and prevents concurrent double-booking", async () => {
     const db = state.db!;
     const room = await createRoom(state.ownerId, {
-      number: "DORM-1",
+      title: "DORM-1",
       baseMonthlyRate: "3000.00",
       capacity: 3,
     });

@@ -15,7 +15,6 @@ import {
   buildMapDirectionsUrl,
   formatGuestsSummary,
   formatStayTime,
-  getScopeLabel,
 } from "@/features/transients/public-booking-view";
 import type { PublicBookingStatusDto } from "@/features/transients/schemas";
 import { cn } from "@/lib/cn";
@@ -346,14 +345,6 @@ export function PublicBookingTracker() {
                     <dt className="text-xs text-muted-foreground">Room</dt>
                     <dd className="mt-0.5 font-medium text-foreground">
                       {result.roomTitle}
-                    </dd>
-                  </div>
-                  <div>
-                    <dt className="text-xs text-muted-foreground">
-                      Room setup
-                    </dt>
-                    <dd className="mt-0.5 font-medium text-foreground">
-                      {getScopeLabel(result.scope)}
                     </dd>
                   </div>
                   <div>

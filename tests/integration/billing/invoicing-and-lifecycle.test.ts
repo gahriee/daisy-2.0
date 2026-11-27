@@ -101,12 +101,12 @@ async function seedTenantWithBedAssignment(
   options?: { startDateManila?: string; endDateManila?: string },
 ) {
   const room = await createRoom(ownerId, {
-    number: `R-${randomUUID().slice(0, 4)}`,
+    title: `R-${randomUUID().slice(0, 4)}`,
     floor: "1F",
     capacity: 2,
     baseMonthlyRate: "6000.00",
     transientDailyRate: null,
-    notes: null,
+    summary: null,
   });
   const bed = await createBed(ownerId, {
     roomId: room.id,

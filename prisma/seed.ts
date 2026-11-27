@@ -181,24 +181,29 @@ async function main(): Promise<void> {
         where: {
           ownerUserId,
           building: input.building,
-          number: input.number,
+          title: input.number,
           archivedAt: null,
         },
         select: {
           id: true,
-          number: true,
+          title: true,
           version: true,
           isTransientPublished: true,
         },
       });
       if (!existing) {
         const created = await createRoom(ownerUserId, {
-          ...input,
+          building: input.building,
+          title: input.number,
+          floor: input.floor,
+          baseMonthlyRate: input.baseMonthlyRate,
+          transientDailyRate: input.transientDailyRate,
+          summary: input.notes,
           capacity: input.capacity ?? 1,
         });
         existing = {
           id: created.id,
-          number: created.number,
+          title: created.title,
           version: created.version,
           isTransientPublished: false,
         };
@@ -207,7 +212,7 @@ async function main(): Promise<void> {
       if (!unitBedId) {
         throw new Error(`Failed to sync room unit for Room ${input.number}`);
       }
-      return { ...existing, unitBedId };
+      return { ...existing, number: existing.title, unitBedId };
     }
 
     const storageReady = hasStorageCredentials();

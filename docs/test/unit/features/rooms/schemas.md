@@ -1,10 +1,10 @@
 # Rooms & beds validation schemas
 
 - Status: PASS
-- Last run: 2026-11-27 20:29:14 (UTC+8)
+- Last run: 2026-11-27 21:20:37 (UTC+8)
 - Runtime: Windows, Node 26.13.1, pnpm 12.18.0, Vitest 5.1.0
-- Command: `pnpm test:unit` (`vitest run tests/unit`)
-- Result: 6 passed here (63 ms); suite 219 passed, 0 failed, 0 skipped across 51 files, 3.83 s.
+- Command: `pnpm test:unit tests/unit/features/rooms/schemas.test.ts`
+- Result: 6 passed here (79 ms); suite 219 passed, 0 failed, 0 skipped across 51 files, 4.24 s.
 - Target file: [tests/unit/features/rooms/schemas.test.ts](../../../../tests/unit/features/rooms/schemas.test.ts) -> [src/features/rooms/schemas.ts](../../../../src/features/rooms/schemas.ts)
 
 ## Verified criteria
@@ -13,12 +13,14 @@
 - Rejects zero/out-of-range room capacities, negative peso rates, and invalid `expectedVersion < 1`.
 - Validates bed creation payloads, normalizes empty optional daily rates to `null`, and restricts `UpdateBedSchema.status` to `AVAILABLE` or `MAINTENANCE` (disallowing manual `OCCUPIED`).
 - Validates `CreateRoomPhotoIntentSchema` (`image/jpeg`, `image/png`, `image/webp`, 64-hex SHA-256, `<= 25 MiB`), `ROOM_PHOTO_OUTPUT_WIDTH`/`HEIGHT` (`1200 x 900`, `4:3`), `RoomPhotoManifestSchema` (unlimited gallery shots with `<= 160` char trimmed captions), and rejection of non-empty `photos` on `BOARDING` rooms in `CreateRoomSchema` and `UpdateRoomSchema`.
-- Validates public `/book` listing options (`isTransientPublished`, trimmed `transientTitle <= 120`, trimmed `transientDescription <= 600`) on `TRANSIENT` rooms, rejects public publishing or listing text on `BOARDING` rooms, and preserves `undefined` optional fields on partial `UpdateRoomSchema` updates while clearing blank strings to `null`.
+- Validates unified free-text `title` (`<= 120` chars) and optional `summary` (`<= 600` chars) across both buildings, public `/book` publishing (`isTransientPublished`) on `TRANSIENT` rooms, rejection of public publishing on `BOARDING` rooms, and preservation of `undefined` publish flag on partial `UpdateRoomSchema` updates while clearing blank summaries to `null`.
 
 ## Run History
 
 | Run (UTC+8) | Command | Result | Duration |
 | --- | --- | --- | --- |
+| 2026-11-27 21:20:37 | pnpm test:unit tests/unit/features/rooms/schemas.test.ts | 6 passed (suite: 219/219 across 51 files) | 79 ms (4.24 s suite) |
+| 2026-11-27 21:00:26 | pnpm test:unit tests/unit/features/rooms/schemas.test.ts | 6 passed (suite: 219/219 across 51 files) | 97 ms (4.30 s suite) |
 | 2026-11-27 20:29:14 | pnpm test:unit | 6 passed (suite: 219/219 across 51 files) | 63 ms (3.83 s suite) |
 | 2026-11-18 23:49:25 | pnpm test:unit | 7 passed (suite: 176/176 across 45 files) | 58 ms (3.23 s suite) |
 | 2026-11-18 04:05:33 | pnpm test:unit | 6 passed (suite: 172/172 across 44 files) | 81 ms (2.57 s suite) |

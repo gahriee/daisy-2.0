@@ -17,35 +17,40 @@ describe("rooms & beds schemas", () => {
   it("normalizes non-negative peso amounts per building and requires direct room pricing", () => {
     const parsedBoarding = CreateRoomSchema.parse({
       building: "BOARDING",
-      number: " 101 ",
+      title: " Garden View 101 ",
       floor: "2nd ",
       capacity: "2",
       baseMonthlyRate: "4500",
-      notes: "  Corner room  ",
+      summary: "  Corner room  ",
     });
 
     expect(parsedBoarding.building).toBe("BOARDING");
-    expect(parsedBoarding.number).toBe("101");
+    expect(parsedBoarding.title).toBe("Garden View 101");
     expect(parsedBoarding.floor).toBe("2nd");
     expect(parsedBoarding.capacity).toBe(2);
     expect(parsedBoarding.baseMonthlyRate).toBe("4500.00");
     expect(parsedBoarding.transientDailyRate).toBeNull();
-    expect(parsedBoarding.notes).toBe("Corner room");
+    expect(parsedBoarding.summary).toBe("Corner room");
 
     const parsedTransient = CreateRoomSchema.parse({
       building: "TRANSIENT",
-      number: "202",
+      title: "Garden View Suite 202",
       capacity: 1,
       transientDailyRate: "650.5",
+      summary: "Queen bed with balcony and private bathroom",
     });
+    expect(parsedTransient.title).toBe("Garden View Suite 202");
     expect(parsedTransient.baseMonthlyRate).toBeNull();
     expect(parsedTransient.transientDailyRate).toBe("650.50");
+    expect(parsedTransient.summary).toBe(
+      "Queen bed with balcony and private bathroom",
+    );
 
     // Rejects cross-building rate leakage
     expect(
       CreateRoomSchema.safeParse({
         building: "BOARDING",
-        number: "101",
+        title: "101",
         capacity: 1,
         baseMonthlyRate: "4500",
         transientDailyRate: "650",
@@ -55,7 +60,7 @@ describe("rooms & beds schemas", () => {
     expect(
       CreateRoomSchema.safeParse({
         building: "TRANSIENT",
-        number: "202",
+        title: "202",
         capacity: 1,
         baseMonthlyRate: "4500",
         transientDailyRate: "650",
@@ -66,7 +71,7 @@ describe("rooms & beds schemas", () => {
     expect(
       CreateRoomSchema.safeParse({
         building: "BOARDING",
-        number: "102",
+        title: "102",
         capacity: 1,
       }).success,
     ).toBe(false);
@@ -74,7 +79,7 @@ describe("rooms & beds schemas", () => {
     expect(
       CreateRoomSchema.safeParse({
         building: "TRANSIENT",
-        number: "203",
+        title: "203",
         capacity: 1,
       }).success,
     ).toBe(false);
@@ -83,7 +88,7 @@ describe("rooms & beds schemas", () => {
   it("rejects negative rates, invalid versions, and out-of-range capacities", () => {
     expect(
       CreateRoomSchema.safeParse({
-        number: "102",
+        title: "102",
         capacity: 0,
         baseMonthlyRate: "3000",
       }).success,
@@ -91,7 +96,7 @@ describe("rooms & beds schemas", () => {
 
     expect(
       CreateRoomSchema.safeParse({
-        number: "102",
+        title: "102",
         capacity: 1,
         baseMonthlyRate: "-100",
       }).success,
@@ -101,7 +106,7 @@ describe("rooms & beds schemas", () => {
       UpdateRoomSchema.safeParse({
         roomId: randomUUID(),
         expectedVersion: 0,
-        number: "102",
+        title: "102",
         capacity: 1,
         baseMonthlyRate: "3000",
       }).success,
@@ -135,7 +140,7 @@ describe("rooms & beds schemas", () => {
       roomId: randomUUID(),
       expectedVersion: 2,
       building: "BOARDING",
-      number: "101",
+      title: "101",
       capacity: 2,
       baseMonthlyRate: "5000",
     });
@@ -147,7 +152,7 @@ describe("rooms & beds schemas", () => {
         roomId: randomUUID(),
         expectedVersion: 2,
         building: "BOARDING",
-        number: "101",
+        title: "101",
         capacity: 2,
       }).success,
     ).toBe(false);
@@ -157,7 +162,7 @@ describe("rooms & beds schemas", () => {
         roomId: randomUUID(),
         expectedVersion: 2,
         building: "TRANSIENT",
-        number: "202",
+        title: "202",
         capacity: 2,
       }).success,
     ).toBe(false);
@@ -218,7 +223,7 @@ describe("rooms & beds schemas", () => {
     expect(
       CreateRoomSchema.safeParse({
         building: "BOARDING",
-        number: "101",
+        title: "101",
         capacity: 1,
         baseMonthlyRate: "4500",
         photos: manifest,
@@ -230,7 +235,7 @@ describe("rooms & beds schemas", () => {
         roomId: randomUUID(),
         expectedVersion: 1,
         building: "BOARDING",
-        number: "101",
+        title: "101",
         capacity: 1,
         baseMonthlyRate: "4500",
         photos: {
@@ -243,7 +248,7 @@ describe("rooms & beds schemas", () => {
     expect(
       CreateRoomSchema.safeParse({
         building: "BOARDING",
-        number: "101",
+        title: "101",
         capacity: 1,
         baseMonthlyRate: "4500",
         photos: { preview: null, gallery: [] },
@@ -251,68 +256,51 @@ describe("rooms & beds schemas", () => {
     ).toBe(true);
   });
 
-  it("validates public /book listing options on transient rooms and rejects them on boarding rooms", () => {
+  it("validates public /book publishing on transient rooms and rejects it on boarding rooms", () => {
     const createdTransient = CreateRoomSchema.parse({
       building: "TRANSIENT",
-      number: "205",
+      title: "  Corner Queen Suite  ",
       capacity: 1,
       transientDailyRate: "850",
       isTransientPublished: true,
-      transientTitle: "  Corner Queen Suite  ",
-      transientDescription: "  Quiet street view with workspace.  ",
+      summary: "  Quiet street view with workspace.  ",
     });
     expect(createdTransient.isTransientPublished).toBe(true);
-    expect(createdTransient.transientTitle).toBe("Corner Queen Suite");
-    expect(createdTransient.transientDescription).toBe(
-      "Quiet street view with workspace.",
-    );
+    expect(createdTransient.title).toBe("Corner Queen Suite");
+    expect(createdTransient.summary).toBe("Quiet street view with workspace.");
 
     expect(
       CreateRoomSchema.safeParse({
         building: "BOARDING",
-        number: "101",
+        title: "101",
         capacity: 1,
         baseMonthlyRate: "4500",
         isTransientPublished: true,
       }).success,
     ).toBe(false);
 
-    expect(
-      CreateRoomSchema.safeParse({
-        building: "BOARDING",
-        number: "101",
-        capacity: 1,
-        baseMonthlyRate: "4500",
-        transientTitle: "Public suite",
-      }).success,
-    ).toBe(false);
-
-    // Partial programmatic updates preserve undefined listing fields instead of clearing them.
+    // Partial programmatic updates preserve undefined publish flag instead of clearing it.
     const partialUpdate = UpdateRoomSchema.parse({
       roomId: randomUUID(),
       expectedVersion: 1,
-      number: "205",
+      title: "Corner Queen Suite",
       capacity: 1,
       transientDailyRate: "850",
     });
     expect(partialUpdate.isTransientPublished).toBeUndefined();
-    expect(partialUpdate.transientTitle).toBeUndefined();
-    expect(partialUpdate.transientDescription).toBeUndefined();
 
-    // Explicit blank strings clear optional listing text.
+    // Explicit blank summary clears optional summary text.
     const clearedUpdate = UpdateRoomSchema.parse({
       roomId: randomUUID(),
       expectedVersion: 2,
       building: "TRANSIENT",
-      number: "205",
+      title: "Corner Queen Suite",
       capacity: 1,
       transientDailyRate: "850",
       isTransientPublished: false,
-      transientTitle: "   ",
-      transientDescription: "",
+      summary: "   ",
     });
     expect(clearedUpdate.isTransientPublished).toBe(false);
-    expect(clearedUpdate.transientTitle).toBeNull();
-    expect(clearedUpdate.transientDescription).toBeNull();
+    expect(clearedUpdate.summary).toBeNull();
   });
 });

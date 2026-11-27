@@ -177,7 +177,7 @@ function toTransientReservationDto(
     guestPhone: asString(row.data.guestPhone) ?? guest?.phone ?? null,
     guestEmail: asString(row.data.guestEmail) ?? guest?.email ?? null,
     roomId,
-    roomNumber: asString(row.data.roomNumber) ?? room?.number ?? "—",
+    roomNumber: asString(row.data.roomNumber) ?? room?.title ?? "—",
     bedId: asString(row.data.bedId),
     bedNumber: asString(row.data.bedNumber),
     scope,
@@ -329,8 +329,12 @@ function reconstructRooms(projections: DecryptedEntityView[]): {
   for (const row of projections) {
     if (row.entityType !== "room" || isRecordDeletedOrTombstone(row)) continue;
     const id = asNonEmptyString(row.data.id, row.entityId);
-    const number = asString(row.data.number)?.trim();
-    if (!number) continue;
+    const title = (
+      asString(row.data.title) ??
+      asString(row.data.transientTitle) ??
+      asString(row.data.number)
+    )?.trim();
+    if (!title) continue;
     const building: RoomBuildingValue =
       asString(row.data.building) === "TRANSIENT" ? "TRANSIENT" : "BOARDING";
     const beds = (bedsByRoomId.get(id) ?? []).sort((a, b) =>
@@ -348,7 +352,7 @@ function reconstructRooms(projections: DecryptedEntityView[]): {
       id,
       version: Math.max(1, asNumber(row.data._version ?? row.data.version, 1)),
       building,
-      number,
+      title,
       floor: asString(row.data.floor),
       capacity: Math.max(1, asNumber(row.data.capacity, 1)),
       baseMonthlyRate:
@@ -360,9 +364,10 @@ function reconstructRooms(projections: DecryptedEntityView[]): {
           ? formatMoneyDecimal(parseSafeMoney(row.data.transientDailyRate))
           : null,
       isTransientPublished: toBoolean(row.data.isTransientPublished),
-      transientTitle: asString(row.data.transientTitle),
-      transientDescription: asString(row.data.transientDescription),
-      notes: asString(row.data.notes),
+      summary:
+        asString(row.data.summary) ??
+        asString(row.data.transientDescription) ??
+        asString(row.data.notes),
       previewPhoto,
       galleryPhotos,
       archivedAt: asString(row.data.archivedAt),
@@ -378,7 +383,7 @@ function reconstructRooms(projections: DecryptedEntityView[]): {
     roomById.set(id, room);
   }
 
-  rooms.sort((a, b) => a.number.localeCompare(b.number));
+  rooms.sort((a, b) => a.title.localeCompare(b.title));
   return { rooms, roomById };
 }
 
@@ -446,13 +451,13 @@ export function buildTransientsOverviewFromRecords(input: {
     .map((r) => ({
       id: r.id,
       version: r.version,
-      number: r.number,
+      number: r.title,
       floor: r.floor,
       capacity: r.capacity,
       resolvedDailyRate: r.transientDailyRate,
       isTransientPublished: r.isTransientPublished,
-      transientTitle: r.transientTitle,
-      transientDescription: r.transientDescription,
+      transientTitle: r.title,
+      transientDescription: r.summary,
       transientScope: null,
       transientDailyRate: r.transientDailyRate,
       previewPhoto: r.previewPhoto,
@@ -838,7 +843,7 @@ export function buildNoticesOverviewFromRecords(input: {
     .map((r) => ({
       id: r.id,
       building: r.building,
-      number: r.number,
+      number: r.title,
       floor: r.floor,
     }));
 

@@ -194,7 +194,7 @@ describe("rooms, beds, soft archival, and Owner isolation integration", () => {
 
     const room = await createRoom(state.ownerId, {
       building: "BOARDING",
-      number: "201",
+      title: "201",
       floor: "2nd",
       baseMonthlyRate: "5000",
       capacity: 1,
@@ -205,7 +205,7 @@ describe("rooms, beds, soft archival, and Owner isolation integration", () => {
     // Identical room number is allowed in the separate Transient Building.
     const transientRoom = await createRoom(state.ownerId, {
       building: "TRANSIENT",
-      number: "201",
+      title: "201",
       floor: "2nd",
       transientDailyRate: "750",
       capacity: 1,
@@ -218,7 +218,7 @@ describe("rooms, beds, soft archival, and Owner isolation integration", () => {
     await expect(
       createRoom(state.ownerId, {
         building: "BOARDING",
-        number: "299",
+        title: "299",
         capacity: 1,
       }),
     ).rejects.toBeInstanceOf(ValidationError);
@@ -244,7 +244,7 @@ describe("rooms, beds, soft archival, and Owner isolation integration", () => {
     const db = state.db!;
 
     const room = await createRoom(state.ownerId, {
-      number: "201",
+      title: "201",
       floor: "2nd",
       baseMonthlyRate: "5000",
       capacity: 1,
@@ -253,7 +253,7 @@ describe("rooms, beds, soft archival, and Owner isolation integration", () => {
     // Duplicate active room number (case-insensitive) fails with ConflictError.
     await expect(
       createRoom(state.ownerId, {
-        number: "201",
+        title: "201",
         baseMonthlyRate: "5000",
         capacity: 1,
       }),
@@ -278,7 +278,7 @@ describe("rooms, beds, soft archival, and Owner isolation integration", () => {
     const bumped = await updateRoom(state.ownerId, {
       roomId: room.id,
       expectedVersion: room.version,
-      number: "201",
+      title: "201",
       floor: "2nd",
       capacity: 2,
       baseMonthlyRate: "5200",
@@ -290,7 +290,7 @@ describe("rooms, beds, soft archival, and Owner isolation integration", () => {
       updateRoom(state.ownerId, {
         roomId: room.id,
         expectedVersion: 1,
-        number: "201",
+        title: "201",
         capacity: 2,
         baseMonthlyRate: "5300",
       }),
@@ -372,7 +372,7 @@ describe("rooms, beds, soft archival, and Owner isolation integration", () => {
       updateRoom(`${prefix}-foreign`, {
         roomId: room.id,
         expectedVersion: restoredRoom.version,
-        number: "999",
+        title: "999",
         capacity: 1,
         baseMonthlyRate: "100",
       }),
@@ -473,7 +473,7 @@ describe("rooms, beds, soft archival, and Owner isolation integration", () => {
     // Boarding House rooms reject photo upload intents and photo manifest attachments.
     const boardingRoom = await createRoom(state.ownerId, {
       building: "BOARDING",
-      number: "B-101",
+      title: "B-101",
       baseMonthlyRate: "4500",
       capacity: 1,
     });
@@ -498,7 +498,7 @@ describe("rooms, beds, soft archival, and Owner isolation integration", () => {
       updateRoom(state.ownerId, {
         roomId: boardingRoom.id,
         expectedVersion: boardingRoom.version,
-        number: "B-101",
+        title: "B-101",
         baseMonthlyRate: "4500",
         capacity: 1,
         photos: {
@@ -521,7 +521,7 @@ describe("rooms, beds, soft archival, and Owner isolation integration", () => {
 
     const created = await createRoom(state.ownerId, {
       building: "TRANSIENT",
-      number: "301",
+      title: "301",
       floor: "3rd Floor",
       transientDailyRate: "550",
       capacity: 1,
@@ -600,7 +600,7 @@ describe("rooms, beds, soft archival, and Owner isolation integration", () => {
       roomId: created.id,
       expectedVersion: created.version,
       building: "TRANSIENT",
-      number: "301",
+      title: "301",
       floor: "3rd Floor",
       transientDailyRate: "900",
       capacity: 1,
@@ -687,11 +687,11 @@ describe("rooms, beds, soft archival, and Owner isolation integration", () => {
   it("loads owner-scoped room detail cleanly", async () => {
     const room = await createRoom(state.ownerId, {
       building: "BOARDING",
-      number: "209",
+      title: "209",
       floor: "2nd Floor",
       capacity: 1,
       baseMonthlyRate: "5000.00",
-      notes: null,
+      summary: null,
     });
 
     const detail = await getRoomDetail(state.ownerId, room.id);

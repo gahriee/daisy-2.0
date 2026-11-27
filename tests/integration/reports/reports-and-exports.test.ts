@@ -178,7 +178,7 @@ describe("reports overview & bounded CSV exports integration", () => {
     const boardingRoom = await db.room.create({
       data: {
         ownerUserId: ownerId,
-        number: "B-101",
+        title: "B-101",
         building: "BOARDING",
         floor: "1",
         capacity: 2,
@@ -212,13 +212,12 @@ describe("reports overview & bounded CSV exports integration", () => {
     const transientRoom = await db.room.create({
       data: {
         ownerUserId: ownerId,
-        number: "T-201",
+        title: "Suite 201",
         building: "TRANSIENT",
         floor: "2",
         capacity: 1,
         transientDailyRate: "1400.00",
         isTransientPublished: true,
-        transientTitle: "Suite 201",
       },
       select: { id: true },
     });
@@ -436,7 +435,7 @@ describe("reports overview & bounded CSV exports integration", () => {
     await db.room.create({
       data: {
         ownerUserId: otherOwnerId,
-        number: "X-999",
+        title: "X-999",
         building: "BOARDING",
         floor: "9",
         capacity: 4,

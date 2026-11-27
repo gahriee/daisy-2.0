@@ -161,7 +161,7 @@ describe("tenants CRUD/sync and online-only TenantAssignment integration", () =>
 
     const room = await createRoom(state.ownerId, {
       building: "BOARDING",
-      number: "301",
+      title: "301",
       baseMonthlyRate: "4800",
       capacity: 2,
     });
@@ -178,7 +178,7 @@ describe("tenants CRUD/sync and online-only TenantAssignment integration", () =>
 
     const transientRoom = await createRoom(state.ownerId, {
       building: "TRANSIENT",
-      number: "301",
+      title: "301",
       transientDailyRate: "750",
       capacity: 1,
     });

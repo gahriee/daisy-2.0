@@ -195,7 +195,7 @@ describe("/api/sync/* transport endpoints", () => {
     const room = await db.room.create({
       data: {
         ownerUserId: ownerId,
-        number: "101",
+        title: "101",
         building: "BOARDING",
         capacity: 1,
         baseMonthlyRate: "4500.00",

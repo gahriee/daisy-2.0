@@ -411,7 +411,7 @@ async function listBillingTenantOptionsInTx(
         take: 1,
         select: {
           monthlyRate: true,
-          room: { select: { number: true } },
+          room: { select: { title: true } },
           bed: { select: { number: true } },
         },
       },
@@ -423,7 +423,7 @@ async function listBillingTenantOptionsInTx(
     return {
       id: tenant.id,
       fullName: tenant.fullName,
-      roomNumber: active?.room.number ?? null,
+      roomNumber: active?.room.title ?? null,
       bedNumber: active?.bed.number ?? null,
       monthlyRate: active ? decimalToString(active.monthlyRate) : null,
     };
@@ -617,7 +617,7 @@ export async function generatePeriodInvoices(
               monthlyRate: true,
               securityDeposit: true,
               tenant: { select: { fullName: true } },
-              room: { select: { number: true } },
+              room: { select: { title: true } },
               bed: { select: { number: true } },
             },
           }),
@@ -745,7 +745,7 @@ export async function generatePeriodInvoices(
               totalAmount: draft.totalAmount,
               paidAmount: "0.00",
               snapshotTenantName: assignment.tenant.fullName,
-              snapshotRoomNumber: assignment.room.number,
+              snapshotRoomNumber: assignment.room.title,
               snapshotBedNumber: assignment.bed.number,
               snapshotMonthlyRate: decimalToString(assignment.monthlyRate),
               snapshotProrationPolicy: policies.prorationPolicy,
@@ -894,7 +894,7 @@ export async function createManualInvoice(
               select: {
                 id: true,
                 monthlyRate: true,
-                room: { select: { number: true } },
+                room: { select: { title: true } },
                 bed: { select: { number: true } },
               },
             },
@@ -969,7 +969,7 @@ export async function createManualInvoice(
             totalAmount: subtotalAmount,
             paidAmount: "0.00",
             snapshotTenantName: tenant.fullName,
-            snapshotRoomNumber: activeAssignment?.room.number ?? null,
+            snapshotRoomNumber: activeAssignment?.room.title ?? null,
             snapshotBedNumber: activeAssignment?.bed.number ?? null,
             snapshotMonthlyRate: activeAssignment
               ? decimalToString(activeAssignment.monthlyRate)
@@ -1088,14 +1088,14 @@ export async function issueDraftInvoice(
           assignment: {
             select: {
               monthlyRate: true,
-              room: { select: { number: true } },
+              room: { select: { title: true } },
               bed: { select: { number: true } },
             },
           },
           transientReservation: {
             select: {
               dailyRate: true,
-              room: { select: { number: true } },
+              room: { select: { title: true } },
               bed: { select: { number: true } },
             },
           },
@@ -1139,8 +1139,8 @@ export async function issueDraftInvoice(
             null,
           snapshotRoomNumber:
             existing.snapshotRoomNumber ??
-            existing.assignment?.room.number ??
-            existing.transientReservation?.room.number ??
+            existing.assignment?.room.title ??
+            existing.transientReservation?.room.title ??
             null,
           snapshotBedNumber:
             existing.snapshotBedNumber ??
@@ -1506,7 +1506,7 @@ export async function createTransientStayInvoiceInTx(
       dailyRate: true,
       totalAmount: true,
       guest: { select: { fullName: true } },
-      room: { select: { number: true } },
+      room: { select: { title: true } },
       bed: { select: { number: true } },
     },
   });
@@ -1554,8 +1554,8 @@ export async function createTransientStayInvoiceInTx(
   const quantityStr = `${reservation.nights}.00`;
   const scopeLabel =
     reservation.scope === "WHOLE_ROOM"
-      ? `Room ${reservation.room.number} (Whole room)`
-      : `Room ${reservation.room.number} (Bed ${reservation.bed?.number ?? "—"})`;
+      ? `Room ${reservation.room.title} (Whole room)`
+      : `Room ${reservation.room.title} (Bed ${reservation.bed?.number ?? "—"})`;
   const description = `Transient stay: ${scopeLabel}, ${reservation.nights} ${
     reservation.nights === 1 ? "night" : "nights"
   } (${reservation.checkInDateManila} to ${reservation.checkOutDateManila})`;
@@ -1583,7 +1583,7 @@ export async function createTransientStayInvoiceInTx(
         totalAmount: totalAmountStr,
         paidAmount: "0.00",
         snapshotTenantName: reservation.guest.fullName,
-        snapshotRoomNumber: reservation.room.number,
+        snapshotRoomNumber: reservation.room.title,
         snapshotBedNumber:
           reservation.scope === "WHOLE_ROOM"
             ? "Whole room"

@@ -64,7 +64,7 @@ export async function listOwnerNotifications(
         tenantId: true,
         endDate: true,
         updatedAt: true,
-        room: { select: { number: true } },
+        room: { select: { title: true } },
         bed: { select: { number: true } },
       },
     }),
@@ -96,7 +96,7 @@ export async function listOwnerNotifications(
         checkInDateManila: true,
         checkOutDateManila: true,
         createdAt: true,
-        room: { select: { number: true } },
+        room: { select: { title: true } },
       },
     }),
     db.maintenanceRequest.findMany({
@@ -112,7 +112,7 @@ export async function listOwnerNotifications(
         id: true,
         category: true,
         createdAt: true,
-        room: { select: { number: true } },
+        room: { select: { title: true } },
         bed: { select: { number: true } },
       },
     }),
@@ -145,7 +145,7 @@ export async function listOwnerNotifications(
       title: pastEnd
         ? "Assignment past scheduled end date"
         : "Tenant stay ending soon",
-      message: `Room ${assignment.room.number} (Bed ${assignment.bed.number})\nScheduled to end ${formatManilaDate(endManila)}.`,
+      message: `${assignment.room.title} (Bed ${assignment.bed.number})\nScheduled to end ${formatManilaDate(endManila)}.`,
       destination: `/tenants/${assignment.tenantId}`,
       tone: pastEnd ? "warning" : "info",
       createdAt: assignment.updatedAt.toISOString(),
@@ -180,7 +180,7 @@ export async function listOwnerNotifications(
     items.push({
       key,
       title: "New booking request",
-      message: `Room ${request.room.number} (${
+      message: `${request.room.title} (${
         request.scope === "WHOLE_ROOM" ? "Whole room" : "Per bed"
       })\n${formatManilaDate(request.checkInDateManila)} to ${formatManilaDate(
         request.checkOutDateManila,
@@ -200,8 +200,8 @@ export async function listOwnerNotifications(
       MAINTENANCE_CATEGORY_LABELS[item.category as MaintenanceCategoryValue] ??
       "Maintenance";
     const location = item.bed
-      ? `Room ${item.room.number} (Bed ${item.bed.number})`
-      : `Room ${item.room.number}`;
+      ? `${item.room.title} (Bed ${item.bed.number})`
+      : item.room.title;
     items.push({
       key,
       title: "Urgent maintenance",

@@ -220,13 +220,12 @@ export async function getPublicPublishedAvailability(
         archivedAt: null,
         isTransientPublished: true,
       },
-      orderBy: [{ number: "asc" }],
+      orderBy: [{ title: "asc" }],
       select: {
         id: true,
-        number: true,
+        title: true,
         capacity: true,
-        transientTitle: true,
-        transientDescription: true,
+        summary: true,
         transientScope: true,
         transientDailyRate: true,
         photos: {
@@ -319,8 +318,8 @@ export async function getPublicPublishedAvailability(
 
     rooms.push({
       roomId: room.id,
-      title: room.transientTitle?.trim() || `Room ${room.number}`,
-      description: room.transientDescription ?? null,
+      title: room.title,
+      description: room.summary ?? null,
       scope,
       capacity: scope === "WHOLE_ROOM" ? room.capacity : 1,
       availableUnitsForRange,
@@ -605,7 +604,7 @@ export async function submitPublicBookingRequestWithMeta(
           quotedDailyRate: true,
           quotedTotalAmount: true,
           createdAt: true,
-          room: { select: { number: true, transientTitle: true } },
+          room: { select: { title: true } },
         },
       });
       if (existing) {
@@ -621,9 +620,7 @@ export async function submitPublicBookingRequestWithMeta(
             id: existing.id,
             referenceCode: existing.referenceCode,
             status: existing.status,
-            roomTitle:
-              existing.room.transientTitle?.trim() ||
-              `Room ${existing.room.number}`,
+            roomTitle: existing.room.title,
             scope: existing.scope,
             checkInDateManila: existing.checkInDateManila,
             checkOutDateManila: existing.checkOutDateManila,
@@ -677,9 +674,8 @@ export async function submitPublicBookingRequestWithMeta(
         },
         select: {
           id: true,
-          number: true,
+          title: true,
           capacity: true,
-          transientTitle: true,
           transientScope: true,
           transientDailyRate: true,
           beds: {
@@ -868,7 +864,7 @@ export async function submitPublicBookingRequestWithMeta(
           id: dto.id,
           referenceCode: dto.referenceCode,
           status: dto.status,
-          roomTitle: room.transientTitle?.trim() || `Room ${room.number}`,
+          roomTitle: room.title,
           scope: dto.scope,
           checkInDateManila: dto.checkInDateManila,
           checkOutDateManila: dto.checkOutDateManila,
@@ -950,8 +946,7 @@ export async function lookupPublicBookingRequestStatus(
         approvedReservationId: true,
         room: {
           select: {
-            number: true,
-            transientTitle: true,
+            title: true,
           },
         },
       },
@@ -992,8 +987,7 @@ export async function lookupPublicBookingRequestStatus(
     referenceCode: request.referenceCode,
     status: request.status,
     reservationStatus,
-    roomTitle:
-      request.room.transientTitle?.trim() || `Room ${request.room.number}`,
+    roomTitle: request.room.title,
     scope: request.scope,
     checkInDateManila: request.checkInDateManila,
     checkOutDateManila: request.checkOutDateManila,

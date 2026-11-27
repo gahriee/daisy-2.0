@@ -105,9 +105,10 @@ export async function createRoomAction(
     const photos = readRoomPhotosSafe(formData);
     const hasBaseMonthly = formData.has("baseMonthlyRate");
     const hasDailyRate = formData.has("transientDailyRate");
+    const building = readStr(formData, "building") || "BOARDING";
     const parsed = CreateRoomSchema.safeParse({
-      building: readStr(formData, "building") || "BOARDING",
-      number: readStr(formData, "number"),
+      building,
+      title: readStr(formData, "title"),
       floor: readStr(formData, "floor"),
       capacity: readStr(formData, "capacity") || "1",
       ...(hasBaseMonthly
@@ -116,10 +117,8 @@ export async function createRoomAction(
       ...(hasDailyRate
         ? { transientDailyRate: readStr(formData, "transientDailyRate") }
         : {}),
-      notes: readStr(formData, "notes"),
+      summary: readStr(formData, "summary"),
       isTransientPublished: formData.get("isTransientPublished") === "on",
-      transientTitle: readStr(formData, "transientTitle"),
-      transientDescription: readStr(formData, "transientDescription"),
       ...(photos !== undefined ? { photos } : {}),
     });
     if (!parsed.success) {
@@ -154,7 +153,7 @@ export async function updateRoomAction(
       roomId: readStr(formData, "roomId"),
       expectedVersion: readStr(formData, "expectedVersion"),
       ...(hasBuilding ? { building: readStr(formData, "building") } : {}),
-      number: readStr(formData, "number"),
+      title: readStr(formData, "title"),
       floor: readStr(formData, "floor"),
       capacity: readStr(formData, "capacity") || "1",
       ...(hasBaseMonthly
@@ -163,17 +162,11 @@ export async function updateRoomAction(
       ...(hasDailyRate
         ? { transientDailyRate: readStr(formData, "transientDailyRate") }
         : {}),
-      notes: readStr(formData, "notes"),
+      summary: readStr(formData, "summary"),
       ...(hasPublicListingFields || formData.has("isTransientPublished")
         ? {
             isTransientPublished: formData.get("isTransientPublished") === "on",
           }
-        : {}),
-      ...(hasPublicListingFields || formData.has("transientTitle")
-        ? { transientTitle: readStr(formData, "transientTitle") }
-        : {}),
-      ...(hasPublicListingFields || formData.has("transientDescription")
-        ? { transientDescription: readStr(formData, "transientDescription") }
         : {}),
       ...(photos !== undefined ? { photos } : {}),
     });

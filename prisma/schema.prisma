@@ -390,16 +390,14 @@ model Room {
   owner                Owner                  @relation(fields: [ownerUserId], references: [id], onDelete: Restrict)
   version              Int                    @default(1)
   building             RoomBuilding           @default(BOARDING)
-  number               String
+  title                String
   floor                String?
   capacity             Int
   baseMonthlyRate      Decimal?               @db.Decimal(12, 2)
   transientDailyRate   Decimal?               @db.Decimal(12, 2)
   isTransientPublished Boolean                @default(false)
-  transientTitle       String?
-  transientDescription String?
   transientScope       AllocationScope        @default(WHOLE_ROOM)
-  notes                String?
+  summary              String?
   archivedAt           DateTime?              @db.Timestamptz(3)
   createdAt            DateTime               @default(now()) @db.Timestamptz(3)
   updatedAt            DateTime               @updatedAt @db.Timestamptz(3)

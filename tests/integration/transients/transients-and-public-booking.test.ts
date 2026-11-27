@@ -118,27 +118,27 @@ async function configureOwnerSettings(ownerId: string) {
 async function seedInventory(ownerId: string) {
   const publishedRoom = await createRoom(ownerId, {
     building: "TRANSIENT",
-    number: "T-201",
+    title: "T-201",
     floor: "2F",
     capacity: 2,
     transientDailyRate: "650.00",
-    notes: "PRIVATE OWNER NOTE DO NOT LEAK",
+    summary: "PRIVATE OWNER NOTE DO NOT LEAK",
   });
   const unpublishedRoom = await createRoom(ownerId, {
     building: "TRANSIENT",
-    number: "T-202",
+    title: "T-202",
     floor: "2F",
     capacity: 2,
     transientDailyRate: "550.00",
-    notes: "PRIVATE UNPUBLISHED TRANSIENT ROOM",
+    summary: "PRIVATE UNPUBLISHED TRANSIENT ROOM",
   });
   const boardingRoom = await createRoom(ownerId, {
     building: "BOARDING",
-    number: "B-101",
+    title: "B-101",
     floor: "1F",
     capacity: 2,
     baseMonthlyRate: "6000.00",
-    notes: "PRIVATE BOARDER ROOM",
+    summary: "PRIVATE BOARDER ROOM",
   });
   const bedA = await createBed(ownerId, {
     roomId: publishedRoom.id,
@@ -804,7 +804,7 @@ describe("transients, public booking, billing bridge & sync integration", () => 
 
     const familyRoom = await createRoom(state.ownerId, {
       building: "TRANSIENT",
-      number: "T-205",
+      title: "T-205",
       floor: "2F",
       capacity: 4,
       transientDailyRate: "1800.00",

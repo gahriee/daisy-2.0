@@ -56,7 +56,7 @@ const maintenanceRequestSelect = {
   id: true,
   version: true,
   roomId: true,
-  room: { select: { number: true } },
+  room: { select: { title: true } },
   bedId: true,
   bed: { select: { number: true } },
   title: true,
@@ -98,7 +98,7 @@ const maintenanceRequestSelect = {
     select: {
       id: true,
       roomId: true,
-      room: { select: { number: true } },
+      room: { select: { title: true } },
       bedId: true,
       bed: { select: { number: true } },
       allocationGroupId: true,
@@ -115,7 +115,7 @@ type MaintenanceRequestRow = {
   id: string;
   version: number;
   roomId: string;
-  room: { number: string };
+  room: { title: string };
   bedId: string | null;
   bed: { number: string } | null;
   title: string;
@@ -149,7 +149,7 @@ type MaintenanceRequestRow = {
   holdAllocations: Array<{
     id: string;
     roomId: string;
-    room: { number: string };
+    room: { title: string };
     bedId: string;
     bed: { number: string };
     allocationGroupId: string | null;
@@ -195,7 +195,7 @@ function toHoldDto(
   return {
     id: row.id,
     roomId: row.roomId,
-    roomNumber: row.room.number,
+    roomNumber: row.room.title,
     bedId: row.bedId,
     bedNumber: row.bed.number,
     allocationGroupId: row.allocationGroupId,
@@ -216,7 +216,7 @@ function toMaintenanceRequestDto(
     id: row.id,
     version: row.version,
     roomId: row.roomId,
-    roomNumber: row.room.number,
+    roomNumber: row.room.title,
     bedId: row.bedId,
     bedNumber: row.bed?.number ?? null,
     title: row.title,
@@ -384,13 +384,13 @@ async function listMaintenanceRoomOptionsInTx(
   tx: DatabaseExecutor,
   ownerUserId: string,
 ): Promise<MaintenanceRoomOptionDto[]> {
-  return tx.room.findMany({
+  const rows = await tx.room.findMany({
     where: { ownerUserId, archivedAt: null },
-    orderBy: [{ building: "asc" }, { number: "asc" }],
+    orderBy: [{ building: "asc" }, { title: "asc" }],
     select: {
       id: true,
       building: true,
-      number: true,
+      title: true,
       floor: true,
       beds: {
         where: { archivedAt: null },
@@ -399,6 +399,13 @@ async function listMaintenanceRoomOptionsInTx(
       },
     },
   });
+  return rows.map((row) => ({
+    id: row.id,
+    building: row.building,
+    number: row.title,
+    floor: row.floor,
+    beds: row.beds,
+  }));
 }
 
 /**

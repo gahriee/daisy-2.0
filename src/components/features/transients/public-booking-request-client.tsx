@@ -20,7 +20,6 @@ import {
   formatStayTime,
   getGuestSexLabel,
   getRoomAvailabilityStatus,
-  getScopeLabel,
 } from "@/features/transients/public-booking-view";
 import {
   GUEST_SEX_LABELS,
@@ -547,12 +546,6 @@ export function PublicBookingRequestClient({
                   <dt className="text-xs text-muted-foreground">Room</dt>
                   <dd className="mt-0.5 font-medium text-foreground">
                     {submittedAck.roomTitle}
-                  </dd>
-                </div>
-                <div>
-                  <dt className="text-xs text-muted-foreground">Room setup</dt>
-                  <dd className="mt-0.5 font-medium text-foreground">
-                    {getScopeLabel(submittedAck.scope)}
                   </dd>
                 </div>
                 <div>
@@ -1094,7 +1087,8 @@ export function PublicBookingRequestClient({
                     {room.title}
                   </h2>
                   <span className="text-xs text-muted-foreground">
-                    {getScopeLabel(room.scope)}
+                    Up to {room.capacity}{" "}
+                    {room.capacity === 1 ? "guest" : "guests"}
                   </span>
                 </div>
               </div>

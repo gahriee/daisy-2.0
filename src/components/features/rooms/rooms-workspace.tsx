@@ -116,8 +116,18 @@ function deriveRoomStaySummary(room: RoomWithBedsDto): string | null {
 type RoomSortKey =
   "room" | "monthlyRate" | "dailyRate" | "listing" | "status" | "stay";
 
+function getRoomDisplayTitle(room: RoomWithBedsDto): string {
+  return room.title;
+}
+
+function getRoomSummary(room: RoomWithBedsDto): string | null {
+  return room.summary?.trim() || null;
+}
+
 const ROOM_SORT_COLUMNS: Record<RoomSortKey, SortColumnDef<RoomWithBedsDto>> = {
-  room: { getValue: (room) => room.number },
+  room: {
+    getValue: (room) => room.title,
+  },
   monthlyRate: {
     getValue: (room) => room.baseMonthlyRate ?? "0",
     kind: "money",
@@ -272,11 +282,10 @@ export function RoomsWorkspace({
 
     const staySummary = deriveRoomStaySummary(room) ?? "";
     const haystack = [
-      room.number,
+      room.title,
       room.floor ?? "",
-      room.transientTitle ?? "",
       isTransient ? (room.isTransientPublished ? "published" : "hidden") : "",
-      room.notes ?? "",
+      room.summary ?? "",
       staySummary,
     ]
       .join(" ")
@@ -642,6 +651,9 @@ export function RoomsWorkspace({
               const roomStatus = deriveRoomStatus(room);
               const stayLines = splitStaySummary(deriveRoomStaySummary(room));
 
+              const roomTitle = getRoomDisplayTitle(room);
+              const roomSummary = getRoomSummary(room);
+
               return (
                 <div key={room.id} className="grid gap-3 p-4">
                   <div className="flex items-start justify-between gap-2">
@@ -650,17 +662,12 @@ export function RoomsWorkspace({
                         href={`${basePath}/${room.id}`}
                         className="text-sm font-semibold text-foreground hover:text-primary"
                       >
-                        Room {room.number}
+                        {roomTitle}
                       </Link>
                       {isTransient && (
                         <span className="text-xs text-muted-foreground tabular-nums">
                           Up to {room.capacity}{" "}
                           {room.capacity === 1 ? "guest" : "guests"}
-                        </span>
-                      )}
-                      {isTransient && room.transientTitle && (
-                        <span className="text-xs text-muted-foreground">
-                          {room.transientTitle}
                         </span>
                       )}
                       {room.floor && (
@@ -719,9 +726,9 @@ export function RoomsWorkspace({
                     </div>
                   </div>
 
-                  {room.notes && (
+                  {roomSummary && (
                     <p className="text-xs leading-5 text-muted-foreground">
-                      {room.notes}
+                      {roomSummary}
                     </p>
                   )}
 
@@ -730,7 +737,7 @@ export function RoomsWorkspace({
                       Actions
                     </span>
                     <RowActionMenu
-                      label={`Actions for Room ${room.number}`}
+                      label={`Actions for ${roomTitle}`}
                       items={getRoomRowActions(room, isRoomArchived, roomBusy)}
                     />
                   </div>
@@ -775,6 +782,9 @@ export function RoomsWorkspace({
                     deriveRoomStaySummary(room),
                   );
 
+                  const roomTitle = getRoomDisplayTitle(room);
+                  const roomSummary = getRoomSummary(room);
+
                   return (
                     <TableRow key={room.id}>
                       <TableCell>
@@ -783,7 +793,7 @@ export function RoomsWorkspace({
                             href={`${basePath}/${room.id}`}
                             className="font-semibold text-foreground hover:text-primary"
                           >
-                            Room {room.number}
+                            {roomTitle}
                           </Link>
                           {isTransient && (
                             <span className="text-xs text-muted-foreground tabular-nums">
@@ -796,9 +806,9 @@ export function RoomsWorkspace({
                               {room.floor}
                             </span>
                           )}
-                          {room.notes && (
+                          {roomSummary && (
                             <span className="text-xs text-muted-foreground">
-                              {room.notes}
+                              {roomSummary}
                             </span>
                           )}
                         </div>
@@ -812,26 +822,13 @@ export function RoomsWorkspace({
                       </TableCell>
                       {isTransient && (
                         <TableCell>
-                          <div className="grid gap-0.5">
-                            <div>
-                              <Badge
-                                tone={
-                                  room.isTransientPublished
-                                    ? "success"
-                                    : "neutral"
-                                }
-                              >
-                                {room.isTransientPublished
-                                  ? "Published"
-                                  : "Hidden"}
-                              </Badge>
-                            </div>
-                            {room.transientTitle && (
-                              <span className="text-xs text-muted-foreground">
-                                {room.transientTitle}
-                              </span>
-                            )}
-                          </div>
+                          <Badge
+                            tone={
+                              room.isTransientPublished ? "success" : "neutral"
+                            }
+                          >
+                            {room.isTransientPublished ? "Published" : "Hidden"}
+                          </Badge>
                         </TableCell>
                       )}
                       <TableCell>
@@ -853,7 +850,7 @@ export function RoomsWorkspace({
                       </TableCell>
                       <TableCell className="text-right">
                         <RowActionMenu
-                          label={`Actions for Room ${room.number}`}
+                          label={`Actions for ${roomTitle}`}
                           items={getRoomRowActions(
                             room,
                             isRoomArchived,
@@ -887,8 +884,8 @@ export function RoomsWorkspace({
         title={
           confirmingRoom
             ? confirmingRoom.archivedAt === null
-              ? `Archive Room ${confirmingRoom.number}?`
-              : `Restore Room ${confirmingRoom.number}?`
+              ? `Archive ${confirmingRoom.title}?`
+              : `Restore ${confirmingRoom.title}?`
             : "Update room?"
         }
         description={

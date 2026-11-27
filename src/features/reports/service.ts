@@ -181,18 +181,17 @@ async function computeReportsOverviewInTx(
         archivedAt: null,
         ...(buildingFilter ? { building: buildingFilter } : {}),
       },
-      orderBy: [{ building: "asc" }, { floor: "asc" }, { number: "asc" }],
+      orderBy: [{ building: "asc" }, { floor: "asc" }, { title: "asc" }],
       take: filters.limit,
       select: {
         id: true,
-        number: true,
+        title: true,
         building: true,
         floor: true,
         capacity: true,
         baseMonthlyRate: true,
         transientDailyRate: true,
         isTransientPublished: true,
-        transientTitle: true,
         beds: {
           where: { archivedAt: null },
           select: {
@@ -235,7 +234,7 @@ async function computeReportsOverviewInTx(
               { actualMoveOutDate: { gt: asOfStartUtc } },
             ],
           },
-          orderBy: [{ room: { number: "asc" } }, { bed: { number: "asc" } }],
+          orderBy: [{ room: { title: "asc" } }, { bed: { number: "asc" } }],
           take: filters.limit,
           select: {
             id: true,
@@ -253,8 +252,7 @@ async function computeReportsOverviewInTx(
             },
             room: {
               select: {
-                number: true,
-                transientTitle: true,
+                title: true,
               },
             },
             bed: {
@@ -383,8 +381,7 @@ async function computeReportsOverviewInTx(
             },
             room: {
               select: {
-                number: true,
-                transientTitle: true,
+                title: true,
               },
             },
             invoices: {
@@ -429,8 +426,7 @@ async function computeReportsOverviewInTx(
         resolvedAt: true,
         room: {
           select: {
-            number: true,
-            transientTitle: true,
+            title: true,
             building: true,
           },
         },
@@ -587,8 +583,8 @@ async function computeReportsOverviewInTx(
 
     return {
       roomId: room.id,
-      roomCode: room.number,
-      roomName: room.transientTitle ?? `Room ${room.number}`,
+      roomCode: room.title,
+      roomName: room.title,
       building: room.building,
       floor: room.floor ?? "—",
       isTransientPublished: room.isTransientPublished,
@@ -843,9 +839,8 @@ async function computeReportsOverviewInTx(
       tenantId: assignment.tenantId,
       tenantName: assignment.tenant.fullName,
       roomId: assignment.roomId,
-      roomCode: assignment.room.number,
-      roomName:
-        assignment.room.transientTitle ?? `Room ${assignment.room.number}`,
+      roomCode: assignment.room.title,
+      roomName: assignment.room.title,
       bedCode: assignment.bed.number,
       startDate: toManilaDate(assignment.startDate),
       endDate: endDateManila,
@@ -1081,8 +1076,8 @@ async function computeReportsOverviewInTx(
         reservationId: stay.id,
         guestId: stay.guestId,
         guestName: stay.guest.fullName,
-        roomCode: stay.room.number,
-        roomName: stay.room.transientTitle ?? `Room ${stay.room.number}`,
+        roomCode: stay.room.title,
+        roomName: stay.room.title,
         checkInDate: stay.checkInDateManila,
         checkOutDate: stay.checkOutDateManila,
         nights: stay.nights,
@@ -1215,8 +1210,8 @@ async function computeReportsOverviewInTx(
 
       return {
         requestId: req.id,
-        roomCode: req.room.number,
-        roomName: req.room.transientTitle ?? `Room ${req.room.number}`,
+        roomCode: req.room.title,
+        roomName: req.room.title,
         building: req.room.building,
         title: req.title,
         category: req.category,

@@ -105,6 +105,8 @@ export function RoomForm({
   }
 
   const isArchived = room ? room.archivedAt !== null : false;
+  const roomDisplayTitle = room?.title ?? "";
+  const roomSummaryDefault = room?.summary ?? "";
 
   const [state, submitAction, pending] = useActionState(
     async (
@@ -167,18 +169,18 @@ export function RoomForm({
           <div className="grid gap-1">
             <div className="flex flex-wrap items-center gap-2">
               <h1 className="text-xl font-semibold tracking-tight text-foreground sm:text-2xl">
-                {mode === "edit" && room ? `Room ${room.number}` : "Add room"}
+                {mode === "edit" && room ? roomDisplayTitle : "Add room"}
               </h1>
               {isArchived && <Badge tone="neutral">Archived</Badge>}
             </div>
             <p className="text-sm leading-6 text-muted-foreground">
               {isTransient
                 ? mode === "edit"
-                  ? "Update this room's details, daily rate, public /book listing, and photos."
-                  : "Enter the room number, daily rate, and optional public /book listing details."
+                  ? "Update this room's title, summary, daily rate, /book visibility, and photos."
+                  : "Enter the room title, summary, daily rate, and optional /book photos."
                 : mode === "edit"
-                  ? "Update this room's details, monthly rate, and capacity."
-                  : "Enter the room number, monthly rate, and how many boarders can stay."}
+                  ? "Update this room's title, summary, monthly rate, and capacity."
+                  : "Enter the room title, monthly rate, and how many boarders can stay."}
             </p>
           </div>
 
@@ -207,8 +209,8 @@ export function RoomForm({
                 onConfirm={handleArchiveRestore}
                 title={
                   isArchived
-                    ? `Restore Room ${room.number}?`
-                    : `Archive Room ${room.number}?`
+                    ? `Restore ${roomDisplayTitle}?`
+                    : `Archive ${roomDisplayTitle}?`
                 }
                 description={
                   isArchived
@@ -266,28 +268,38 @@ export function RoomForm({
                 </h2>
                 <p className="text-xs text-muted-foreground">
                   {isTransient
-                    ? "Set the room number, floor, daily rate, and maximum guests."
-                    : "Set the room number, floor, monthly rate, and maximum occupants."}
+                    ? "Set the room title, floor, daily rate, maximum guests, and summary shown in your list and on /book."
+                    : "Set the room title, floor, monthly rate, maximum occupants, and summary."}
                 </p>
               </div>
 
               <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
                 <Field
-                  id="room-number"
-                  label="Room number"
+                  id="room-title"
+                  label="Room title"
                   required
+                  description={
+                    isTransient
+                      ? "Shown in your room list and to guests on /book."
+                      : "Any room name or label (does not have to be a number)."
+                  }
                   error={
                     state.status === "error"
-                      ? state.fieldErrors.number
+                      ? state.fieldErrors.title
                       : undefined
                   }
                 >
                   {(fieldProps) => (
                     <Input
                       {...fieldProps}
-                      name="number"
-                      defaultValue={room?.number ?? ""}
-                      placeholder="e.g. 101"
+                      name="title"
+                      maxLength={120}
+                      defaultValue={roomDisplayTitle}
+                      placeholder={
+                        isTransient
+                          ? "e.g. Room 201 or Garden Suite"
+                          : "e.g. Room 101 or Garden View"
+                      }
                     />
                   )}
                 </Field>
@@ -376,18 +388,30 @@ export function RoomForm({
               </div>
 
               <Field
-                id="room-notes"
-                label="Notes"
+                id="room-summary"
+                label="Summary"
+                description={
+                  isTransient
+                    ? "Shown in your room list and to guests on /book (bed setup, inclusions, view)."
+                    : "Optional highlights for this room (bed setup, private CR, ventilation)."
+                }
                 error={
-                  state.status === "error" ? state.fieldErrors.notes : undefined
+                  state.status === "error"
+                    ? state.fieldErrors.summary
+                    : undefined
                 }
               >
                 {(fieldProps) => (
                   <Textarea
                     {...fieldProps}
-                    name="notes"
-                    defaultValue={room?.notes ?? ""}
-                    placeholder="Optional ventilation, private CR, or room inclusions"
+                    name="summary"
+                    maxLength={600}
+                    defaultValue={roomSummaryDefault}
+                    placeholder={
+                      isTransient
+                        ? "Optional room highlights (bed setup, aircon, private CR, inclusions)"
+                        : "Optional ventilation, private CR, or room inclusions"
+                    }
                   />
                 )}
               </Field>
@@ -409,8 +433,8 @@ export function RoomForm({
                     </h2>
                     <p className="text-xs text-muted-foreground">
                       Choose whether guests can view and request this room on
-                      the unauthenticated /book page. Internal notes stay
-                      private.
+                      /book using its room title, summary, daily rate, and
+                      photos.
                     </p>
                   </div>
                   <Badge tone={published ? "success" : "neutral"}>
@@ -431,52 +455,6 @@ export function RoomForm({
                       {state.fieldErrors.isTransientPublished}
                     </p>
                   )}
-
-                <Field
-                  id="room-transient-title"
-                  label="Public title"
-                  description={`Optional display name shown on /book. Defaults to Room ${room?.number ?? "number"} when left blank.`}
-                  error={
-                    state.status === "error"
-                      ? state.fieldErrors.transientTitle
-                      : undefined
-                  }
-                >
-                  {(fieldProps) => (
-                    <Input
-                      {...fieldProps}
-                      name="transientTitle"
-                      defaultValue={room?.transientTitle ?? ""}
-                      maxLength={120}
-                      disabled={isArchived || pending}
-                      placeholder={
-                        room ? `Room ${room.number}` : "e.g. Room 201"
-                      }
-                    />
-                  )}
-                </Field>
-
-                <Field
-                  id="room-transient-description"
-                  label="Public summary"
-                  description="Guest-facing highlights shown on /book (bed setup, inclusions, view)."
-                  error={
-                    state.status === "error"
-                      ? state.fieldErrors.transientDescription
-                      : undefined
-                  }
-                >
-                  {(fieldProps) => (
-                    <Textarea
-                      {...fieldProps}
-                      name="transientDescription"
-                      defaultValue={room?.transientDescription ?? ""}
-                      maxLength={600}
-                      disabled={isArchived || pending}
-                      placeholder="Optional guest-facing overview for /book"
-                    />
-                  )}
-                </Field>
               </Card>
             )}
 

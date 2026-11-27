@@ -47,7 +47,7 @@ const noticeSelect = {
   version: true,
   audience: true,
   roomId: true,
-  room: { select: { number: true } },
+  room: { select: { title: true } },
   tenantId: true,
   tenant: { select: { fullName: true } },
   title: true,
@@ -68,7 +68,7 @@ type NoticeRow = {
   version: number;
   audience: NoticeAudienceValue;
   roomId: string | null;
-  room: { number: string } | null;
+  room: { title: string } | null;
   tenantId: string | null;
   tenant: { fullName: string } | null;
   title: string;
@@ -100,7 +100,7 @@ function toNoticeDto(row: NoticeRow, todayManila: string): NoticeDto {
     version: row.version,
     audience: row.audience,
     roomId: row.roomId,
-    roomNumber: row.room?.number ?? null,
+    roomNumber: row.room?.title ?? null,
     tenantId: row.tenantId,
     tenantName: row.tenant?.fullName ?? null,
     title: row.title,
@@ -236,11 +236,20 @@ export async function getNoticesOverview(
             ],
             select: noticeSelect,
           }),
-          tx.room.findMany({
-            where: { ownerUserId, archivedAt: null },
-            orderBy: [{ building: "asc" }, { number: "asc" }],
-            select: { id: true, building: true, number: true, floor: true },
-          }),
+          tx.room
+            .findMany({
+              where: { ownerUserId, archivedAt: null },
+              orderBy: [{ building: "asc" }, { title: "asc" }],
+              select: { id: true, building: true, title: true, floor: true },
+            })
+            .then((rows) =>
+              rows.map((r) => ({
+                id: r.id,
+                building: r.building,
+                number: r.title,
+                floor: r.floor,
+              })),
+            ),
           tx.tenant.findMany({
             where: { ownerUserId, archivedAt: null },
             orderBy: [{ fullName: "asc" }],

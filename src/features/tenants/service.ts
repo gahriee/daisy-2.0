@@ -105,14 +105,14 @@ function toAssignmentDto(row: {
   notes: string | null;
   createdAt: Date;
   updatedAt: Date;
-  room: { number: string };
+  room: { title: string };
   bed: { number: string; label: string | null };
 }): TenantAssignmentDto {
   return {
     id: row.id,
     tenantId: row.tenantId,
     roomId: row.roomId,
-    roomNumber: row.room.number,
+    roomNumber: row.room.title,
     bedId: row.bedId,
     bedNumber: row.bed.number,
     bedLabel: row.bed.label,
@@ -191,7 +191,7 @@ const assignmentSelect = {
   notes: true,
   createdAt: true,
   updatedAt: true,
-  room: { select: { number: true } },
+  room: { select: { title: true } },
   bed: { select: { number: true, label: true } },
 } as const;
 
@@ -235,7 +235,7 @@ async function listAssignableBeds(
       room: { building: "BOARDING", archivedAt: null },
       status: { in: ["AVAILABLE", "OCCUPIED"] },
     },
-    orderBy: [{ room: { number: "asc" } }, { number: "asc" }],
+    orderBy: [{ room: { title: "asc" } }, { number: "asc" }],
     select: {
       id: true,
       roomId: true,
@@ -244,7 +244,7 @@ async function listAssignableBeds(
       monthlyRate: true,
       status: true,
       room: {
-        select: { number: true, floor: true, baseMonthlyRate: true },
+        select: { title: true, floor: true, baseMonthlyRate: true },
       },
     },
   });
@@ -252,7 +252,7 @@ async function listAssignableBeds(
   return beds.map((bed) => ({
     bedId: bed.id,
     roomId: bed.roomId,
-    roomNumber: bed.room.number,
+    roomNumber: bed.room.title,
     roomFloor: bed.room.floor,
     bedNumber: bed.number,
     bedLabel: bed.label,

@@ -231,7 +231,7 @@ export async function getDashboardSnapshot(
             partySize: true,
             quotedTotalAmount: true,
             createdAt: true,
-            room: { select: { number: true } },
+            room: { select: { title: true } },
           },
         }),
         tx.transientReservation.count({
@@ -258,7 +258,7 @@ export async function getDashboardSnapshot(
             partySize: true,
             totalAmount: true,
             guest: { select: { fullName: true } },
-            room: { select: { number: true } },
+            room: { select: { title: true } },
           },
         }),
         tx.transientReservation.count({
@@ -285,7 +285,7 @@ export async function getDashboardSnapshot(
             partySize: true,
             totalAmount: true,
             guest: { select: { fullName: true } },
-            room: { select: { number: true } },
+            room: { select: { title: true } },
           },
         }),
         tx.tenantAssignment.count({
@@ -309,7 +309,7 @@ export async function getDashboardSnapshot(
             startDate: true,
             endDate: true,
             tenant: { select: { fullName: true } },
-            room: { select: { number: true } },
+            room: { select: { title: true } },
           },
         }),
         tx.tenantAssignment.count({
@@ -332,7 +332,7 @@ export async function getDashboardSnapshot(
             tenantId: true,
             endDate: true,
             tenant: { select: { fullName: true } },
-            room: { select: { number: true } },
+            room: { select: { title: true } },
           },
         }),
         tx.maintenanceRequest.count({
@@ -373,7 +373,7 @@ export async function getDashboardSnapshot(
             priority: true,
             status: true,
             createdAt: true,
-            room: { select: { number: true, building: true } },
+            room: { select: { title: true, building: true } },
             holdAllocations: {
               where: {
                 status: "ACTIVE",
@@ -407,7 +407,7 @@ export async function getDashboardSnapshot(
             audience: true,
             startDateManila: true,
             endDateManila: true,
-            room: { select: { number: true } },
+            room: { select: { title: true } },
             tenant: { select: { fullName: true } },
           },
         }),
@@ -508,7 +508,7 @@ export async function getDashboardSnapshot(
       ): DashboardTransientTurnoverDto => ({
         id: row.id,
         guestName: row.guest.fullName,
-        roomNumber: row.room.number,
+        roomNumber: row.room.title,
         status: row.status,
         checkInDateManila: row.checkInDateManila,
         checkOutDateManila: row.checkOutDateManila,
@@ -555,7 +555,7 @@ export async function getDashboardSnapshot(
             id: row.id,
             referenceCode: row.referenceCode,
             guestName: row.guestName,
-            roomNumber: row.room.number,
+            roomNumber: row.room.title,
             checkInDateManila: row.checkInDateManila,
             checkOutDateManila: row.checkOutDateManila,
             nights: row.nights,
@@ -575,7 +575,7 @@ export async function getDashboardSnapshot(
             id: row.id,
             tenantId: row.tenantId,
             tenantName: row.tenant.fullName,
-            roomNumber: row.room.number,
+            roomNumber: row.room.title,
             startDateManila: toManilaDate(row.startDate),
             endDateManila: toManilaDate(row.endDate),
           })),
@@ -585,7 +585,7 @@ export async function getDashboardSnapshot(
               id: row.id,
               tenantId: row.tenantId,
               tenantName: row.tenant.fullName,
-              roomNumber: row.room.number,
+              roomNumber: row.room.title,
               endDateManila,
               daysRemaining: diffManilaDays(todayManila, endDateManila),
             };
@@ -598,7 +598,7 @@ export async function getDashboardSnapshot(
           openRequests: openMaintenanceRows.map((row) => ({
             id: row.id,
             title: row.title,
-            roomNumber: row.room.number,
+            roomNumber: row.room.title,
             building: row.room.building,
             category: row.category,
             priority: row.priority,
@@ -619,7 +619,7 @@ export async function getDashboardSnapshot(
             targetLabel:
               row.audience === "ROOM"
                 ? row.room
-                  ? `Room ${row.room.number}`
+                  ? `Room ${row.room.title}`
                   : "Room"
                 : row.audience === "TENANT"
                   ? (row.tenant?.fullName ?? "Tenant")

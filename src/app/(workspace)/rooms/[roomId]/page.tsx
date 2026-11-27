@@ -39,7 +39,7 @@ export default async function RoomDetailPage({
 
   return (
     <>
-      <WorkspacePageTitle title={`Room ${room.number}`} />
+      <WorkspacePageTitle title={room.title} />
       <RoomForm mode="edit" room={room} />
     </>
   );

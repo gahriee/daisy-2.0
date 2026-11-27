@@ -32,7 +32,6 @@ import {
   filterAndSortPublicRooms,
   formatGuestsSummary,
   getRoomAvailabilityStatus,
-  getScopeLabel,
 } from "@/features/transients/public-booking-view";
 import type {
   PublicAvailabilityDto,
@@ -61,8 +60,7 @@ type PublicBookingClientProps = {
   initialChildren: number;
 };
 
-type SearchPopoverPanel = "WHEN_IN" | "WHEN_OUT" | "WHO" | "FILTER" | null;
-type ScopeFilter = "ALL" | "WHOLE_ROOM" | "BED";
+type SearchPopoverPanel = "WHEN_IN" | "WHEN_OUT" | "WHO" | null;
 
 const MAX_PUBLIC_GUESTS = 20;
 
@@ -94,7 +92,6 @@ export function PublicBookingClient({
   );
   const [draftAdults, setDraftAdults] = useState(safeInitialAdults);
   const [draftChildren, setDraftChildren] = useState(safeInitialChildren);
-  const [scopeFilter, setScopeFilter] = useState<ScopeFilter>("ALL");
 
   const [openPopover, setOpenPopover] = useState<SearchPopoverPanel>(null);
   const [loadingAvailability, setLoadingAvailability] = useState(false);
@@ -200,10 +197,7 @@ export function PublicBookingClient({
     [sortedRooms],
   );
 
-  const visibleRooms = useMemo(() => {
-    if (scopeFilter === "ALL") return openRoomsForDates;
-    return openRoomsForDates.filter((room) => room.scope === scopeFilter);
-  }, [openRoomsForDates, scopeFilter]);
+  const visibleRooms = openRoomsForDates;
 
   const showcaseRooms =
     openRoomsForDates.length > 0 ? openRoomsForDates : sortedRooms;
@@ -240,7 +234,7 @@ export function PublicBookingClient({
         id: room.roomId,
         roomId: room.roomId as string | null,
         title: room.title,
-        subtitle: getScopeLabel(room.scope),
+        subtitle: `Up to ${room.capacity} ${room.capacity === 1 ? "guest" : "guests"}`,
         priceLabel: formatPhpCurrency(room.dailyRate),
         imageUrl: slides[0]?.url ?? "/images/hero/stay-hero-960.jpg",
         secondaryImageUrl:
@@ -382,13 +376,6 @@ export function PublicBookingClient({
     setOpenPopover("WHEN_IN");
   }
 
-  const filterLabel =
-    scopeFilter === "ALL"
-      ? "All rooms"
-      : scopeFilter === "WHOLE_ROOM"
-        ? "Private rooms"
-        : "Shared rooms";
-
   const activeStaySummary = `${formatManilaDate(availability.checkInDateManila)} to ${formatManilaDate(availability.checkOutDateManila)}, ${availability.nights} ${availability.nights === 1 ? "night" : "nights"}, ${formatGuestsSummary(activeSelection.adults, activeSelection.children)}`;
 
   return (
@@ -511,8 +498,8 @@ export function PublicBookingClient({
                     <path d="M10 2v16M2 10h16M4.3 4.3l11.4 11.4M15.7 4.3 4.3 15.7" />
                   </svg>
                   <p>
-                    Clean private and shared rooms with upfront nightly rates
-                    and direct confirmation from the host.
+                    Clean, comfortable rooms with upfront nightly rates and
+                    direct confirmation from the host.
                   </p>
                 </div>
               </div>
@@ -583,7 +570,7 @@ export function PublicBookingClient({
                       }
                       aria-expanded={openPopover === "WHO"}
                       className={cn(
-                        "flex min-h-12 cursor-pointer items-center justify-between gap-2 rounded-xl border border-border bg-background px-3.5 py-2 text-left transition-colors hover:border-control-border hover:bg-surface-muted/70",
+                        "flex min-h-12 cursor-pointer items-center justify-between gap-2 rounded-xl border border-border bg-background px-3.5 py-2 text-left transition-colors hover:border-control-border hover:bg-surface-muted/70 sm:col-span-2",
                         openPopover === "WHO" && "border-primary bg-accent/40",
                       )}
                     >
@@ -596,31 +583,6 @@ export function PublicBookingClient({
                         </span>
                       </span>
                       <GuestsIcon />
-                    </button>
-
-                    <button
-                      type="button"
-                      onClick={() =>
-                        setOpenPopover((prev) =>
-                          prev === "FILTER" ? null : "FILTER",
-                        )
-                      }
-                      aria-expanded={openPopover === "FILTER"}
-                      className={cn(
-                        "flex min-h-12 cursor-pointer items-center justify-between gap-2 rounded-xl border border-border bg-background px-3.5 py-2 text-left transition-colors hover:border-control-border hover:bg-surface-muted/70",
-                        openPopover === "FILTER" &&
-                          "border-primary bg-accent/40",
-                      )}
-                    >
-                      <span className="grid min-w-0">
-                        <span className="text-[11px] text-muted-foreground">
-                          Room type
-                        </span>
-                        <span className="truncate text-sm font-medium text-foreground">
-                          {filterLabel}
-                        </span>
-                      </span>
-                      <FilterIcon />
                     </button>
                   </div>
 
@@ -718,52 +680,6 @@ export function PublicBookingClient({
                           Apply
                         </Button>
                       </div>
-                    </div>
-                  </div>
-                )}
-
-                {openPopover === "FILTER" && (
-                  <div
-                    role="region"
-                    aria-label="Filter room type"
-                    className="absolute inset-x-0 top-full z-50 mt-2.5 w-full rounded-2xl border border-border bg-surface p-4 text-foreground shadow-xl sm:right-0 sm:left-auto sm:max-w-xs"
-                  >
-                    <div className="grid gap-1.5">
-                      {(
-                        [
-                          ["ALL", "All rooms", "Show private and shared rooms"],
-                          [
-                            "WHOLE_ROOM",
-                            "Private rooms",
-                            "Entire room reserved for your group",
-                          ],
-                          [
-                            "BED",
-                            "Shared rooms",
-                            "Individual bed spaces for solo travelers",
-                          ],
-                        ] as const
-                      ).map(([value, title, desc]) => (
-                        <button
-                          key={value}
-                          type="button"
-                          onClick={() => {
-                            setScopeFilter(value);
-                            setOpenPopover(null);
-                          }}
-                          className={cn(
-                            "flex min-h-11 cursor-pointer flex-col items-start rounded-xl px-3.5 py-2.5 text-left transition-colors",
-                            scopeFilter === value
-                              ? "bg-accent text-accent-foreground"
-                              : "hover:bg-surface-muted",
-                          )}
-                        >
-                          <span className="text-sm font-semibold">{title}</span>
-                          <span className="text-xs text-muted-foreground">
-                            {desc}
-                          </span>
-                        </button>
-                      ))}
                     </div>
                   </div>
                 )}
@@ -943,35 +859,6 @@ export function PublicBookingClient({
                     {activeStaySummary}
                   </p>
                 </div>
-
-                <div
-                  role="group"
-                  aria-label="Filter rooms by type"
-                  className="flex flex-wrap items-center gap-2"
-                >
-                  {(
-                    [
-                      ["ALL", "All rooms"],
-                      ["WHOLE_ROOM", "Private"],
-                      ["BED", "Shared"],
-                    ] as const
-                  ).map(([value, label]) => (
-                    <button
-                      key={value}
-                      type="button"
-                      aria-pressed={scopeFilter === value}
-                      onClick={() => setScopeFilter(value)}
-                      className={cn(
-                        "inline-flex min-h-11 cursor-pointer items-center justify-center rounded-full border px-4 text-xs font-medium transition-colors duration-(--duration-control) ease-(--ease-control)",
-                        scopeFilter === value
-                          ? "border-primary bg-primary text-primary-foreground"
-                          : "border-control-border bg-surface text-foreground hover:bg-surface-muted",
-                      )}
-                    >
-                      {label}
-                    </button>
-                  ))}
-                </div>
               </div>
             </ScrollReveal>
 
@@ -982,9 +869,7 @@ export function PublicBookingClient({
                 <EmptyStateTitle>
                   {sortedRooms.length === 0
                     ? "No rooms listed right now"
-                    : openRoomsForDates.length === 0
-                      ? "No rooms open for these dates"
-                      : "No rooms match this room type"}
+                    : "No rooms open for these dates"}
                 </EmptyStateTitle>
                 <EmptyStateDescription>
                   {sortedRooms.length === 0
@@ -993,20 +878,10 @@ export function PublicBookingClient({
                           ? ` You may call ${availability.contactPhone} to ask about open dates.`
                           : ""
                       }`
-                    : openRoomsForDates.length === 0
-                      ? "All rooms are booked for your chosen dates. Pick different check-in and check-out dates to see open stays."
-                      : "Switch back to All rooms to see every open stay option for these dates."}
+                    : "All rooms are booked for your chosen dates. Pick different check-in and check-out dates to see open stays."}
                 </EmptyStateDescription>
                 <EmptyStateActions>
-                  {openRoomsForDates.length > 0 ? (
-                    <Button
-                      type="button"
-                      variant="primary"
-                      onClick={() => setScopeFilter("ALL")}
-                    >
-                      Show all rooms
-                    </Button>
-                  ) : sortedRooms.length > 0 ? (
+                  {sortedRooms.length > 0 ? (
                     <Button
                       type="button"
                       variant="primary"
@@ -1120,12 +995,7 @@ function RoomStorefrontCard({
   const detailHref = `/book/${room.roomId}?${queryString}`;
   const requestHref = `/book/${room.roomId}/request?${queryString}`;
 
-  const capacityText =
-    room.scope === "BED"
-      ? status.available
-        ? `${room.availableUnitsForRange} ${room.availableUnitsForRange === 1 ? "bed" : "beds"} open`
-        : "Shared room (1 guest per bed)"
-      : `Up to ${room.capacity} ${room.capacity === 1 ? "guest" : "guests"}`;
+  const capacityText = `Up to ${room.capacity} ${room.capacity === 1 ? "guest" : "guests"}`;
 
   const photoCountText =
     slides.length > 0
@@ -1236,7 +1106,7 @@ function RoomStorefrontCard({
         </h3>
 
         <p className="text-xs text-muted-foreground">
-          {getScopeLabel(room.scope)}, {capacityText}, {photoCountText}
+          {capacityText}, {photoCountText}
         </p>
 
         {activeSlide?.caption && (
@@ -1336,23 +1206,6 @@ function GuestsIcon() {
     >
       <circle cx="9" cy="6" r="2.75" />
       <path d="M3.5 15.25a5.5 5.5 0 0 1 11 0" />
-    </svg>
-  );
-}
-
-function FilterIcon() {
-  return (
-    <svg
-      aria-hidden="true"
-      viewBox="0 0 18 18"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="1.5"
-      strokeLinecap="round"
-      strokeLinejoin="round"
-      className="size-4 shrink-0 text-muted-foreground"
-    >
-      <path d="M3 4.5h12M5.5 9h7M8 13.5h2" />
     </svg>
   );
 }

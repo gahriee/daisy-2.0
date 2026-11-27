@@ -138,7 +138,7 @@ describe("notices CRUD, audience targeting, ChangeFeed snapshots & constraints i
 
     state.authenticated = true;
     const room = await createRoom(state.ownerId, {
-      number: "305",
+      title: "305",
       baseMonthlyRate: "3500.00",
       capacity: 4,
     });

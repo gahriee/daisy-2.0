@@ -39,7 +39,7 @@ export default async function TransientRoomDetailPage({
 
   return (
     <>
-      <WorkspacePageTitle title={`Transient Room ${room.number}`} />
+      <WorkspacePageTitle title={room.title} />
       <RoomForm mode="edit" building="TRANSIENT" room={room} />
     </>
   );

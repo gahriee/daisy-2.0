@@ -22,7 +22,6 @@ import {
   buildRoomGallerySlides,
   formatGuestsSummary,
   formatStayTime,
-  getScopeLabel,
   hasValidMapCoordinates,
 } from "@/features/transients/public-booking-view";
 import {
@@ -204,8 +203,8 @@ export function HowItWorksScrollTrack({
                     Discover unique stays
                   </h3>
                   <p className="text-sm leading-6 text-muted-foreground">
-                    Compare private and shared rooms with real room photos,
-                    guest limits, and nightly rates before you request a stay.
+                    Compare available rooms with real room photos, guest limits,
+                    and nightly rates before you request a stay.
                   </p>
                   <a
                     href="#rooms"
@@ -275,7 +274,7 @@ export function HowItWorksScrollTrack({
                           {availability.propertyName}
                         </p>
                         <p className="mt-0.5 text-xs text-muted-foreground">
-                          Private and shared rooms for short stays
+                          Comfortable rooms for short stays
                         </p>
                       </div>
                     </div>
@@ -667,7 +666,7 @@ export function StayAnywhereShowcase({
                         </h3>
                         <p className="text-xs text-muted-foreground">
                           {featuredRoom
-                            ? `${getScopeLabel(featuredRoom.scope)}, up to ${featuredRoom.capacity} ${featuredRoom.capacity === 1 ? "guest" : "guests"}`
+                            ? `Up to ${featuredRoom.capacity} ${featuredRoom.capacity === 1 ? "guest" : "guests"}`
                             : "Short-stay guest accommodations"}
                         </p>
                       </div>

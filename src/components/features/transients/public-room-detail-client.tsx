@@ -22,7 +22,6 @@ import {
   formatGuestsSummary,
   formatStayTime,
   getRoomAvailabilityStatus,
-  getScopeLabel,
   hasValidMapCoordinates,
 } from "@/features/transients/public-booking-view";
 import type {
@@ -264,10 +263,7 @@ export function PublicRoomDetailClient({
   const browseHref = `/book?${syncedQuery}`;
   const requestHref = `/book/${room.roomId}/request?${syncedQuery}`;
 
-  const guestLimitCopy =
-    room.scope === "BED"
-      ? "Shared room (1 guest per bed)"
-      : `Up to ${room.capacity} ${room.capacity === 1 ? "guest" : "guests"}`;
+  const guestLimitCopy = `Up to ${room.capacity} ${room.capacity === 1 ? "guest" : "guests"}`;
 
   return (
     <div className="flex min-h-screen flex-col bg-background text-foreground">
@@ -303,7 +299,7 @@ export function PublicRoomDetailClient({
               {room.title}
             </h1>
             <p className="text-sm text-muted-foreground">
-              {getScopeLabel(room.scope)}, {guestLimitCopy}
+              {guestLimitCopy}
               {availability.propertyAddress
                 ? `, ${availability.propertyAddress}`
                 : ""}
@@ -438,42 +434,6 @@ export function PublicRoomDetailClient({
                   )}
                 </div>
               )}
-
-              {slides.length > 1 && (
-                <div
-                  aria-label="Select room photo"
-                  className="mt-3 flex gap-2 overflow-x-auto pb-1"
-                >
-                  {slides.map((slide, idx) => (
-                    <button
-                      key={slide.id}
-                      type="button"
-                      onClick={() => setSlideIndex(idx)}
-                      aria-pressed={idx === safeSlideIndex}
-                      aria-label={
-                        slide.caption
-                          ? `Show photo ${idx + 1}: ${slide.caption}`
-                          : `Show photo ${idx + 1}`
-                      }
-                      className={cn(
-                        "relative aspect-[4/3] w-24 shrink-0 cursor-pointer overflow-hidden rounded-xl border-2 bg-surface-muted transition-colors duration-(--duration-control) ease-(--ease-control)",
-                        idx === safeSlideIndex
-                          ? "border-primary"
-                          : "border-transparent opacity-75 hover:opacity-100",
-                      )}
-                    >
-                      <img
-                        src={slide.url}
-                        alt=""
-                        width={ROOM_PHOTO_OUTPUT_WIDTH}
-                        height={ROOM_PHOTO_OUTPUT_HEIGHT}
-                        className="h-full w-full object-cover"
-                        loading="lazy"
-                      />
-                    </button>
-                  ))}
-                </div>
-              )}
             </section>
 
             {slides.length > 0 && (
@@ -557,14 +517,6 @@ export function PublicRoomDetailClient({
                   PUBLIC_BOOKING_CARD_ELEVATED,
                 )}
               >
-                <div>
-                  <dt className="text-xs font-medium text-muted-foreground">
-                    Room setup
-                  </dt>
-                  <dd className="mt-1 text-sm font-medium text-foreground">
-                    {getScopeLabel(room.scope)}
-                  </dd>
-                </div>
                 <div>
                   <dt className="text-xs font-medium text-muted-foreground">
                     Capacity

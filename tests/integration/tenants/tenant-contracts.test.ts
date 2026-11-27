@@ -212,7 +212,7 @@ describe("signed tenant contract storage, scanner pages, and Owner isolation int
 
     const room = await createRoom(state.ownerId, {
       building: "BOARDING",
-      number: "105",
+      title: "105",
       baseMonthlyRate: "4500",
       capacity: 1,
     });

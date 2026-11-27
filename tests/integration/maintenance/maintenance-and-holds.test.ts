@@ -136,7 +136,7 @@ async function seedRoomWithBeds(
 ) {
   const room = await createRoom(ownerId, {
     building: "TRANSIENT",
-    number: roomNumber,
+    title: roomNumber,
     capacity: bedNumbers.length,
     transientDailyRate: "750.00",
   });
@@ -794,12 +794,12 @@ describe("maintenance requests, attachment relay, bed holds, urgent alerts & off
     await configureOwnerSettings(state.ownerId);
     const room = await createRoom(state.ownerId, {
       building: "BOARDING",
-      number: "M-99",
+      title: "M-99",
       floor: "1st Floor",
       capacity: 1,
       baseMonthlyRate: "5000.00",
       transientDailyRate: null,
-      notes: null,
+      summary: null,
     });
 
     const context = await getMaintenanceCreateContext(state.ownerId);

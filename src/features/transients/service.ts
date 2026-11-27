@@ -167,7 +167,7 @@ export const transientReservationSelect = {
   guest: { select: { fullName: true, phone: true, email: true } },
   room: {
     select: {
-      number: true,
+      title: true,
     },
   },
   bed: { select: { number: true } },
@@ -216,7 +216,7 @@ type SelectedReservationRow = {
   createdAt: Date;
   updatedAt: Date;
   guest: { fullName: string; phone: string | null; email: string | null };
-  room: { number: string };
+  room: { title: string };
   bed: { number: string } | null;
   invoices: Array<{
     id: string;
@@ -245,7 +245,7 @@ export function toTransientReservationDto(
     guestPhone: row.guest.phone,
     guestEmail: row.guest.email,
     roomId: row.roomId,
-    roomNumber: row.room.number,
+    roomNumber: row.room.title,
     bedId: row.bedId,
     bedNumber: row.bed?.number ?? null,
     scope: row.scope,
@@ -307,7 +307,7 @@ export const bookingRequestSelect = {
   updatedAt: true,
   room: {
     select: {
-      number: true,
+      title: true,
       transientDailyRate: true,
     },
   },
@@ -343,7 +343,7 @@ type SelectedBookingRequestRow = {
   createdAt: Date;
   updatedAt: Date;
   room: {
-    number: string;
+    title: string;
     transientDailyRate: { toString(): string } | null;
   };
 };
@@ -370,7 +370,7 @@ export function toBookingRequestDto(
     version: row.version,
     referenceCode: row.referenceCode,
     roomId: row.roomId,
-    roomNumber: row.room.number,
+    roomNumber: row.room.title,
     scope: row.scope,
     guestName: row.guestName,
     guestAge: row.guestAge,
@@ -475,13 +475,12 @@ async function requireConfiguredStayScheduleInTx(
 const transientRoomListingSelect = {
   id: true,
   version: true,
-  number: true,
+  title: true,
   floor: true,
   capacity: true,
   transientDailyRate: true,
   isTransientPublished: true,
-  transientTitle: true,
-  transientDescription: true,
+  summary: true,
   transientScope: true,
   photos: {
     orderBy: [
@@ -508,14 +507,14 @@ function toTransientRoomOptionDto(
   return {
     id: room.id,
     version: room.version,
-    number: room.number,
+    number: room.title,
     floor: room.floor,
     capacity: room.capacity,
     resolvedDailyRate:
       resolvedCentavos > ZERO ? formatMoneyDecimal(resolvedCentavos) : null,
     isTransientPublished: room.isTransientPublished,
-    transientTitle: room.transientTitle,
-    transientDescription: room.transientDescription,
+    transientTitle: room.title,
+    transientDescription: room.summary,
     transientScope: room.transientScope,
     transientDailyRate: room.transientDailyRate
       ? decimalToString(room.transientDailyRate)
@@ -582,7 +581,7 @@ export async function getTransientsOverview(
       }),
       db.room.findMany({
         where: { ownerUserId, building: "TRANSIENT", archivedAt: null },
-        orderBy: [{ number: "asc" }],
+        orderBy: [{ title: "asc" }],
         select: transientRoomListingSelect,
       }),
     ]);
@@ -637,13 +636,12 @@ export async function getBookingRequestDetail(
           select: {
             id: true,
             version: true,
-            number: true,
+            title: true,
             floor: true,
             capacity: true,
             transientDailyRate: true,
             isTransientPublished: true,
-            transientTitle: true,
-            transientDescription: true,
+            summary: true,
             transientScope: true,
             photos: {
               orderBy: [
@@ -739,14 +737,14 @@ export async function getBookingRequestDetail(
     room: {
       id: row.room.id,
       version: row.room.version,
-      number: row.room.number,
+      number: row.room.title,
       floor: row.room.floor,
       capacity: row.room.capacity,
       resolvedDailyRate:
         resolvedCentavos > ZERO ? formatMoneyDecimal(resolvedCentavos) : null,
       isTransientPublished: row.room.isTransientPublished,
-      transientTitle: row.room.transientTitle,
-      transientDescription: row.room.transientDescription,
+      transientTitle: row.room.title,
+      transientDescription: row.room.summary,
       transientScope: row.room.transientScope,
       transientDailyRate: row.room.transientDailyRate
         ? decimalToString(row.room.transientDailyRate)
@@ -886,8 +884,10 @@ export async function updateRoomTransientPublish(
         where: { id: room.id, ownerUserId, version: input.expectedVersion },
         data: {
           isTransientPublished: input.isTransientPublished,
-          transientTitle: input.transientTitle,
-          transientDescription: input.transientDescription,
+          ...(input.transientTitle ? { title: input.transientTitle } : {}),
+          ...(input.transientDescription !== undefined
+            ? { summary: input.transientDescription }
+            : {}),
           ...(input.transientScope
             ? { transientScope: input.transientScope }
             : {}),

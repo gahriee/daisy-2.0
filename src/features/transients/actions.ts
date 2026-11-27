@@ -339,8 +339,7 @@ export async function approveBookingRequestAction(
         db.room.findFirst({
           where: { id: result.reservation.roomId, ownerUserId },
           select: {
-            number: true,
-            transientTitle: true,
+            title: true,
             photos: {
               where: { role: "PREVIEW" },
               select: { id: true },
@@ -368,9 +367,7 @@ export async function approveBookingRequestAction(
           propertyLatitude: settings?.businessLatitude ?? null,
           propertyLongitude: settings?.businessLongitude ?? null,
           contactPhone: settings?.businessPhone ?? null,
-          roomTitle:
-            roomInfo?.transientTitle?.trim() ||
-            `Room ${result.reservation.roomNumber}`,
+          roomTitle: roomInfo?.title ?? result.reservation.roomNumber,
           scopeLabel: getScopeLabel(result.reservation.scope),
           roomPhotoUrl,
           checkInDateManila: result.reservation.checkInDateManila,

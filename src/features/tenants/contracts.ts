@@ -49,7 +49,7 @@ export const tenantContractSelect = {
   assignmentId: true,
   assignment: {
     select: {
-      room: { select: { number: true } },
+      room: { select: { title: true } },
     },
   },
   version: true,
@@ -79,7 +79,7 @@ export type TenantContractRow = {
   id: string;
   tenantId: string;
   assignmentId: string | null;
-  assignment: { room: { number: string } } | null;
+  assignment: { room: { title: string } } | null;
   version: number;
   title: string;
   signedDateManila: string | null;
@@ -118,7 +118,7 @@ export function toTenantContractDto(row: TenantContractRow): TenantContractDto {
     id: row.id,
     tenantId: row.tenantId,
     assignmentId: row.assignmentId,
-    assignmentRoomNumber: row.assignment?.room.number ?? null,
+    assignmentRoomNumber: row.assignment?.room.title ?? null,
     version: row.version,
     title: row.title,
     signedDateManila: row.signedDateManila,

@@ -50,15 +50,13 @@ export const roomSummarySelect = {
   id: true,
   version: true,
   building: true,
-  number: true,
+  title: true,
   floor: true,
   capacity: true,
   baseMonthlyRate: true,
   transientDailyRate: true,
   isTransientPublished: true,
-  transientTitle: true,
-  transientDescription: true,
-  notes: true,
+  summary: true,
   photos: {
     orderBy: [
       { role: "asc" },
@@ -80,15 +78,13 @@ export function toRoomDto(row: {
   id: string;
   version: number;
   building: RoomBuildingValue;
-  number: string;
+  title: string;
   floor: string | null;
   capacity: number;
   baseMonthlyRate: { toString(): string } | null;
   transientDailyRate: { toString(): string } | null;
   isTransientPublished: boolean;
-  transientTitle?: string | null;
-  transientDescription?: string | null;
-  notes: string | null;
+  summary: string | null;
   photos?: RoomPhotoRow[];
   archivedAt: Date | null;
   createdAt: Date;
@@ -99,7 +95,7 @@ export function toRoomDto(row: {
     id: row.id,
     version: row.version,
     building: row.building,
-    number: row.number,
+    title: row.title,
     floor: row.floor,
     capacity: row.capacity,
     baseMonthlyRate: row.baseMonthlyRate
@@ -109,9 +105,7 @@ export function toRoomDto(row: {
       ? decimalToString(row.transientDailyRate)
       : null,
     isTransientPublished: row.isTransientPublished,
-    transientTitle: row.transientTitle ?? null,
-    transientDescription: row.transientDescription ?? null,
-    notes: row.notes,
+    summary: row.summary,
     previewPhoto,
     galleryPhotos,
     archivedAt: row.archivedAt ? row.archivedAt.toISOString() : null,
@@ -204,7 +198,7 @@ export async function listInventoryOverview(
   const [rooms, activeAllocations] = await Promise.all([
     db.room.findMany({
       where: { ownerUserId, ...(building ? { building } : {}) },
-      orderBy: [{ archivedAt: "asc" }, { number: "asc" }],
+      orderBy: [{ archivedAt: "asc" }, { title: "asc" }],
       select: {
         ...roomSummarySelect,
         beds: {
@@ -403,17 +397,13 @@ export async function createRoom(
           ownerUserId,
           version: 1,
           building: input.building,
-          number: input.number,
+          title: input.title,
           floor: input.floor,
           capacity: input.capacity,
           baseMonthlyRate: resolvedMonthlyRate,
           transientDailyRate: resolvedDailyRate,
           isTransientPublished: publishToPublic,
-          transientTitle:
-            input.building === "TRANSIENT" ? input.transientTitle : null,
-          transientDescription:
-            input.building === "TRANSIENT" ? input.transientDescription : null,
-          notes: input.notes,
+          summary: input.summary,
         },
         select: roomSummarySelect,
       });
@@ -467,11 +457,11 @@ export async function createRoom(
       isPgConstraintError(
         error,
         "23505",
-        "Room_ownerUserId_building_number_active_key",
+        "Room_ownerUserId_building_title_active_key",
       )
     ) {
       throw new ConflictError(
-        "An active room with that number already exists in this building.",
+        "An active room with that title already exists in this building.",
       );
     }
     throw error;
@@ -508,8 +498,6 @@ export async function updateRoom(
           version: true,
           archivedAt: true,
           isTransientPublished: true,
-          transientTitle: true,
-          transientDescription: true,
         },
       });
       if (!existing) {
@@ -546,11 +534,7 @@ export async function updateRoom(
       }
       if (
         existing.building === "BOARDING" &&
-        (input.isTransientPublished === true ||
-          (input.transientTitle !== undefined &&
-            input.transientTitle !== null) ||
-          (input.transientDescription !== undefined &&
-            input.transientDescription !== null))
+        input.isTransientPublished === true
       ) {
         throw new ValidationError(
           "Boarding House rooms cannot be published on /book.",
@@ -594,18 +578,6 @@ export async function updateRoom(
         existing.building === "TRANSIENT"
           ? (input.isTransientPublished ?? existing.isTransientPublished)
           : false;
-      const nextTransientTitle =
-        existing.building === "TRANSIENT"
-          ? input.transientTitle === undefined
-            ? existing.transientTitle
-            : input.transientTitle
-          : null;
-      const nextTransientDescription =
-        existing.building === "TRANSIENT"
-          ? input.transientDescription === undefined
-            ? existing.transientDescription
-            : input.transientDescription
-          : null;
 
       if (
         nextIsTransientPublished &&
@@ -626,15 +598,13 @@ export async function updateRoom(
         },
         data: {
           version: { increment: 1 },
-          number: input.number,
+          title: input.title,
           floor: input.floor,
           capacity: input.capacity,
           baseMonthlyRate: resolvedMonthlyRate,
           transientDailyRate: resolvedDailyRate,
           isTransientPublished: nextIsTransientPublished,
-          transientTitle: nextTransientTitle,
-          transientDescription: nextTransientDescription,
-          notes: input.notes,
+          summary: input.summary,
         },
       });
       if (updated.count === 0) {
@@ -692,11 +662,11 @@ export async function updateRoom(
       isPgConstraintError(
         error,
         "23505",
-        "Room_ownerUserId_building_number_active_key",
+        "Room_ownerUserId_building_title_active_key",
       )
     ) {
       throw new ConflictError(
-        "An active room with that number already exists in this building.",
+        "An active room with that title already exists in this building.",
       );
     }
     throw error;
@@ -959,11 +929,11 @@ export async function restoreRoom(
       isPgConstraintError(
         error,
         "23505",
-        "Room_ownerUserId_building_number_active_key",
+        "Room_ownerUserId_building_title_active_key",
       )
     ) {
       throw new ConflictError(
-        "An active room with that number already exists in this building.",
+        "An active room with that title already exists in this building.",
       );
     }
     throw error;
@@ -1578,7 +1548,7 @@ export async function syncRoomUnitBed(
       select: {
         id: true,
         building: true,
-        number: true,
+        title: true,
         baseMonthlyRate: true,
         transientDailyRate: true,
         archivedAt: true,
@@ -1621,7 +1591,7 @@ export async function syncRoomUnitBed(
           data: {
             archivedAt: null,
             status: "AVAILABLE",
-            number: room.number,
+            number: room.title,
             label: null,
             monthlyRate,
             dailyRate,
@@ -1671,7 +1641,7 @@ export async function syncRoomUnitBed(
           ownerUserId,
           roomId: room.id,
           version: 1,
-          number: room.number,
+          number: room.title,
           label: null,
           monthlyRate,
           dailyRate,
@@ -1723,7 +1693,7 @@ export async function syncRoomUnitBed(
       const currentDaily = bed.dailyRate
         ? decimalToString(bed.dailyRate)
         : null;
-      const nextNumber = activeBeds.length === 1 ? room.number : bed.number;
+      const nextNumber = activeBeds.length === 1 ? room.title : bed.number;
 
       if (
         currentMonthly === monthlyRate &&
